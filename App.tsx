@@ -54,27 +54,42 @@ const App: React.FC = () => {
 
   // Load project library on mount
   useEffect(() => {
-    setSavedProjects(persistenceService.getAllProjects());
+    const fetchProjects = async () => {
+      try {
+        const projs = await persistenceService.getAllProjects();
+        setSavedProjects(projs);
+      } catch (e) {
+        console.error("Failed to load project library:", e);
+      }
+    };
+    fetchProjects();
   }, []);
 
   // Handle Save
   const handleSaveProject = async () => {
     setIsSaving(true);
-    const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
-    
-    const project: Project = {
-      id: projectId,
-      name: projectName,
-      lastModified: Date.now(),
-      settings,
-      pages,
-      thumbnail
-    };
-    
-    await persistenceService.saveProject(project);
-    setSavedProjects(persistenceService.getAllProjects());
-    setIsSaving(false);
-    setLastSaved(Date.now());
+    try {
+      const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
+      
+      const project: Project = {
+        id: projectId,
+        name: projectName,
+        lastModified: Date.now(),
+        settings,
+        pages,
+        thumbnail
+      };
+      
+      await persistenceService.saveProject(project);
+      const updatedList = await persistenceService.getAllProjects();
+      setSavedProjects(updatedList);
+      setLastSaved(Date.now());
+    } catch (e) {
+      console.error("Save failed:", e);
+      alert("Could not save project. Your browser might be out of storage space.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const loadProject = (project: Project) => {
@@ -93,11 +108,16 @@ const App: React.FC = () => {
     }
   };
 
-  const deleteProject = (id: string, e: React.MouseEvent) => {
+  const deleteProject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm("Delete this project forever?")) {
-      persistenceService.deleteProject(id);
-      setSavedProjects(persistenceService.getAllProjects());
+      try {
+        await persistenceService.deleteProject(id);
+        const updatedList = await persistenceService.getAllProjects();
+        setSavedProjects(updatedList);
+      } catch (e) {
+        console.error("Delete failed:", e);
+      }
     }
   };
 
@@ -321,7 +341,7 @@ const App: React.FC = () => {
           <div className="max-w-6xl mx-auto space-y-20 py-12 animate-in fade-in duration-700">
             <div className="text-center space-y-6">
               <h2 className="text-6xl font-black text-slate-900 tracking-tight">Industrial Story Production</h2>
-              <p className="text-slate-500 text-xl font-medium max-w-2xl mx-auto leading-relaxed">Create and manage your professional children's book library with persistent cloud architecture.</p>
+              <p className="text-slate-500 text-xl font-medium max-w-2xl mx-auto leading-relaxed">Create and manage your professional children's book library with persistent cloud-grade storage.</p>
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">

@@ -1,40 +1,77 @@
 import { Project } from "./types";
 
-const STORAGE_KEY = 'storyflow_projects_v1';
+const DB_NAME = 'StoryFlowDB';
+const STORE_NAME = 'projects';
+const DB_VERSION = 1;
+
+const getDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
 
 export const persistenceService = {
   saveProject: async (project: Project): Promise<void> => {
-    // In a real Google Cloud environment, this would call Firestore/Firebase
-    // We simulate the delay and the persistent storage
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const existing = persistenceService.getAllProjects();
-        const index = existing.findIndex(p => p.id === project.id);
-        
-        if (index > -1) {
-          existing[index] = { ...project, lastModified: Date.now() };
-        } else {
-          existing.push({ ...project, lastModified: Date.now() });
-        }
-        
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
-        resolve();
-      }, 600);
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      
+      const projectToSave = { 
+        ...project, 
+        lastModified: Date.now() 
+      };
+
+      const request = store.put(projectToSave);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
     });
   },
 
-  getAllProjects: (): Project[] => {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+  getAllProjects: async (): Promise<Project[]> => {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAll();
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
   },
 
-  getProjectById: (id: string): Project | undefined => {
-    return persistenceService.getAllProjects().find(p => p.id === id);
+  getProjectById: async (id: string): Promise<Project | undefined> => {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(id);
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
   },
 
-  deleteProject: (id: string): void => {
-    const existing = persistenceService.getAllProjects();
-    const filtered = existing.filter(p => p.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+  deleteProject: async (id: string): Promise<void> => {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.delete(id);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
   }
 };
