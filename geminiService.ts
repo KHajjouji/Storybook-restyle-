@@ -39,7 +39,7 @@ export const planStoryScenes = async (fullScript: string): Promise<{pages: {text
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Break this children's book script into distinct pages or panoramic spreads. 
-    A typical book is 24-32 pages. 
+    A typical book is 24-32 pages. Ensure a balanced flow.
     Output as JSON.
     Script: ${fullScript}`,
     config: {
@@ -72,13 +72,12 @@ export const planStoryScenes = async (fullScript: string): Promise<{pages: {text
   }
 };
 
-export const identifyAndDesignCharacters = async (fullScript: string): Promise<CharacterRef[]> => {
+export const identifyAndDesignCharacters = async (fullScript: string, stylePrompt: string, styleRef?: string): Promise<CharacterRef[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // First, identify characters
   const identification = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Identify the main recurring characters in this script. For each, provide a name and a detailed physical description suitable for consistent image generation. Focus on facial features, clothing, and unique identifiers.
+    contents: `Identify the main recurring characters in this script. For each, provide a name and a physical description.
     Script: ${fullScript}`,
     config: {
       responseMimeType: 'application/json',
@@ -105,10 +104,23 @@ export const identifyAndDesignCharacters = async (fullScript: string): Promise<C
   const results: CharacterRef[] = [];
 
   for (const char of charData) {
-    // Generate an image for each character
+    const parts: any[] = [
+      { text: `Create a character design sheet for: ${char.name}. Description: ${char.description}. Style requirement: ${stylePrompt}. White background, 3D model sheet style but adhering to the artistic rendering described. Ensure consistent facial features.` }
+    ];
+
+    if (styleRef) {
+      parts.push({
+        inlineData: {
+          data: styleRef.split(',')[1],
+          mimeType: 'image/png'
+        }
+      });
+      parts[0].text += " Adhere strictly to the art style shown in the reference image.";
+    }
+
     const imgResponse = await ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
-      contents: `Character design sheet for: ${char.name}. Description: ${char.description}. High-quality 3D character design, white background, multiple angles.`,
+      contents: { parts },
       config: {
         imageConfig: { aspectRatio: '1:1', imageSize: '1K' }
       }
@@ -160,26 +172,25 @@ export const restyleIllustration = async (
     });
   }
 
-  let instruction = `You are a master children's book illustrator. 
-  TASK: ${originalImageBase64 ? "Completely restyle the scene from the first image." : "Generate a new illustration based on the text below."}
-  ${isSpread ? "SCENE TYPE: This is a 2-page panorama spread. Ensure the composition works across a wide landscape format with the main focus not being cut by the center spine gutter." : "SCENE TYPE: Single page illustration."}
+  let instruction = `You are a master industrial children's book illustrator. 
+  TASK: ${originalImageBase64 ? "RESTYLE the existing scene image." : "GENERATE a new illustration based on the script text."}
+  FORMAT: ${isSpread ? "Wide 2-page panorama spread. Ensure important action is NOT in the middle where the book spine/gutter will be." : "Single page illustration."}
   
-  STYLE INSTRUCTION:
-  1. Base Style Prompt: ${stylePrompt}.
-  ${styleRefBase64 ? "2. Visual Reference: Analyze the attached Style Reference image for color palette, brushwork, lighting, and texture. Replicate this EXACT visual feel." : ""}
+  ARTISTIC STYLE (CRITICAL):
+  ${stylePrompt}
+  ${styleRefBase64 ? "EXACT AESTHETIC MATCH: Use the attached Style Reference image for lighting, color values, brushstrokes, and overall mood." : ""}
   
-  CHARACTER CONSISTENCY (CRITICAL):
-  Use the provided character reference images ONLY for facial features and identity. 
-  - DO NOT COPY the art style from character references; translate their features into the target style.
+  CHARACTERS:
+  Use the provided character sheets for IDENTITY ONLY (features, hair, clothes).
   ${assignments.map(a => {
     const ref = charRefs.find(r => r.id === a.refId);
-    return `- Character "${a.description}" in scene -> Use facial features of reference "${ref?.name}". Description: ${ref?.description || ''}`;
+    return `- Character "${a.description || 'Main Character'}" -> Use facial features of reference "${ref?.name}".`;
   }).join('\n')}
   
-  TEXT AND LAYOUT:
+  TEXT:
   ${cleanBackground ? 
-    "REMOVE/EXCLUDE all text. If there's a background element (like a scroll or bubble) behind where text might be, keep it as a clean empty area." : 
-    (targetText ? `DIGITALLY RENDER this text exactly in the image: "${targetText}". Use child-friendly, professional typography.` : "No text in image.")
+    "No text." : 
+    (targetText ? `Overlay this exact text: "${targetText}". Professional typesetting.` : "No text.")
   }`;
 
   if (styleRefBase64) {
@@ -221,7 +232,7 @@ export const restyleIllustration = async (
     }
   }
 
-  throw new Error("Generation failed.");
+  throw new Error("Industrial render failed.");
 };
 
 export const extractTextFromImage = async (imageBase64: string): Promise<string> => {
@@ -231,7 +242,7 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string>
     contents: {
       parts: [
         { inlineData: { data: imageBase64.split(',')[1], mimeType: 'image/png' } },
-        { text: "Extract story text from this page. Return ONLY the text." }
+        { text: "Return only the text found in this book page." }
       ]
     },
   });
