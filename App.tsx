@@ -1,9 +1,8 @@
-
 import React, { useState, useRef } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, 
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, SpreadExportMode } from './types';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage } from './geminiService';
@@ -27,6 +26,7 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
+  const [editingPageId, setEditingPageId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const charRefInputRef = useRef<HTMLInputElement>(null);
@@ -124,6 +124,47 @@ const App: React.FC = () => {
     }
   };
 
+  const processSinglePage = async (pageId: string) => {
+    const pageIndex = pages.findIndex(p => p.id === pageId);
+    if (pageIndex === -1) return;
+
+    if (settings.useProModel) {
+       const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+       if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+    }
+
+    const updatedPages = [...pages];
+    updatedPages[pageIndex].status = 'processing';
+    setPages([...updatedPages]);
+
+    try {
+      let translatedText = updatedPages[pageIndex].translatedText;
+      if (!translatedText && settings.targetLanguage !== 'NONE_CLEAN_BG') {
+        translatedText = await translateText(updatedPages[pageIndex].originalText, settings.targetLanguage);
+        updatedPages[pageIndex].translatedText = translatedText;
+      }
+
+      const activePrompt = updatedPages[pageIndex].overrideStylePrompt || settings.targetStyle;
+
+      updatedPages[pageIndex].processedImage = await restyleIllustration(
+        updatedPages[pageIndex].originalImage,
+        activePrompt,
+        settings.styleReference,
+        settings.embedTextInImage && settings.targetLanguage !== 'NONE_CLEAN_BG' ? translatedText : undefined,
+        settings.characterReferences,
+        updatedPages[pageIndex].assignments,
+        settings.useProModel,
+        settings.targetLanguage === 'NONE_CLEAN_BG',
+        updatedPages[pageIndex].isSpread
+      );
+      updatedPages[pageIndex].status = 'completed';
+    } catch (e: any) {
+      updatedPages[pageIndex].status = 'error';
+    }
+    setPages([...updatedPages]);
+    setEditingPageId(null);
+  };
+
   const processBulk = async () => {
     if (settings.useProModel) {
        const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
@@ -133,6 +174,8 @@ const App: React.FC = () => {
     setCurrentStep('generate');
     const updatedPages = [...pages];
     for (let i = 0; i < updatedPages.length; i++) {
+      if (updatedPages[i].status === 'completed') continue; 
+
       try {
         updatedPages[i].status = 'processing';
         setPages([...updatedPages]);
@@ -143,9 +186,11 @@ const App: React.FC = () => {
           updatedPages[i].translatedText = translatedText;
         }
 
+        const activePrompt = updatedPages[i].overrideStylePrompt || settings.targetStyle;
+
         updatedPages[i].processedImage = await restyleIllustration(
           updatedPages[i].originalImage,
-          settings.targetStyle,
+          activePrompt,
           settings.styleReference,
           settings.embedTextInImage && settings.targetLanguage !== 'NONE_CLEAN_BG' ? translatedText : undefined,
           settings.characterReferences,
@@ -180,7 +225,7 @@ const App: React.FC = () => {
               {isUploading ? (
                 <div className="flex flex-col items-center gap-4">
                   <Loader2 className="animate-spin text-indigo-600" size={64} />
-                  <p className="text-indigo-600 font-bold animate-pulse">Scanning Illustrations & OCR...</p>
+                  <p className="text-indigo-600 font-bold animate-pulse text-xl">Analyzing & OCR...</p>
                 </div>
               ) : (
                 <>
@@ -207,7 +252,7 @@ const App: React.FC = () => {
                     >
                       <Trash2 size={14} />
                     </button>
-                    <div className="absolute bottom-0 inset-x-0 bg-indigo-900/60 text-white text-[10px] font-bold py-1.5 text-center backdrop-blur-sm">Pg {i+1}</div>
+                    <div className="absolute bottom-0 inset-x-0 bg-indigo-900/60 text-white text-[10px] font-bold py-1.5 text-center backdrop-blur-sm font-display">Pg {i+1}</div>
                   </div>
                 ))}
               </div>
@@ -235,10 +280,10 @@ const App: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-8">
               <div 
                 onClick={() => charRefInputRef.current?.click()} 
-                className="aspect-square bg-white border-4 border-dashed border-slate-200 rounded-[3rem] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-all group"
+                className="aspect-square bg-white border-4 border-dashed border-slate-200 rounded-[3rem] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-all group shadow-sm"
               >
                 <Plus size={48} className="text-slate-200 group-hover:text-indigo-400 transition-colors" />
-                <span className="text-sm font-bold text-slate-400 mt-3 uppercase tracking-wider">New Design</span>
+                <span className="text-sm font-bold text-slate-400 mt-3 uppercase tracking-wider">New Identity</span>
                 <input type="file" multiple hidden ref={charRefInputRef} accept="image/*" onChange={handleCharRefUpload} />
               </div>
               {settings.characterReferences.map((ref, idx) => (
@@ -266,7 +311,7 @@ const App: React.FC = () => {
             </div>
             <div className="flex justify-between pt-16">
               <button onClick={() => setCurrentStep('upload')} className="px-10 py-5 rounded-[2rem] font-bold text-slate-500 hover:bg-slate-100 flex items-center gap-3 transition-all text-lg"><ChevronLeft size={24} /> Back</button>
-              <button onClick={() => setCurrentStep('settings')} className="bg-indigo-600 text-white px-12 py-5 rounded-[2rem] font-bold text-lg flex items-center gap-3 hover:bg-indigo-700 shadow-2xl">Global Style <ChevronRight size={24} /></button>
+              <button onClick={() => setCurrentStep('settings')} className="bg-indigo-600 text-white px-12 py-5 rounded-[2rem] font-bold text-lg flex items-center gap-3 hover:bg-indigo-700 shadow-2xl">Visual Policy <ChevronRight size={24} /></button>
             </div>
           </div>
         );
@@ -275,12 +320,12 @@ const App: React.FC = () => {
         return (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center mb-4">
-              <h2 className="text-4xl font-bold mb-2">3. Style & Format Logic</h2>
+              <h2 className="text-4xl font-bold mb-2 text-slate-900">3. Global Visual Policy</h2>
               <p className="text-slate-500 text-lg">Set the aesthetic target and industrial print requirements.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               <div className="space-y-6">
-                <label className="block text-sm font-bold text-slate-400 uppercase tracking-[0.2em]">Global Aesthetic Target</label>
+                <label className="block text-sm font-bold text-slate-400 uppercase tracking-[0.2em]">Master Style Reference</label>
                 <div 
                   className="aspect-video bg-white border-4 border-dashed border-slate-200 rounded-[3.5rem] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-500 overflow-hidden relative shadow-inner group transition-all"
                   onClick={() => styleRefInputRef.current?.click()}
@@ -290,7 +335,7 @@ const App: React.FC = () => {
                    ) : (
                      <div className="text-center">
                         <Palette size={56} className="text-slate-100 mx-auto mb-4" />
-                        <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Upload Master Style Reference</span>
+                        <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Upload Target Aesthetic</span>
                      </div>
                    )}
                    <input type="file" hidden ref={styleRefInputRef} accept="image/*" onChange={(e) => {
@@ -305,7 +350,7 @@ const App: React.FC = () => {
                 
                 <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm relative group">
                   <div className="flex justify-between items-center mb-3">
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">Style Instruction Prompt</label>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest">Global Artistic Prompt</label>
                     {settings.styleReference && (
                       <button 
                         onClick={handleAutoAnalyzeStyle}
@@ -321,21 +366,21 @@ const App: React.FC = () => {
                     className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500 h-[120px] resize-none" 
                     value={settings.targetStyle} 
                     onChange={(e) => setSettings({...settings, targetStyle: e.target.value})} 
-                    placeholder="Describe the rendering style, brushwork, and lighting..." 
+                    placeholder="Describe rendering, brushwork, lighting, textures..." 
                   />
-                  <p className="text-[10px] text-slate-400 mt-2 font-medium">Tip: Upload a style reference image above and click "Auto-Generate" to sync the prompt.</p>
+                  <p className="text-[10px] text-slate-400 mt-2 font-medium">Tip: Use the Wand tool to sync the prompt to your uploaded reference image.</p>
                 </div>
               </div>
               <div className="bg-white p-12 rounded-[4rem] border-2 border-slate-100 shadow-xl space-y-10">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-6 uppercase tracking-widest border-b border-slate-100 pb-2">Physical Spread Strategy</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-6 uppercase tracking-widest border-b border-slate-100 pb-2">Spread Configuration</label>
                   <div className="grid grid-cols-2 gap-4">
                     <button 
                       onClick={() => setSettings({...settings, spreadExportMode: 'WIDE_SPREAD'})}
                       className={`flex flex-col items-center p-6 rounded-[2rem] border-2 transition-all ${settings.spreadExportMode === 'WIDE_SPREAD' ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-lg' : 'border-slate-50 bg-slate-50/50 hover:bg-slate-100 text-slate-400'}`}
                     >
                       <Layers size={32} className="mb-3" />
-                      <span className="text-xs font-bold uppercase tracking-wider">17" Wide Sheet</span>
+                      <span className="text-xs font-bold uppercase tracking-wider">17" Panorama</span>
                     </button>
                     <button 
                       onClick={() => setSettings({...settings, spreadExportMode: 'SPLIT_PAGES'})}
@@ -347,9 +392,9 @@ const App: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-4 uppercase tracking-widest border-b border-slate-100 pb-2">Industrial Export Preset</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-4 uppercase tracking-widest border-b border-slate-100 pb-2">Print Ready Format</label>
                   <select 
-                    className="w-full bg-slate-50 border-none rounded-[1.5rem] p-5 font-bold text-slate-700 outline-none text-lg shadow-inner" 
+                    className="w-full bg-slate-50 border-none rounded-[1.5rem] p-5 font-bold text-slate-700 outline-none text-lg shadow-inner cursor-pointer" 
                     value={settings.exportFormat} 
                     onChange={(e) => setSettings({...settings, exportFormat: e.target.value as any})}
                   >
@@ -357,28 +402,27 @@ const App: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-4 uppercase tracking-widest border-b border-slate-100 pb-2">Book Depth (Gutter Calc)</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-4 uppercase tracking-widest border-b border-slate-100 pb-2">Page Count (Gutter Adjustment)</label>
                   <div className="flex items-center gap-6 bg-slate-50 p-6 rounded-[2rem] shadow-inner">
                     <input type="range" min="24" max="700" className="flex-1 h-3 bg-indigo-200 rounded-lg appearance-none cursor-pointer" value={settings.estimatedPageCount} onChange={(e) => setSettings({...settings, estimatedPageCount: parseInt(e.target.value)})} />
                     <span className="font-bold text-indigo-600 text-2xl w-16 text-center">{settings.estimatedPageCount}</span>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-3 font-bold uppercase tracking-wider">Auto-calculates binding curve compensation</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-4 uppercase tracking-widest border-b border-slate-100 pb-2">Translation & Text Action</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-4 uppercase tracking-widest border-b border-slate-100 pb-2">Story Text Processing</label>
                   <select 
-                    className="w-full bg-slate-50 border-none rounded-[1.5rem] p-5 font-bold text-slate-700 outline-none shadow-inner" 
+                    className="w-full bg-slate-50 border-none rounded-[1.5rem] p-5 font-bold text-slate-700 outline-none shadow-inner cursor-pointer" 
                     value={settings.targetLanguage} 
                     onChange={(e) => setSettings({...settings, targetLanguage: e.target.value})}
                   >
-                    <optgroup label="Translate Content">
+                    <optgroup label="Auto-Translate & Overlay">
                       <option value="English">English</option>
                       <option value="French">French</option>
                       <option value="Spanish">Spanish</option>
                       <option value="German">German</option>
                     </optgroup>
-                    <optgroup label="Layout Preparation">
-                      <option value="NONE_CLEAN_BG">Remove All Text (Clean Background)</option>
+                    <optgroup label="Clean Plate Mode">
+                      <option value="NONE_CLEAN_BG">Remove All Original Text</option>
                     </optgroup>
                   </select>
                 </div>
@@ -386,53 +430,53 @@ const App: React.FC = () => {
             </div>
             <div className="flex justify-between pt-10">
               <button onClick={() => setCurrentStep('characters')} className="px-10 py-5 rounded-[2rem] font-bold text-slate-500 hover:bg-slate-100 flex items-center gap-3 transition-all text-lg"><ChevronLeft size={24} /> Back</button>
-              <button onClick={() => setCurrentStep('mapping')} className="bg-indigo-600 text-white px-12 py-5 rounded-[2rem] font-bold text-lg flex items-center gap-3 hover:bg-indigo-700 shadow-2xl">Scene-by-Scene Mapping <ChevronRight size={24} /></button>
+              <button onClick={() => setCurrentStep('mapping')} className="bg-indigo-600 text-white px-12 py-5 rounded-[2rem] font-bold text-lg flex items-center gap-3 hover:bg-indigo-700 shadow-2xl">Final Mapping <ChevronRight size={24} /></button>
             </div>
           </div>
         );
 
       case 'mapping':
         return (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-36">
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-40">
             <div className="text-center mb-10">
-              <h2 className="text-4xl font-bold mb-2">4. Spread Logic & Identity Map</h2>
-              <p className="text-slate-500 text-lg">Define spreads and pin character designs to specific figures in each scene.</p>
+              <h2 className="text-4xl font-bold mb-2 text-slate-900">4. Per-Scene Identity Map</h2>
+              <p className="text-slate-500 text-lg">Pin your character designs to specific figures in the source art.</p>
             </div>
             <div className="space-y-12">
               {pages.map((page, idx) => (
                 <div key={page.id} className="bg-white rounded-[4rem] border-2 border-slate-100 overflow-hidden flex flex-col md:flex-row shadow-sm hover:shadow-2xl transition-all group">
                   <div className="md:w-1/3 aspect-square relative bg-slate-50">
-                    <img src={page.originalImage} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                    <img src={page.originalImage} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt={`Scene ${idx+1}`} />
                     <button 
                       onClick={() => setPages(pages.map(p => p.id === page.id ? {...p, isSpread: !p.isSpread} : p))} 
                       className={`absolute bottom-8 left-8 flex items-center gap-3 px-6 py-3 rounded-full text-xs font-bold transition-all shadow-2xl ${page.isSpread ? 'bg-indigo-600 text-white scale-110' : 'bg-white text-slate-600 hover:bg-indigo-50'}`}
                     >
-                      <Layers size={18} /> {page.isSpread ? 'Panoramic Spread Enabled' : 'Single Illustration'}
+                      <Layers size={18} /> {page.isSpread ? 'Panorama Spread Active' : 'Single Illustration'}
                     </button>
                   </div>
                   <div className="md:w-2/3 p-12 flex flex-col justify-between space-y-10">
                     <div className="space-y-6">
                       <div className="flex justify-between items-center border-b-2 border-slate-50 pb-4">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-[0.3em]">Identity Map (Pg {idx+1})</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-[0.3em] font-display">Identity Logic: Scene {idx+1}</span>
                         <button 
                           onClick={() => setPages(pages.map(p => p.id === page.id ? {...p, assignments: [...p.assignments, {refId: settings.characterReferences[0]?.id || '', description: ''}]} : p))} 
-                          className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors"
+                          className="bg-indigo-50 text-indigo-600 px-5 py-2.5 rounded-2xl text-xs font-bold hover:bg-indigo-100 transition-colors"
                         >
                           + Link Identity
                         </button>
                       </div>
                       <div className="space-y-4 max-h-[250px] overflow-y-auto pr-4 scrollbar-hide">
                         {page.assignments.map((a, ai) => (
-                          <div key={ai} className="flex gap-4 items-center bg-slate-50 p-5 rounded-[1.5rem] border border-slate-100 shadow-inner">
+                          <div key={ai} className="flex gap-4 items-center bg-slate-50 p-5 rounded-[2rem] border border-slate-100 shadow-inner">
                             <MapPin size={20} className="text-indigo-400 shrink-0" />
                             <input 
                               className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-medium" 
-                              placeholder="Describe character position (e.g. boy on left)..." 
+                              placeholder="Character location (e.g. main girl on left)..." 
                               value={a.description} 
                               onChange={(e) => { const n = [...pages]; n[idx].assignments[ai].description = e.target.value; setPages(n); }} 
                             />
                             <select 
-                              className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none" 
+                              className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none cursor-pointer" 
                               value={a.refId} 
                               onChange={(e) => { const n = [...pages]; n[idx].assignments[ai].refId = e.target.value; setPages(n); }}
                             >
@@ -447,16 +491,17 @@ const App: React.FC = () => {
                           </div>
                         ))}
                         {page.assignments.length === 0 && (
-                          <div className="text-center py-10">
-                            <p className="text-sm text-slate-300 font-bold uppercase tracking-widest italic">No Mappings - AI will predict identities</p>
+                          <div className="text-center py-12">
+                            <p className="text-xs text-slate-300 font-black uppercase tracking-[0.4em] italic">No identities pinned for this scene</p>
                           </div>
                         )}
                       </div>
                     </div>
-                    <div className="bg-slate-900 rounded-[2rem] p-8 shadow-2xl">
-                       <label className="block text-[10px] font-bold text-indigo-300 uppercase tracking-[0.4em] mb-4">Original Script Layer</label>
+                    <div className="bg-slate-900 rounded-[3rem] p-10 shadow-2xl relative overflow-hidden">
+                       <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-[60px] rounded-full" />
+                       <label className="block text-[10px] font-black text-indigo-300 uppercase tracking-[0.4em] mb-4">Original Script Text</label>
                        <textarea 
-                        className="w-full bg-white/5 border-none rounded-xl text-sm font-medium text-white/80 outline-none min-h-[80px] p-2 resize-none italic" 
+                        className="w-full bg-white/5 border-none rounded-xl text-sm font-medium text-white/70 outline-none min-h-[80px] p-2 resize-none italic" 
                         value={page.originalText} 
                         onChange={(e) => setPages(pages.map(p => p.id === page.id ? {...p, originalText: e.target.value} : p))} 
                        />
@@ -466,14 +511,14 @@ const App: React.FC = () => {
               ))}
             </div>
             
-            <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-2xl border-t-2 border-slate-100 p-10 z-50 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] rounded-t-[5rem]">
-               <div className="max-w-5xl mx-auto flex justify-between items-center">
-                  <button onClick={() => setCurrentStep('settings')} className="px-12 py-5 rounded-[2rem] font-bold text-slate-500 hover:bg-slate-100 flex items-center gap-3 transition-all text-xl"><ChevronLeft size={28} /> Back</button>
+            <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-3xl border-t-2 border-slate-100 p-10 z-50 shadow-[0_-30px_60px_rgba(0,0,0,0.08)] rounded-t-[5rem]">
+               <div className="max-w-6xl mx-auto flex justify-between items-center px-10">
+                  <button onClick={() => setCurrentStep('settings')} className="px-12 py-5 rounded-[2.5rem] font-bold text-slate-500 hover:bg-slate-100 flex items-center gap-3 transition-all text-xl"><ChevronLeft size={32} /> Back</button>
                   <button 
                     onClick={processBulk} 
-                    className="bg-indigo-600 text-white px-16 py-6 rounded-[2.5rem] font-extrabold text-2xl flex items-center gap-4 hover:bg-indigo-700 shadow-[0_20px_40px_rgba(79,70,229,0.4)] transition-all scale-110 active:scale-100"
+                    className="bg-indigo-600 text-white px-16 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-5 hover:bg-indigo-700 shadow-[0_25px_50px_rgba(79,70,229,0.35)] transition-all scale-110 active:scale-100"
                   >
-                    <Sparkles size={32} /> BULK GENERATE STORY
+                    <Sparkles size={36} /> RENDER STORYBOOK
                   </button>
                </div>
             </div>
@@ -482,74 +527,155 @@ const App: React.FC = () => {
 
       case 'generate':
         return (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-48">
+          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-56">
             <div className="text-center">
-              <h2 className="text-4xl font-bold mb-2 text-slate-900">5. Global Review & Export</h2>
-              <p className="text-slate-500 text-lg">Final quality check. Download high-res PDF when rendering completes.</p>
+              <h2 className="text-4xl font-bold mb-2 text-slate-900">5. Review & Perfection Suite</h2>
+              <p className="text-slate-500 text-lg">Modify specific page prompts or regenerate individual scenes.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               {pages.map((page, idx) => (
-                <div key={page.id} className="bg-white rounded-[4rem] border-4 border-slate-50 overflow-hidden shadow-sm hover:shadow-2xl transition-all group">
-                  <div className={`aspect-square relative bg-slate-50 overflow-hidden ${page.isSpread ? 'ring-8 ring-indigo-50' : ''}`}>
+                <div key={page.id} className={`bg-white rounded-[5rem] border-4 border-slate-50 overflow-hidden shadow-sm hover:shadow-2xl transition-all group flex flex-col ${editingPageId === page.id ? 'ring-4 ring-indigo-500 border-indigo-500' : ''}`}>
+                  <div className={`aspect-square relative bg-slate-50 overflow-hidden ${page.isSpread ? 'bg-indigo-50/10' : ''}`}>
                     <img 
                       src={page.processedImage || page.originalImage} 
-                      className={`w-full h-full object-cover transition-all duration-[2000ms] ${page.status === 'processing' ? 'blur-[100px] opacity-30 scale-150' : 'scale-100'}`} 
+                      className={`w-full h-full object-cover transition-all duration-[2000ms] ${page.status === 'processing' ? 'blur-[100px] opacity-20 scale-150' : 'scale-100'} ${page.processedImage ? '' : 'grayscale'}`} 
+                      alt={`Render Pg ${idx+1}`}
                     />
+                    
                     {page.status === 'processing' && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-6">
-                        <div className="w-20 h-20 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin shadow-2xl"></div>
-                        <span className="text-xs font-bold text-indigo-900 uppercase tracking-[0.4em] animate-pulse">Rendering Page {idx+1}...</span>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-8">
+                        <div className="w-24 h-24 border-[10px] border-indigo-600 border-t-transparent rounded-full animate-spin shadow-2xl"></div>
+                        <span className="text-sm font-black text-indigo-900 uppercase tracking-[0.5em] animate-pulse">Styling Masterpiece {idx+1}...</span>
                       </div>
                     )}
-                    <div className="absolute top-8 left-8 bg-black/60 text-white text-[12px] px-6 py-3 rounded-full font-bold backdrop-blur-xl shadow-2xl uppercase tracking-widest border border-white/20">
-                      PG {idx+1} {page.isSpread ? '— Panoramic' : ''}
+                    
+                    <div className="absolute top-10 left-10 flex gap-3">
+                      <div className="bg-black/70 text-white text-[10px] px-6 py-3 rounded-full font-black backdrop-blur-xl shadow-2xl uppercase tracking-[0.3em] border border-white/10">
+                        Pg {idx+1} {page.isSpread ? '— Spread' : ''}
+                      </div>
+                      {page.status === 'completed' && (
+                        <div className="bg-green-600/90 text-white text-[10px] px-6 py-3 rounded-full font-black backdrop-blur-xl shadow-2xl uppercase tracking-[0.3em]">
+                          Ready
+                        </div>
+                      )}
                     </div>
+
+                    {page.status !== 'processing' && (
+                      <div className="absolute bottom-10 inset-x-10 flex justify-center gap-4 translate-y-20 group-hover:translate-y-0 transition-transform duration-500">
+                        <button 
+                          onClick={() => setEditingPageId(editingPageId === page.id ? null : page.id)}
+                          className="flex items-center gap-3 bg-white text-slate-900 px-8 py-4 rounded-3xl font-bold shadow-2xl hover:bg-indigo-600 hover:text-white transition-all text-sm"
+                        >
+                          <Edit3 size={18} /> {editingPageId === page.id ? 'Close Editor' : 'Tweak Style'}
+                        </button>
+                        <button 
+                          onClick={() => processSinglePage(page.id)}
+                          className="flex items-center justify-center bg-indigo-600 text-white w-14 h-14 rounded-3xl shadow-2xl hover:bg-indigo-700 transition-all"
+                          title="Regenerate this page"
+                        >
+                          <RefreshCw size={24} />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <div className="p-8 flex items-center justify-between bg-slate-50/50">
+
+                  {editingPageId === page.id && (
+                    <div className="p-12 bg-indigo-50/50 border-t-4 border-indigo-100 space-y-6 animate-in slide-in-from-bottom-10 duration-500">
+                      <div className="flex justify-between items-center">
+                        <h4 className="text-xs font-black text-indigo-900 uppercase tracking-widest flex items-center gap-2">
+                          <Edit3 size={14} /> Page-Specific Style Override
+                        </h4>
+                        <button onClick={() => setEditingPageId(null)} className="text-indigo-400 hover:text-indigo-600">
+                          <X size={20} />
+                        </button>
+                      </div>
+                      <textarea 
+                        className="w-full bg-white border-2 border-indigo-100 rounded-[2rem] p-6 text-sm font-medium outline-none focus:ring-4 focus:ring-indigo-500/20 h-[150px] shadow-inner"
+                        value={page.overrideStylePrompt || settings.targetStyle}
+                        onChange={(e) => {
+                          const n = [...pages];
+                          n[idx].overrideStylePrompt = e.target.value;
+                          setPages(n);
+                        }}
+                        placeholder="Modify artistic style, lighting, or specific details for this scene..."
+                      />
+                      <div className="flex justify-end gap-4">
+                        <button 
+                          onClick={() => {
+                            const n = [...pages];
+                            n[idx].overrideStylePrompt = undefined;
+                            setPages(n);
+                          }}
+                          className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors"
+                        >
+                          Reset to Global
+                        </button>
+                        <button 
+                          onClick={() => processSinglePage(page.id)}
+                          className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-xl hover:bg-indigo-700 transition-all flex items-center gap-2"
+                        >
+                          <RefreshCw size={16} /> Apply & Re-render
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="p-10 flex items-center justify-between border-t border-slate-50 bg-white">
                      <div className="flex items-center gap-4">
                         {page.status === 'completed' ? (
-                          <div className="flex items-center gap-2 text-green-600">
-                            <CheckCircle2 size={24} />
-                            <span className="text-xs font-bold uppercase tracking-widest">Masterpiece Rendered</span>
+                          <div className="flex items-center gap-3 text-green-600">
+                            <div className="w-8 h-8 bg-green-50 rounded-full flex items-center justify-center"><CheckCircle2 size={20} /></div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] font-display">Industrial Master Rendered</span>
                           </div>
                         ) : page.status === 'error' ? (
-                          <div className="flex items-center gap-2 text-red-500">
-                            <AlertCircle size={24} />
-                            <span className="text-xs font-bold uppercase tracking-widest">Render Failure</span>
+                          <div className="flex items-center gap-3 text-red-500">
+                            <div className="w-8 h-8 bg-red-50 rounded-full flex items-center justify-center"><AlertCircle size={20} /></div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] font-display">Render Failure</span>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 text-indigo-400">
-                            <Loader2 className="animate-spin" size={24} />
-                            <span className="text-xs font-bold uppercase tracking-widest">Queue: Processing</span>
+                          <div className="flex items-center gap-3 text-slate-300">
+                            <div className="w-8 h-8 bg-slate-50 rounded-full flex items-center justify-center"><Loader2 className="animate-spin" size={20} /></div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] font-display">Idle: Pending Render</span>
                           </div>
                         )}
                      </div>
-                     {page.status === 'completed' && <div className="text-[10px] text-green-600 font-bold uppercase px-4 py-2 bg-green-100 rounded-full border border-green-200">Industrial Ready</div>}
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="fixed bottom-0 inset-x-0 bg-slate-900 text-white p-12 shadow-[0_-30px_60px_rgba(0,0,0,0.5)] z-50 rounded-t-[6rem]">
-               <div className="max-w-5xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-12">
-                  <div className="space-y-3 text-center lg:text-left">
-                     <div className="flex items-center justify-center lg:justify-start gap-6">
-                        <BookOpen className="text-indigo-400" size={48} />
-                        <span className="text-3xl font-extrabold uppercase tracking-tight">{PRINT_FORMATS[settings.exportFormat].name}</span>
-                     </div>
-                     <div className="flex flex-wrap justify-center lg:justify-start gap-6 pt-2">
-                        <span className="text-[11px] text-slate-400 uppercase font-black tracking-[0.3em] bg-white/5 px-4 py-1.5 rounded-full">{settings.spreadExportMode} Mode</span>
-                        <span className="text-[11px] text-indigo-400 uppercase font-black tracking-[0.3em] bg-indigo-500/10 px-4 py-1.5 rounded-full">Industrial Binding logic</span>
-                        <span className="text-[11px] text-slate-400 uppercase font-black tracking-[0.3em] bg-white/5 px-4 py-1.5 rounded-full">{settings.estimatedPageCount} Pages</span>
+            <div className="fixed bottom-0 inset-x-0 bg-slate-900 text-white p-14 shadow-[0_-40px_80px_rgba(0,0,0,0.6)] z-50 rounded-t-[7rem]">
+               <div className="max-w-6xl mx-auto flex flex-col xl:flex-row items-center justify-between gap-12 px-10">
+                  <div className="flex flex-col sm:flex-row items-center gap-12 text-center xl:text-left">
+                     <button onClick={() => setCurrentStep('mapping')} className="bg-white/10 hover:bg-white/20 p-5 rounded-full transition-all text-white mr-6">
+                        <ChevronLeft size={32} />
+                     </button>
+                     <div className="space-y-4">
+                        <div className="flex items-center justify-center xl:justify-start gap-8">
+                           <BookOpen className="text-indigo-400" size={56} />
+                           <span className="text-4xl font-black uppercase tracking-tight font-display">{PRINT_FORMATS[settings.exportFormat].name}</span>
+                        </div>
+                        <div className="flex flex-wrap justify-center xl:justify-start gap-6">
+                           <div className="flex items-center gap-2 bg-white/5 px-5 py-2 rounded-2xl border border-white/5">
+                              <Layers size={14} className="text-indigo-400" />
+                              <span className="text-[10px] font-black uppercase tracking-[0.3em]">{settings.spreadExportMode}</span>
+                           </div>
+                           <div className="flex items-center gap-2 bg-indigo-500/10 px-5 py-2 rounded-2xl border border-indigo-500/20">
+                              <CheckCircle2 size={14} className="text-indigo-400" />
+                              <span className="text-[10px] font-black uppercase tracking-[0.3em]">Binding Logic Active</span>
+                           </div>
+                        </div>
                      </div>
                   </div>
-                  <button 
-                    disabled={isProcessing || !pages.every(p => p.status === 'completed')} 
-                    onClick={() => generateBookPDF(pages, settings.exportFormat, "Production_Story_Export", !settings.embedTextInImage && settings.targetLanguage !== 'NONE_CLEAN_BG', settings.estimatedPageCount, settings.spreadExportMode)} 
-                    className="bg-indigo-600 text-white px-20 py-8 rounded-[3rem] font-black text-2xl flex items-center gap-6 hover:bg-indigo-500 shadow-[0_30px_60px_rgba(79,70,229,0.5)] transition-all scale-110 active:scale-100 disabled:opacity-50 disabled:scale-100 hover:scale-115"
-                  >
-                    <Download size={36} /> DOWNLOAD PRINT PDF
-                  </button>
+                  <div className="flex gap-6">
+                     <button 
+                        disabled={isProcessing || !pages.every(p => p.status === 'completed')} 
+                        onClick={() => generateBookPDF(pages, settings.exportFormat, "Production_Book_Export", !settings.embedTextInImage && settings.targetLanguage !== 'NONE_CLEAN_BG', settings.estimatedPageCount, settings.spreadExportMode)} 
+                        className="bg-indigo-600 text-white px-20 py-8 rounded-[3.5rem] font-black text-2xl flex items-center gap-8 hover:bg-indigo-500 shadow-[0_40px_80px_rgba(79,70,229,0.5)] transition-all scale-110 active:scale-100 disabled:opacity-50 disabled:scale-100 hover:scale-115"
+                     >
+                        <Download size={40} /> PRINT READY PDF
+                     </button>
+                  </div>
                </div>
             </div>
           </div>
@@ -559,38 +685,38 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC] selection:bg-indigo-100">
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-6xl mx-auto px-10 h-24 flex items-center justify-between">
-          <div className="flex items-center gap-5">
-            <div className="w-14 h-14 bg-indigo-600 rounded-[1.25rem] flex items-center justify-center text-white shadow-xl shadow-indigo-200"><Sparkles size={28} /></div>
+      <header className="bg-white/90 backdrop-blur-2xl border-b border-slate-200 sticky top-0 z-50 shadow-sm">
+        <div className="max-w-7xl mx-auto px-12 h-28 flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <div className="w-16 h-16 bg-indigo-600 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl shadow-indigo-100 rotate-3 hover:rotate-0 transition-transform"><Sparkles size={32} /></div>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900 leading-none">StoryFlow <span className="text-indigo-600">Pro</span></h1>
-              <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.4em] mt-1.5">Elite Book Production Suite</p>
+              <h1 className="text-3xl font-black tracking-tight text-slate-900 leading-none font-display">StoryFlow <span className="text-indigo-600">Pro</span></h1>
+              <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.5em] mt-2">Production Illustrator</p>
             </div>
           </div>
-          <div className="hidden lg:flex items-center gap-6">
+          <div className="hidden lg:flex items-center gap-8">
             {(['upload', 'characters', 'settings', 'mapping', 'generate'] as Step[]).map((s, i) => (
               <React.Fragment key={s}>
                 <div 
-                  onClick={() => !isProcessing && currentStep !== 'generate' && setCurrentStep(s)}
-                  className={`w-12 h-12 rounded-full flex items-center justify-center text-sm font-black transition-all cursor-pointer ${currentStep === s ? 'bg-indigo-600 text-white scale-115 shadow-2xl ring-4 ring-indigo-50' : 'bg-slate-50 text-slate-300 hover:bg-slate-100'}`}
+                  onClick={() => !isProcessing && setCurrentStep(s)}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center text-sm font-black transition-all cursor-pointer ${currentStep === s ? 'bg-indigo-600 text-white scale-125 shadow-2xl ring-8 ring-indigo-50' : (pages.length > 0 ? 'bg-white border-2 border-slate-100 text-slate-400 hover:border-indigo-200' : 'bg-slate-50 text-slate-200 cursor-not-allowed')}`}
                 >
                   {i + 1}
                 </div>
-                {i < 4 && <div className={`w-8 h-[4px] rounded-full transition-all duration-500 ${(['upload', 'characters', 'settings', 'mapping', 'generate'].indexOf(currentStep)) > i ? 'bg-indigo-600' : 'bg-slate-50'}`} />}
+                {i < 4 && <div className={`w-10 h-[4px] rounded-full transition-all duration-700 ${(['upload', 'characters', 'settings', 'mapping', 'generate'].indexOf(currentStep)) > i ? 'bg-indigo-600 shadow-[0_0_15px_rgba(79,70,229,0.4)]' : 'bg-slate-100'}`} />}
               </React.Fragment>
             ))}
           </div>
         </div>
       </header>
-      <main className="flex-1 max-w-6xl mx-auto w-full px-10 py-16">{renderStep()}</main>
+      <main className="flex-1 max-w-7xl mx-auto w-full px-12 py-20">{renderStep()}</main>
       <footer className="py-24 text-center">
-         <div className="flex flex-wrap items-center justify-center gap-16 mb-10 opacity-40 grayscale">
-            <span className="font-black text-xs uppercase tracking-[0.3em]">Amazon KDP Certified</span>
-            <span className="font-black text-xs uppercase tracking-[0.3em]">Lulu Certified</span>
-            <span className="font-black text-xs uppercase tracking-[0.3em]">IngramSpark Ready</span>
+         <div className="flex flex-wrap items-center justify-center gap-20 mb-12 opacity-30 grayscale hover:grayscale-0 transition-all duration-1000">
+            <span className="font-black text-xs uppercase tracking-[0.4em]">KDP Certified Interior</span>
+            <span className="font-black text-xs uppercase tracking-[0.4em]">Lulu Pro Grade</span>
+            <span className="font-black text-xs uppercase tracking-[0.4em]">IngramSpark Logic</span>
          </div>
-         <p className="text-[11px] font-black text-slate-300 uppercase tracking-[0.5em]">StoryFlow Industrial Suite © 2024</p>
+         <p className="text-[11px] font-black text-slate-300 uppercase tracking-[0.6em]">StoryFlow AI Industrial Book Engine © 2024</p>
       </footer>
     </div>
   );

@@ -1,4 +1,3 @@
-
 export interface CharacterRef {
   id: string;
   image: string; // base64
@@ -19,6 +18,7 @@ export interface BookPage {
   status: 'idle' | 'processing' | 'completed' | 'error';
   assignments: CharacterAssignment[];
   isSpread: boolean; 
+  overrideStylePrompt?: string; // For per-page prompt tweaking
 }
 
 export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'INGRAM_PREMIUM';
