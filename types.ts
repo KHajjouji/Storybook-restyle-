@@ -2,6 +2,7 @@ export interface CharacterRef {
   id: string;
   image: string; // base64
   name: string;
+  description?: string;
 }
 
 export interface CharacterAssignment {
@@ -11,7 +12,7 @@ export interface CharacterAssignment {
 
 export interface BookPage {
   id: string;
-  originalImage: string; 
+  originalImage?: string; // Optional in 'create' mode
   processedImage?: string; 
   originalText: string;
   translatedText?: string;
@@ -23,8 +24,11 @@ export interface BookPage {
 
 export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'INGRAM_PREMIUM';
 export type SpreadExportMode = 'SPLIT_PAGES' | 'WIDE_SPREAD';
+export type AppMode = 'restyle' | 'create';
 
 export interface AppSettings {
+  mode: AppMode;
+  fullScript?: string;
   targetStyle: string;
   styleReference?: string; 
   targetLanguage: string | 'NONE_CLEAN_BG';
