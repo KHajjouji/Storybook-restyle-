@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { CharacterRef, CharacterAssignment } from "./types";
 
@@ -34,12 +35,16 @@ export const analyzeStyleFromImage = async (imageBase64: string): Promise<string
   return response.text?.trim() || "";
 };
 
-export const planStoryScenes = async (fullScript: string): Promise<{pages: {text: string, isSpread: boolean}[]}> => {
+export const planStoryScenes = async (fullScript: string, characters: CharacterRef[]): Promise<{pages: {text: string, isSpread: boolean, mappedCharacterNames: string[]}[]}> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const charList = characters.map(c => c.name).join(", ");
+  
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Break this children's book script into distinct pages or panoramic spreads. 
-    A typical book is 24-32 pages. Ensure a balanced flow.
+    A typical book is 24-32 pages.
+    For each scene, analyze the text and determine which of the characters from this list are present: [${charList}].
+    If no characters are present (e.g., a wide forest view or generic background people), leave the mappedCharacterNames array empty.
     Output as JSON.
     Script: ${fullScript}`,
     config: {
@@ -53,9 +58,14 @@ export const planStoryScenes = async (fullScript: string): Promise<{pages: {text
               type: Type.OBJECT,
               properties: {
                 text: { type: Type.STRING },
-                isSpread: { type: Type.BOOLEAN, description: 'True if this scene should be a panoramic 2-page spread' }
+                isSpread: { type: Type.BOOLEAN },
+                mappedCharacterNames: { 
+                  type: Type.ARRAY, 
+                  items: { type: Type.STRING },
+                  description: "List of character names from the provided pool who are present in this specific scene."
+                }
               },
-              required: ['text', 'isSpread']
+              required: ['text', 'isSpread', 'mappedCharacterNames']
             }
           }
         },
@@ -105,7 +115,7 @@ export const identifyAndDesignCharacters = async (fullScript: string, stylePromp
 
   for (const char of charData) {
     const parts: any[] = [
-      { text: `Create a character design sheet for: ${char.name}. Description: ${char.description}. Style requirement: ${stylePrompt}. White background, 3D model sheet style but adhering to the artistic rendering described. Ensure consistent facial features.` }
+      { text: `Create a professional character design sheet for: ${char.name}. Description: ${char.description}. Style requirement: ${stylePrompt}. High-quality 3D/Digital/Watercolor (matching style) model sheet, white background, multiple angles. Ensure facial features are distinct and will be replicable.` }
     ];
 
     if (styleRef) {
@@ -115,7 +125,7 @@ export const identifyAndDesignCharacters = async (fullScript: string, stylePromp
           mimeType: 'image/png'
         }
       });
-      parts[0].text += " Adhere strictly to the art style shown in the reference image.";
+      parts[0].text += " Adhere strictly to the aesthetic, colors, and brushwork of the attached style reference image.";
     }
 
     const imgResponse = await ai.models.generateContent({
@@ -173,24 +183,27 @@ export const restyleIllustration = async (
   }
 
   let instruction = `You are a master industrial children's book illustrator. 
-  TASK: ${originalImageBase64 ? "RESTYLE the existing scene image." : "GENERATE a new illustration based on the script text."}
-  FORMAT: ${isSpread ? "Wide 2-page panorama spread. Ensure important action is NOT in the middle where the book spine/gutter will be." : "Single page illustration."}
+  TASK: ${originalImageBase64 ? "RESTYLE the existing scene image while keeping the composition similar but upgrading to the target aesthetic." : "GENERATE a brand new illustration based on the text script below."}
+  SCENE LAYOUT: ${isSpread ? "2-page panoramic spread. Ensure the focal points are on the left and right thirds, avoiding the exact center gutter." : "Single page illustration."}
   
   ARTISTIC STYLE (CRITICAL):
   ${stylePrompt}
-  ${styleRefBase64 ? "EXACT AESTHETIC MATCH: Use the attached Style Reference image for lighting, color values, brushstrokes, and overall mood." : ""}
+  ${styleRefBase64 ? "VISUAL ANCHOR: Use the attached Style Reference for lighting, brushwork, and palette. The output MUST look like it was created by the same artist." : ""}
   
-  CHARACTERS:
-  Use the provided character sheets for IDENTITY ONLY (features, hair, clothes).
-  ${assignments.map(a => {
-    const ref = charRefs.find(r => r.id === a.refId);
-    return `- Character "${a.description || 'Main Character'}" -> Use facial features of reference "${ref?.name}".`;
-  }).join('\n')}
+  CHARACTERS AND IDENTITY:
+  ${assignments.length > 0 ? 
+    `The following characters are present in this scene. Use the attached character sheets for their FACIAL FEATURES and COSTUMES only:
+    ${assignments.map(a => {
+      const ref = charRefs.find(r => r.id === a.refId);
+      return `- Character "${ref?.name}" playing the role of "${a.description}".`;
+    }).join('\n')}` : 
+    "This is a landscape-only scene or a scene with generic background people. DO NOT include the main character models unless they fit naturally."
+  }
   
-  TEXT:
+  TEXT RENDERING:
   ${cleanBackground ? 
-    "No text." : 
-    (targetText ? `Overlay this exact text: "${targetText}". Professional typesetting.` : "No text.")
+    "REMOVE all text. Keep backgrounds clean." : 
+    (targetText ? `Incorporate this exact text into the layout: "${targetText}". Use elegant, child-friendly typography.` : "No text.")
   }`;
 
   if (styleRefBase64) {
@@ -203,12 +216,15 @@ export const restyleIllustration = async (
   }
 
   charRefs.forEach((ref) => {
-    parts.push({
-      inlineData: {
-        data: ref.image.split(',')[1],
-        mimeType: 'image/png'
-      }
-    });
+    // Only include character refs that are actually assigned to this scene to save tokens and improve focus
+    if (assignments.some(a => a.refId === ref.id)) {
+      parts.push({
+        inlineData: {
+          data: ref.image.split(',')[1],
+          mimeType: 'image/png'
+        }
+      });
+    }
   });
 
   parts.push({ text: instruction });
@@ -242,7 +258,7 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string>
     contents: {
       parts: [
         { inlineData: { data: imageBase64.split(',')[1], mimeType: 'image/png' } },
-        { text: "Return only the text found in this book page." }
+        { text: "Extract the narrative text from this book page. Return only the text." }
       ]
     },
   });

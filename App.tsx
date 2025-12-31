@@ -1,3 +1,4 @@
+
 import React, { useState, useRef } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, 
@@ -128,23 +129,8 @@ const App: React.FC = () => {
 
   const startStoryCreation = async () => {
     if (!settings.fullScript) return;
-    setIsAnalyzingScript(true);
-    try {
-      const plan = await planStoryScenes(settings.fullScript);
-      const newPages: BookPage[] = plan.pages.map(p => ({
-        id: Math.random().toString(36).substring(7),
-        originalText: p.text,
-        status: 'idle',
-        assignments: [],
-        isSpread: p.isSpread
-      }));
-      setPages(newPages);
-      setCurrentStep('settings');
-    } catch (err) {
-      console.error("Script Analysis Error:", err);
-    } finally {
-      setIsAnalyzingScript(false);
-    }
+    // We go to Settings first to set the style for characters
+    setCurrentStep('settings');
   };
 
   const handleDesignCharacters = async () => {
@@ -156,6 +142,38 @@ const App: React.FC = () => {
       setCurrentStep('characters');
     } catch (err) {
       console.error("Character Design Error:", err);
+    } finally {
+      setIsAnalyzingScript(false);
+    }
+  };
+
+  const handlePlanAndMap = async () => {
+    if (!settings.fullScript) return;
+    setIsAnalyzingScript(true);
+    try {
+      const plan = await planStoryScenes(settings.fullScript, settings.characterReferences);
+      const newPages: BookPage[] = plan.pages.map(p => {
+        // AI suggests character names, we match them with our designed refs
+        const pageAssignments: CharacterAssignment[] = p.mappedCharacterNames.map(name => {
+          const match = settings.characterReferences.find(r => r.name.toLowerCase().includes(name.toLowerCase()));
+          return {
+            refId: match?.id || settings.characterReferences[0]?.id || '',
+            description: name
+          };
+        });
+
+        return {
+          id: Math.random().toString(36).substring(7),
+          originalText: p.text,
+          status: 'idle',
+          assignments: pageAssignments,
+          isSpread: p.isSpread
+        };
+      });
+      setPages(newPages);
+      setCurrentStep('mapping');
+    } catch (err) {
+      console.error("Scene Planning Error:", err);
     } finally {
       setIsAnalyzingScript(false);
     }
@@ -310,23 +328,6 @@ const App: React.FC = () => {
               <input type="file" multiple hidden ref={fileInputRef} accept="image/*" onChange={handleFileUpload} />
             </div>
 
-            {pages.length > 0 && (
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-6 pt-4">
-                {pages.map((p, i) => (
-                  <div key={p.id} className="aspect-square relative rounded-[1.5rem] overflow-hidden border-2 border-slate-200 shadow-sm group hover:shadow-lg transition-all">
-                    <img src={p.originalImage} className="w-full h-full object-cover" alt={`Pg ${i+1}`} />
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setPages(pages.filter(pg => pg.id !== p.id)); }} 
-                      className="absolute top-2 right-2 p-2 bg-white/90 rounded-full text-red-500 opacity-0 group-hover:opacity-100 transition-all shadow-md hover:bg-red-50"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                    <div className="absolute bottom-0 inset-x-0 bg-indigo-900/60 text-white text-[10px] font-bold py-1.5 text-center backdrop-blur-sm font-display">Pg {i+1}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
             <div className="flex justify-between pt-12">
               <button onClick={() => setCurrentStep('landing')} className="px-10 py-5 rounded-[2rem] font-bold text-slate-500 hover:bg-slate-100 flex items-center gap-3 transition-all text-lg">Back</button>
               <button 
@@ -344,25 +345,25 @@ const App: React.FC = () => {
         return (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center mb-8">
-              <h2 className="text-4xl font-bold mb-2 text-slate-900">1. Define Your Story Script</h2>
-              <p className="text-slate-500 text-lg">AI will plan scenes and layout based on your text.</p>
+              <h2 className="text-4xl font-bold mb-2 text-slate-900">1. Story Script Input</h2>
+              <p className="text-slate-500 text-lg">Paste your story text. AI will build the world around it.</p>
             </div>
             
             <div className="bg-white rounded-[4rem] border-2 border-slate-100 p-12 shadow-sm space-y-6 relative overflow-hidden">
               <textarea 
                 className="w-full bg-slate-50/50 border-none rounded-3xl p-8 text-lg font-medium outline-none focus:ring-4 focus:ring-indigo-500/10 min-h-[400px] resize-none italic"
-                placeholder="Paste full script here..."
+                placeholder="Once upon a time..."
                 value={settings.fullScript || ""}
                 onChange={(e) => setSettings({...settings, fullScript: e.target.value})}
               />
               <div className="flex justify-between items-center pt-8">
                 <button onClick={() => setCurrentStep('landing')} className="px-10 py-5 rounded-[2.5rem] font-bold text-slate-500 hover:bg-slate-100 flex items-center gap-3 transition-all text-lg">Back</button>
                 <button 
-                  disabled={!settings.fullScript || isAnalyzingScript}
+                  disabled={!settings.fullScript}
                   onClick={startStoryCreation}
-                  className="bg-indigo-600 text-white px-14 py-6 rounded-[3rem] font-black text-xl flex items-center gap-4 hover:bg-indigo-700 shadow-2xl transition-all disabled:opacity-50"
+                  className="bg-indigo-600 text-white px-14 py-6 rounded-[3rem] font-black text-xl flex items-center gap-4 hover:bg-indigo-700 shadow-2xl transition-all"
                 >
-                  {isAnalyzingScript ? <Loader2 className="animate-spin" size={24} /> : "Plan Story Scenes"}
+                  Define Style <ChevronRight size={24} />
                 </button>
               </div>
             </div>
@@ -373,12 +374,12 @@ const App: React.FC = () => {
         return (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center mb-4">
-              <h2 className="text-4xl font-bold mb-2 text-slate-900">2. Master Art Direction</h2>
-              <p className="text-slate-500 text-lg">Define the visual policy that will govern every page of the book.</p>
+              <h2 className="text-4xl font-bold mb-2 text-slate-900">Global Visual Direction</h2>
+              <p className="text-slate-500 text-lg">Characters and scenes will be generated following this aesthetic anchor.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               <div className="space-y-6">
-                <label className="block text-sm font-bold text-slate-400 uppercase tracking-[0.2em]">Visual Reference</label>
+                <label className="block text-sm font-bold text-slate-400 uppercase tracking-[0.2em]">Aesthetic Reference</label>
                 <div 
                   className="aspect-video bg-white border-4 border-dashed border-slate-200 rounded-[3.5rem] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-500 overflow-hidden relative shadow-inner group transition-all"
                   onClick={() => styleRefInputRef.current?.click()}
@@ -421,7 +422,7 @@ const App: React.FC = () => {
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-4 uppercase tracking-widest border-b border-slate-100 pb-2">Industrial Format</label>
                   <select 
-                    className="w-full bg-slate-50 border-none rounded-[1.5rem] p-5 font-bold text-slate-700 outline-none text-lg shadow-inner" 
+                    className="w-full bg-slate-50 border-none rounded-[1.5rem] p-5 font-bold text-slate-700 outline-none text-lg shadow-inner cursor-pointer" 
                     value={settings.exportFormat} 
                     onChange={(e) => setSettings({...settings, exportFormat: e.target.value as any})}
                   >
@@ -431,7 +432,7 @@ const App: React.FC = () => {
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-4 uppercase tracking-widest border-b border-slate-100 pb-2">Language Preset</label>
                   <select 
-                    className="w-full bg-slate-50 border-none rounded-[1.5rem] p-5 font-bold text-slate-700 outline-none shadow-inner" 
+                    className="w-full bg-slate-50 border-none rounded-[1.5rem] p-5 font-bold text-slate-700 outline-none shadow-inner cursor-pointer" 
                     value={settings.targetLanguage} 
                     onChange={(e) => setSettings({...settings, targetLanguage: e.target.value})}
                   >
@@ -461,8 +462,8 @@ const App: React.FC = () => {
         return (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center mb-8">
-              <h2 className="text-4xl font-bold mb-2">3. Character Identity Management</h2>
-              <p className="text-slate-500 text-lg">Lock in faces and clothing to ensure perfect consistency across the story.</p>
+              <h2 className="text-4xl font-bold mb-2">Character Identity Design</h2>
+              <p className="text-slate-500 text-lg">AI has generated character sheets in your target style. Verify consistency before building scenes.</p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-8">
               <div 
@@ -487,18 +488,18 @@ const App: React.FC = () => {
                       }} 
                     />
                   </div>
-                  <button 
-                    onClick={() => setSettings({...settings, characterReferences: settings.characterReferences.filter(r => r.id !== ref.id)})} 
-                    className="absolute top-4 right-4 p-2 bg-white/90 rounded-full text-red-500 opacity-0 group-hover:opacity-100 shadow-md"
-                  >
-                    <Trash2 size={16} />
-                  </button>
                 </div>
               ))}
             </div>
             <div className="flex justify-between pt-16">
               <button onClick={() => setCurrentStep('settings')} className="px-10 py-5 rounded-[2rem] font-bold text-slate-500 hover:bg-slate-100 flex items-center gap-3 text-lg">Back</button>
-              <button onClick={() => setCurrentStep('mapping')} className="bg-indigo-600 text-white px-12 py-5 rounded-[2rem] font-bold text-lg flex items-center gap-3 hover:bg-indigo-700 shadow-2xl">Final Mapping <ChevronRight size={24} /></button>
+              <button 
+                onClick={settings.mode === 'create' ? handlePlanAndMap : () => setCurrentStep('mapping')} 
+                disabled={isAnalyzingScript}
+                className="bg-indigo-600 text-white px-12 py-5 rounded-[2rem] font-bold text-lg flex items-center gap-3 hover:bg-indigo-700 shadow-2xl"
+              >
+                {isAnalyzingScript ? <Loader2 className="animate-spin" size={24} /> : "Auto-Map to Scenes"} <ChevronRight size={24} />
+              </button>
             </div>
           </div>
         );
@@ -507,8 +508,8 @@ const App: React.FC = () => {
         return (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-40">
             <div className="text-center mb-10">
-              <h2 className="text-4xl font-bold mb-2 text-slate-900">4. Per-Scene Character Logic</h2>
-              <p className="text-slate-500 text-lg">Assign specific character designs to appearances in each planned scene.</p>
+              <h2 className="text-4xl font-bold mb-2 text-slate-900">Scene Logic & Mapping</h2>
+              <p className="text-slate-500 text-lg">AI has mapped characters to scenes. Review and adjust placements below.</p>
             </div>
             <div className="space-y-12">
               {pages.map((page, idx) => (
@@ -518,7 +519,7 @@ const App: React.FC = () => {
                       <img src={page.originalImage} className="w-full h-full object-cover" alt={`Scene ${idx+1}`} />
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-slate-100 text-slate-400">
-                        <Palette size={48} className="opacity-20" />
+                        <Sparkles size={48} className="opacity-20 animate-pulse" />
                         <span className="text-[10px] font-black uppercase tracking-widest">Planned Scene {idx+1}</span>
                       </div>
                     )}
@@ -537,7 +538,7 @@ const App: React.FC = () => {
                           onClick={() => setPages(pages.map(p => p.id === page.id ? {...p, assignments: [...p.assignments, {refId: settings.characterReferences[0]?.id || '', description: ''}]} : p))} 
                           className="bg-indigo-50 text-indigo-600 px-5 py-2.5 rounded-2xl text-xs font-bold hover:bg-indigo-100"
                         >
-                          + Add Participant
+                          + Add Character
                         </button>
                       </div>
                       <div className="space-y-4 max-h-[250px] overflow-y-auto pr-4 scrollbar-hide">
@@ -546,12 +547,12 @@ const App: React.FC = () => {
                             <MapPin size={20} className="text-indigo-400 shrink-0" />
                             <input 
                               className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 font-medium" 
-                              placeholder="Role/Position (e.g. main girl)..." 
+                              placeholder="Role/Action (e.g. main girl)..." 
                               value={a.description} 
                               onChange={(e) => { const n = [...pages]; n[idx].assignments[ai].description = e.target.value; setPages(n); }} 
                             />
                             <select 
-                              className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none" 
+                              className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none cursor-pointer" 
                               value={a.refId} 
                               onChange={(e) => { const n = [...pages]; n[idx].assignments[ai].refId = e.target.value; setPages(n); }}
                             >
@@ -565,10 +566,13 @@ const App: React.FC = () => {
                             </button>
                           </div>
                         ))}
+                        {page.assignments.length === 0 && (
+                          <div className="py-10 text-center text-slate-300 italic text-sm">No main characters assigned to this scene.</div>
+                        )}
                       </div>
                     </div>
                     <div className="bg-slate-900 rounded-[3rem] p-10 shadow-2xl">
-                       <label className="block text-[10px] font-black text-indigo-300 uppercase tracking-[0.4em] mb-4">Script Fragment</label>
+                       <label className="block text-[10px] font-black text-indigo-300 uppercase tracking-[0.4em] mb-4">Industrial Script Fragment</label>
                        <textarea 
                         className="w-full bg-white/5 border-none rounded-xl text-sm font-medium text-white/70 outline-none min-h-[80px] p-2 resize-none italic" 
                         value={page.originalText} 
@@ -587,7 +591,7 @@ const App: React.FC = () => {
                     onClick={processBulk} 
                     className="bg-indigo-600 text-white px-16 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-5 hover:bg-indigo-700 shadow-[0_25px_50px_rgba(79,70,229,0.35)] transition-all scale-110 active:scale-100"
                   >
-                    <Sparkles size={36} /> RENDER STORYBOOK
+                    <Sparkles size={36} /> RENDER FULL STORY
                   </button>
                </div>
             </div>
@@ -598,8 +602,8 @@ const App: React.FC = () => {
         return (
           <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-56">
             <div className="text-center">
-              <h2 className="text-4xl font-bold mb-2 text-slate-900">5. Industrial Proofing Suite</h2>
-              <p className="text-slate-500 text-lg">Verify character consistency and visual style before industrial export.</p>
+              <h2 className="text-4xl font-bold mb-2 text-slate-900">Industrial Proofing</h2>
+              <p className="text-slate-500 text-lg">Verify your rendered story. Download the high-res industrial PDF once complete.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               {pages.map((page, idx) => (
@@ -614,7 +618,7 @@ const App: React.FC = () => {
                     {page.status === 'processing' && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-8">
                         <div className="w-24 h-24 border-[10px] border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                        <span className="text-sm font-black text-indigo-900 uppercase tracking-[0.5em] animate-pulse">Industrial Rendering {idx+1}...</span>
+                        <span className="text-sm font-black text-indigo-900 uppercase tracking-[0.5em] animate-pulse">Rendering {idx+1}...</span>
                       </div>
                     )}
                     
@@ -624,7 +628,7 @@ const App: React.FC = () => {
                       </div>
                       {page.status === 'completed' && (
                         <div className="bg-green-600/90 text-white text-[10px] px-6 py-3 rounded-full font-black backdrop-blur-xl shadow-2xl uppercase tracking-[0.3em]">
-                          Ready
+                          Industrial Ready
                         </div>
                       )}
                     </div>
@@ -719,7 +723,7 @@ const App: React.FC = () => {
                 >
                   {i + 1}
                 </div>
-                {i < 4 && <div className="w-10 h-[4px] bg-slate-100 rounded-full" />}
+                {i < (settings.mode === 'restyle' ? 4 : 4) && <div className="w-10 h-[4px] bg-slate-100 rounded-full" />}
               </React.Fragment>
             ))}
           </div>
