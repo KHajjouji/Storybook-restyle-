@@ -14,6 +14,27 @@ export const translateText = async (text: string, targetLanguage: string): Promi
   return response.text?.trim() || text;
 };
 
+export const analyzeStyleFromImage = async (imageBase64: string): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: {
+      parts: [
+        {
+          inlineData: {
+            data: imageBase64.split(',')[1],
+            mimeType: 'image/png'
+          }
+        },
+        {
+          text: "Analyze the art style of this image. Provide a concise, high-quality description suitable for an image generation prompt. Focus on: 1. Artistic technique (e.g., watercolor, 3D render, digital oil), 2. Color palette and lighting, 3. Texture and brushwork. Output ONLY the descriptive prompt text."
+        }
+      ]
+    }
+  });
+  return response.text?.trim() || "";
+};
+
 export const restyleIllustration = async (
   originalImageBase64: string,
   stylePrompt: string,
