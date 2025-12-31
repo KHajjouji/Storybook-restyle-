@@ -1,18 +1,20 @@
-
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
-  Upload, Sparkles, BookOpen, Download, Trash2, 
+  Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical
 } from 'lucide-react';
-import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode } from './types';
+import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project } from './types';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
+import { persistenceService } from './persistenceService';
 
 type Step = 'landing' | 'upload' | 'script' | 'settings' | 'characters' | 'mapping' | 'generate';
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<Step>('landing');
+  const [projectId, setProjectId] = useState<string>(Math.random().toString(36).substring(7));
+  const [projectName, setProjectName] = useState<string>("Untitled Masterpiece");
   const [pages, setPages] = useState<BookPage[]>([]);
   const [settings, setSettings] = useState<AppSettings>({
     mode: 'restyle',
@@ -25,6 +27,11 @@ const App: React.FC = () => {
     characterReferences: [],
     estimatedPageCount: 32
   });
+  
+  const [savedProjects, setSavedProjects] = useState<Project[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<number | null>(null);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
@@ -34,6 +41,65 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const charRefInputRef = useRef<HTMLInputElement>(null);
   const styleRefInputRef = useRef<HTMLInputElement>(null);
+
+  // Stats calculation
+  const stats = useMemo(() => {
+    const total = pages.length;
+    const completed = pages.filter(p => p.status === 'completed').length;
+    const processing = pages.filter(p => p.status === 'processing').length;
+    const errors = pages.filter(p => p.status === 'error').length;
+    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { total, completed, processing, errors, progress };
+  }, [pages]);
+
+  // Load project library on mount
+  useEffect(() => {
+    setSavedProjects(persistenceService.getAllProjects());
+  }, []);
+
+  // Handle Save
+  const handleSaveProject = async () => {
+    setIsSaving(true);
+    const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
+    
+    const project: Project = {
+      id: projectId,
+      name: projectName,
+      lastModified: Date.now(),
+      settings,
+      pages,
+      thumbnail
+    };
+    
+    await persistenceService.saveProject(project);
+    setSavedProjects(persistenceService.getAllProjects());
+    setIsSaving(false);
+    setLastSaved(Date.now());
+  };
+
+  const loadProject = (project: Project) => {
+    setProjectId(project.id);
+    setProjectName(project.name);
+    setSettings(project.settings);
+    setPages(project.pages);
+    // Determine the furthest step based on project state
+    if (project.pages.length > 0) {
+      if (project.pages.some(p => p.processedImage)) setCurrentStep('generate');
+      else setCurrentStep('mapping');
+    } else if (project.settings.fullScript) {
+      setCurrentStep('settings');
+    } else {
+      setCurrentStep('landing');
+    }
+  };
+
+  const deleteProject = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm("Delete this project forever?")) {
+      persistenceService.deleteProject(id);
+      setSavedProjects(persistenceService.getAllProjects());
+    }
+  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -129,7 +195,6 @@ const App: React.FC = () => {
 
   const startStoryCreation = async () => {
     if (!settings.fullScript) return;
-    // We go to Settings first to set the style for characters
     setCurrentStep('settings');
   };
 
@@ -153,7 +218,6 @@ const App: React.FC = () => {
     try {
       const plan = await planStoryScenes(settings.fullScript, settings.characterReferences);
       const newPages: BookPage[] = plan.pages.map(p => {
-        // AI suggests character names, we match them with our designed refs
         const pageAssignments: CharacterAssignment[] = p.mappedCharacterNames.map(name => {
           const match = settings.characterReferences.find(r => r.name.toLowerCase().includes(name.toLowerCase()));
           return {
@@ -180,85 +244,72 @@ const App: React.FC = () => {
   };
 
   const processSinglePage = async (pageId: string) => {
-    const pageIndex = pages.findIndex(p => p.id === pageId);
-    if (pageIndex === -1) return;
-
     if (settings.useProModel) {
        const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
        if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
     }
-
-    const updatedPages = [...pages];
-    updatedPages[pageIndex].status = 'processing';
-    setPages([...updatedPages]);
-
+    setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
     try {
-      let translatedText = updatedPages[pageIndex].translatedText;
+      const page = pages.find(p => p.id === pageId)!;
+      let translatedText = page.translatedText;
       if (!translatedText && settings.targetLanguage !== 'NONE_CLEAN_BG' && settings.targetLanguage !== 'English') {
-        translatedText = await translateText(updatedPages[pageIndex].originalText, settings.targetLanguage);
-        updatedPages[pageIndex].translatedText = translatedText;
+        translatedText = await translateText(page.originalText, settings.targetLanguage);
       }
-
-      const activePrompt = updatedPages[pageIndex].overrideStylePrompt || settings.targetStyle;
-
-      updatedPages[pageIndex].processedImage = await restyleIllustration(
-        updatedPages[pageIndex].originalImage,
+      const activePrompt = page.overrideStylePrompt || settings.targetStyle;
+      const processedImage = await restyleIllustration(
+        page.originalImage,
         activePrompt,
         settings.styleReference,
-        settings.embedTextInImage && settings.targetLanguage !== 'NONE_CLEAN_BG' ? (translatedText || updatedPages[pageIndex].originalText) : undefined,
+        settings.embedTextInImage && settings.targetLanguage !== 'NONE_CLEAN_BG' ? (translatedText || page.originalText) : undefined,
         settings.characterReferences,
-        updatedPages[pageIndex].assignments,
+        page.assignments,
         settings.useProModel,
         settings.targetLanguage === 'NONE_CLEAN_BG',
-        updatedPages[pageIndex].isSpread
+        page.isSpread
       );
-      updatedPages[pageIndex].status = 'completed';
+      setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'completed', processedImage, translatedText } : p));
     } catch (e: any) {
-      updatedPages[pageIndex].status = 'error';
+      setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'error' } : p));
     }
-    setPages([...updatedPages]);
     setEditingPageId(null);
   };
 
-  const processBulk = async () => {
+  const processBulk = async (retryOnly: boolean = false) => {
     if (settings.useProModel) {
        const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
        if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
     }
     setIsProcessing(true);
     setCurrentStep('generate');
-    const updatedPages = [...pages];
-    for (let i = 0; i < updatedPages.length; i++) {
-      if (updatedPages[i].status === 'completed') continue; 
+    const pagesToProcess = retryOnly 
+      ? pages.filter(p => p.status === 'error' || p.status === 'idle')
+      : pages.filter(p => p.status !== 'completed');
 
+    for (const pageToUpdate of pagesToProcess) {
+      const pageId = pageToUpdate.id;
+      setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
       try {
-        updatedPages[i].status = 'processing';
-        setPages([...updatedPages]);
-        
-        let translatedText = updatedPages[i].translatedText;
+        const p = pages.find(pg => pg.id === pageId)!;
+        let translatedText = p.translatedText;
         if (!translatedText && settings.targetLanguage !== 'NONE_CLEAN_BG' && settings.targetLanguage !== 'English') {
-          translatedText = await translateText(updatedPages[i].originalText, settings.targetLanguage);
-          updatedPages[i].translatedText = translatedText;
+          translatedText = await translateText(p.originalText, settings.targetLanguage);
         }
-
-        const activePrompt = updatedPages[i].overrideStylePrompt || settings.targetStyle;
-
-        updatedPages[i].processedImage = await restyleIllustration(
-          updatedPages[i].originalImage,
+        const activePrompt = p.overrideStylePrompt || settings.targetStyle;
+        const processedImage = await restyleIllustration(
+          p.originalImage,
           activePrompt,
           settings.styleReference,
-          settings.embedTextInImage && settings.targetLanguage !== 'NONE_CLEAN_BG' ? (translatedText || updatedPages[i].originalText) : undefined,
+          settings.embedTextInImage && settings.targetLanguage !== 'NONE_CLEAN_BG' ? (translatedText || p.originalText) : undefined,
           settings.characterReferences,
-          updatedPages[i].assignments,
+          p.assignments,
           settings.useProModel,
           settings.targetLanguage === 'NONE_CLEAN_BG',
-          updatedPages[i].isSpread
+          p.isSpread
         );
-        updatedPages[i].status = 'completed';
+        setPages(current => current.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage, translatedText } : pg));
       } catch (e: any) { 
-        updatedPages[i].status = 'error'; 
+        setPages(current => current.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg));
       }
-      setPages([...updatedPages]);
     }
     setIsProcessing(false);
   };
@@ -267,32 +318,89 @@ const App: React.FC = () => {
     switch (currentStep) {
       case 'landing':
         return (
-          <div className="max-w-4xl mx-auto space-y-12 py-12 animate-in fade-in duration-700">
-            <div className="text-center space-y-4">
-              <h2 className="text-5xl font-black text-slate-900 tracking-tight">How would you like to build?</h2>
-              <p className="text-slate-500 text-xl font-medium">Select your industrial production path.</p>
+          <div className="max-w-6xl mx-auto space-y-20 py-12 animate-in fade-in duration-700">
+            <div className="text-center space-y-6">
+              <h2 className="text-6xl font-black text-slate-900 tracking-tight">Industrial Story Production</h2>
+              <p className="text-slate-500 text-xl font-medium max-w-2xl mx-auto leading-relaxed">Create and manage your professional children's book library with persistent cloud architecture.</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <button 
-                onClick={() => { setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); }}
-                className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all hover:-translate-y-2 relative overflow-hidden"
-              >
-                <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm mb-8">
-                  <Palette size={32} />
-                </div>
-                <h3 className="text-2xl font-black mb-3">Restyle Existing Book</h3>
-                <p className="text-slate-400 leading-relaxed font-medium">Upload original illustrations to preserve characters while applying a new master aesthetic.</p>
-              </button>
-              <button 
-                onClick={() => { setSettings({...settings, mode: 'create'}); setCurrentStep('script'); }}
-                className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all hover:-translate-y-2 relative overflow-hidden"
-              >
-                <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm mb-8">
-                  <Rocket size={32} />
-                </div>
-                <h3 className="text-2xl font-black mb-3">Create New Story</h3>
-                <p className="text-slate-400 leading-relaxed font-medium">Input a script from A to Z. AI will plan scenes and design consistent characters in your chosen style.</p>
-              </button>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+               <div className="lg:col-span-2 space-y-10">
+                  <div className="flex items-center justify-between">
+                     <h3 className="text-2xl font-black flex items-center gap-3">
+                        <FolderOpen className="text-indigo-600" /> Recent Cloud Projects
+                     </h3>
+                  </div>
+                  
+                  {savedProjects.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {savedProjects.sort((a,b) => b.lastModified - a.lastModified).map(project => (
+                        <div 
+                          key={project.id} 
+                          onClick={() => loadProject(project)}
+                          className="group bg-white border-2 border-slate-100 rounded-[3.5rem] p-6 hover:border-indigo-600 hover:shadow-2xl transition-all cursor-pointer relative overflow-hidden"
+                        >
+                           <div className="aspect-video rounded-[2.5rem] bg-slate-50 overflow-hidden mb-6 relative">
+                              {project.thumbnail ? (
+                                <img src={project.thumbnail} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={project.name} />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-slate-200"><BookOpen size={48} /></div>
+                              )}
+                              <div className="absolute top-4 left-4 bg-black/40 backdrop-blur-xl px-4 py-2 rounded-full text-[10px] font-black text-white uppercase tracking-widest border border-white/10">
+                                {project.pages.length} Pages
+                              </div>
+                           </div>
+                           <div className="flex justify-between items-start">
+                              <div>
+                                 <h4 className="text-xl font-bold text-slate-900 mb-1 group-hover:text-indigo-600 transition-colors">{project.name}</h4>
+                                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Modified {new Date(project.lastModified).toLocaleDateString()}</p>
+                              </div>
+                              <button onClick={(e) => deleteProject(project.id, e)} className="p-3 text-slate-300 hover:text-red-500 transition-colors">
+                                 <Trash2 size={20} />
+                              </button>
+                           </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="h-[400px] bg-slate-50 border-4 border-dashed border-slate-200 rounded-[4rem] flex flex-col items-center justify-center text-center px-12 gap-4">
+                       <Cloud className="text-slate-200" size={64} />
+                       <div className="space-y-1">
+                          <p className="font-black text-slate-400 text-lg">Your production library is empty</p>
+                          <p className="text-sm font-medium text-slate-400">Start a new project from the right panel to begin.</p>
+                       </div>
+                    </div>
+                  )}
+               </div>
+
+               <div className="space-y-8">
+                  <h3 className="text-2xl font-black flex items-center gap-3">
+                     <Plus className="text-indigo-600" /> Start New
+                  </h3>
+                  <div className="space-y-6">
+                    <button 
+                      onClick={() => { setProjectId(Math.random().toString(36).substring(7)); setProjectName("Restyle Project"); setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); }}
+                      className="w-full group p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:shadow-xl transition-all"
+                    >
+                      <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all mb-6">
+                        <Palette size={24} />
+                      </div>
+                      <h4 className="text-xl font-black mb-2">Restyle Existing</h4>
+                      <p className="text-slate-400 text-sm font-medium leading-relaxed">Upgrade original assets into a new master aesthetic.</p>
+                    </button>
+                    
+                    <button 
+                      onClick={() => { setProjectId(Math.random().toString(36).substring(7)); setProjectName("Script Project"); setSettings({...settings, mode: 'create'}); setCurrentStep('script'); }}
+                      className="w-full group p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:shadow-xl transition-all"
+                    >
+                      <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all mb-6">
+                        <Rocket size={24} />
+                      </div>
+                      <h4 className="text-xl font-black mb-2">Create From Script</h4>
+                      <p className="text-slate-400 text-sm font-medium leading-relaxed">Build a full book from raw text script to A-grade render.</p>
+                    </button>
+                  </div>
+               </div>
             </div>
           </div>
         );
@@ -588,7 +696,7 @@ const App: React.FC = () => {
                <div className="max-w-6xl mx-auto flex justify-between items-center px-10">
                   <button onClick={() => setCurrentStep('characters')} className="px-12 py-5 rounded-[2.5rem] font-bold text-slate-500 hover:bg-slate-100 flex items-center gap-3 transition-all text-xl"><ChevronLeft size={32} /> Back</button>
                   <button 
-                    onClick={processBulk} 
+                    onClick={() => processBulk()} 
                     className="bg-indigo-600 text-white px-16 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-5 hover:bg-indigo-700 shadow-[0_25px_50px_rgba(79,70,229,0.35)] transition-all scale-110 active:scale-100"
                   >
                     <Sparkles size={36} /> RENDER FULL STORY
@@ -601,23 +709,62 @@ const App: React.FC = () => {
       case 'generate':
         return (
           <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-56">
-            <div className="text-center">
-              <h2 className="text-4xl font-bold mb-2 text-slate-900">Industrial Proofing</h2>
-              <p className="text-slate-500 text-lg">Verify your rendered story. Download the high-res industrial PDF once complete.</p>
+            <div className="sticky top-28 z-40 bg-[#F8FAFC]/90 backdrop-blur-md py-6 border-b border-slate-200">
+               <div className="max-w-5xl mx-auto px-4 space-y-6">
+                  <div className="flex justify-between items-end">
+                     <div className="space-y-1">
+                        <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+                           Production Progress {isProcessing && <Loader2 className="animate-spin text-indigo-600" size={24} />}
+                        </h2>
+                        <p className="text-sm font-medium text-slate-500">
+                           {stats.completed} of {stats.total} pages industrial-rendered.
+                        </p>
+                     </div>
+                     <div className="flex gap-4">
+                        {stats.errors > 0 && !isProcessing && (
+                           <button 
+                              onClick={() => processBulk(true)} 
+                              className="flex items-center gap-2 bg-red-50 text-red-600 px-6 py-3 rounded-2xl font-bold text-xs hover:bg-red-100 transition-all border border-red-100"
+                           >
+                              <RefreshCw size={14} /> Retry {stats.errors} Failed
+                           </button>
+                        )}
+                        {!isProcessing && stats.completed < stats.total && (
+                           <button 
+                              onClick={() => processBulk()} 
+                              className="flex items-center gap-2 bg-indigo-600 text-white px-8 py-4 rounded-3xl font-bold text-sm shadow-xl hover:bg-indigo-700 transition-all"
+                           >
+                              <Sparkles size={18} /> Resume All
+                           </button>
+                        )}
+                     </div>
+                  </div>
+                  <div className="h-4 bg-slate-200 rounded-full overflow-hidden shadow-inner border border-white">
+                     <div 
+                        className="h-full bg-indigo-600 transition-all duration-1000 ease-out shadow-[0_0_20px_rgba(79,70,229,0.5)] flex items-center justify-end px-4"
+                        style={{ width: `${stats.progress}%` }}
+                     >
+                        {stats.progress > 5 && <span className="text-[9px] font-black text-white">{stats.progress}%</span>}
+                     </div>
+                  </div>
+               </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               {pages.map((page, idx) => (
                 <div key={page.id} className={`bg-white rounded-[5rem] border-4 border-slate-50 overflow-hidden shadow-sm hover:shadow-2xl transition-all group flex flex-col ${editingPageId === page.id ? 'ring-4 ring-indigo-500 border-indigo-500' : ''}`}>
                   <div className="aspect-square relative bg-slate-50 overflow-hidden">
                     <img 
                       src={page.processedImage || page.originalImage || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1000"} 
-                      className={`w-full h-full object-cover transition-all duration-[2000ms] ${page.status === 'processing' ? 'blur-[100px] opacity-20 scale-150' : 'scale-100'} ${page.processedImage ? '' : 'grayscale opacity-30'}`} 
+                      className={`w-full h-full object-cover transition-all duration-[2000ms] ${page.status === 'processing' ? 'blur-[80px] opacity-40 scale-125' : 'scale-100'} ${page.processedImage ? '' : 'grayscale opacity-30'}`} 
                       alt={`Render Pg ${idx+1}`}
                     />
                     
                     {page.status === 'processing' && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-8">
-                        <div className="w-24 h-24 border-[10px] border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-8 bg-indigo-600/5">
+                        <div className="relative">
+                           <div className="w-32 h-32 border-[12px] border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                        </div>
                         <span className="text-sm font-black text-indigo-900 uppercase tracking-[0.5em] animate-pulse">Rendering {idx+1}...</span>
                       </div>
                     )}
@@ -628,46 +775,11 @@ const App: React.FC = () => {
                       </div>
                       {page.status === 'completed' && (
                         <div className="bg-green-600/90 text-white text-[10px] px-6 py-3 rounded-full font-black backdrop-blur-xl shadow-2xl uppercase tracking-[0.3em]">
-                          Industrial Ready
+                          Ready
                         </div>
                       )}
                     </div>
-
-                    {page.status !== 'processing' && (
-                      <div className="absolute bottom-10 inset-x-10 flex justify-center gap-4 translate-y-20 group-hover:translate-y-0 transition-transform duration-500">
-                        <button onClick={() => setEditingPageId(editingPageId === page.id ? null : page.id)} className="flex items-center gap-3 bg-white text-slate-900 px-8 py-4 rounded-3xl font-bold shadow-2xl hover:bg-indigo-600 hover:text-white transition-all text-sm">
-                          <Edit3 size={18} /> {editingPageId === page.id ? 'Close Editor' : 'Tweak Style'}
-                        </button>
-                        <button onClick={() => processSinglePage(page.id)} className="flex items-center justify-center bg-indigo-600 text-white w-14 h-14 rounded-3xl shadow-2xl hover:bg-indigo-700 transition-all">
-                          <RefreshCw size={24} />
-                        </button>
-                      </div>
-                    )}
                   </div>
-
-                  {editingPageId === page.id && (
-                    <div className="p-12 bg-indigo-50/50 border-t-4 border-indigo-100 space-y-6">
-                      <div className="flex justify-between items-center">
-                        <h4 className="text-xs font-black text-indigo-900 uppercase tracking-widest flex items-center gap-2"><Edit3 size={14} /> Style Override</h4>
-                        <button onClick={() => setEditingPageId(null)} className="text-indigo-400 hover:text-indigo-600"><X size={20} /></button>
-                      </div>
-                      <textarea 
-                        className="w-full bg-white border-2 border-indigo-100 rounded-[2rem] p-6 text-sm font-medium outline-none focus:ring-4 focus:ring-indigo-500/20 h-[150px] shadow-inner"
-                        value={page.overrideStylePrompt || settings.targetStyle}
-                        onChange={(e) => {
-                          const n = [...pages];
-                          n[idx].overrideStylePrompt = e.target.value;
-                          setPages(n);
-                        }}
-                      />
-                      <div className="flex justify-end gap-4">
-                        <button onClick={() => { const n = [...pages]; n[idx].overrideStylePrompt = undefined; setPages(n); }} className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors">Reset to Global</button>
-                        <button onClick={() => processSinglePage(page.id)} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-xl flex items-center gap-2">
-                          <RefreshCw size={16} /> Apply & Re-render
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -688,7 +800,7 @@ const App: React.FC = () => {
                   <button 
                     disabled={isProcessing || !pages.every(p => p.status === 'completed')} 
                     onClick={() => generateBookPDF(pages, settings.exportFormat, "Production_Book_Export", !settings.embedTextInImage && settings.targetLanguage !== 'NONE_CLEAN_BG', settings.estimatedPageCount, settings.spreadExportMode)} 
-                    className="bg-indigo-600 text-white px-20 py-8 rounded-[3.5rem] font-black text-2xl flex items-center gap-8 hover:bg-indigo-500 shadow-[0_40px_80px_rgba(79,70,229,0.5)] transition-all scale-110 active:scale-100 disabled:opacity-50"
+                    className="bg-indigo-600 text-white px-20 py-8 rounded-[3.5rem] font-black text-2xl flex items-center gap-8 hover:bg-indigo-500 shadow-[0_40px_80px_rgba(79,70,229,0.5)] transition-all scale-110 active:scale-100 disabled:opacity-30 disabled:grayscale disabled:scale-100"
                   >
                     <Download size={40} /> PRINT READY PDF
                   </button>
@@ -702,34 +814,64 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
       <header className="bg-white/90 backdrop-blur-2xl border-b border-slate-200 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-12 h-28 flex items-center justify-between">
-          <div className="flex items-center gap-6 cursor-pointer" onClick={() => setCurrentStep('landing')}>
-            <div className="w-16 h-16 bg-indigo-600 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl rotate-3 hover:rotate-0 transition-transform"><Sparkles size={32} /></div>
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900 leading-none font-display">StoryFlow <span className="text-indigo-600">Pro</span></h1>
-              <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.5em] mt-2">Elite Production Engine</p>
+        <div className="max-w-[1400px] mx-auto px-8 lg:px-12 h-28 flex items-center justify-between gap-12">
+          <div className="flex items-center gap-6 cursor-pointer shrink-0" onClick={() => setCurrentStep('landing')}>
+            <div className="w-14 h-14 bg-indigo-600 rounded-[1.2rem] flex items-center justify-center text-white shadow-xl rotate-3 hover:rotate-0 transition-transform shadow-indigo-200"><Sparkles size={28} /></div>
+            <div className="hidden sm:block">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 leading-none font-display">StoryFlow <span className="text-indigo-600">Pro</span></h1>
+              <p className="text-[9px] text-slate-400 font-black uppercase tracking-[0.5em] mt-1.5">Industrial Pipeline</p>
             </div>
           </div>
-          <div className="hidden lg:flex items-center gap-8">
-            {['upload', 'script', 'settings', 'characters', 'mapping', 'generate'].filter(s => {
+
+          <div className="flex-1 max-w-md hidden md:flex items-center gap-4 bg-slate-50 border border-slate-100 px-6 py-3 rounded-2xl group focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
+             <input 
+               className="bg-transparent border-none outline-none font-bold text-slate-700 flex-1 text-sm"
+               value={projectName}
+               onChange={(e) => setProjectName(e.target.value)}
+               placeholder="Project Name..."
+             />
+             <div className="flex items-center gap-3">
+               {isSaving ? (
+                 <Loader2 size={16} className="text-indigo-600 animate-spin" />
+               ) : (
+                 <div className="flex items-center gap-2">
+                    {lastSaved && (
+                      <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest hidden lg:block">Saved {new Date(lastSaved).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    )}
+                    <CheckCircle2 size={16} className={lastSaved ? "text-green-500" : "text-slate-200"} />
+                 </div>
+               )}
+               <button 
+                 onClick={handleSaveProject} 
+                 disabled={isSaving}
+                 className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100"
+               >
+                 <Save size={18} />
+               </button>
+             </div>
+          </div>
+
+          <div className="hidden lg:flex items-center gap-6 shrink-0">
+            {['landing', 'upload', 'script', 'settings', 'characters', 'mapping', 'generate'].filter(s => {
+              if (s === 'landing') return false;
               if (settings.mode === 'restyle' && s === 'script') return false;
-              if (settings.mode === 'create' && s === 'upload') return false;
+              if (settings.mode === 'create' && (s === 'upload')) return false;
               return true;
             }).map((s, i) => (
               <React.Fragment key={s}>
                 <div 
                   onClick={() => !isProcessing && currentStep !== 'landing' && setCurrentStep(s as Step)}
-                  className={`w-14 h-14 rounded-full flex items-center justify-center text-sm font-black transition-all cursor-pointer ${currentStep === s ? 'bg-indigo-600 text-white scale-125 shadow-2xl ring-8 ring-indigo-50' : (currentStep !== 'landing' ? 'bg-white border-2 border-slate-100 text-slate-400' : 'bg-slate-50 text-slate-200 cursor-not-allowed')}`}
+                  className={`w-11 h-11 rounded-full flex items-center justify-center text-xs font-black transition-all cursor-pointer ${currentStep === s ? 'bg-indigo-600 text-white scale-110 shadow-lg ring-4 ring-indigo-50' : (currentStep !== 'landing' ? 'bg-white border-2 border-slate-100 text-slate-400 hover:border-indigo-200' : 'bg-slate-50 text-slate-200 cursor-not-allowed')}`}
                 >
                   {i + 1}
                 </div>
-                {i < (settings.mode === 'restyle' ? 4 : 4) && <div className="w-10 h-[4px] bg-slate-100 rounded-full" />}
+                {i < (settings.mode === 'restyle' ? 4 : 4) && <div className="w-6 h-[2px] bg-slate-100 rounded-full" />}
               </React.Fragment>
             ))}
           </div>
         </div>
       </header>
-      <main className="flex-1 max-w-7xl mx-auto w-full px-12 py-20">{renderStep()}</main>
+      <main className="flex-1 max-w-[1400px] mx-auto w-full px-8 lg:px-12 py-12">{renderStep()}</main>
     </div>
   );
 };

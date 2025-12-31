@@ -40,6 +40,15 @@ export interface AppSettings {
   estimatedPageCount: number;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  lastModified: number;
+  settings: AppSettings;
+  pages: BookPage[];
+  thumbnail?: string;
+}
+
 // Technical Margin Rules based on the provided guide
 export const PRINT_FORMATS = {
   KDP_SQUARE: { 
