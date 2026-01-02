@@ -24,7 +24,7 @@ export interface BookPage {
 
 export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'INGRAM_PREMIUM';
 export type SpreadExportMode = 'SPLIT_PAGES' | 'WIDE_SPREAD';
-export type AppMode = 'restyle' | 'create';
+export type AppMode = 'restyle' | 'create' | 'upscale';
 
 export interface AppSettings {
   mode: AppMode;
@@ -56,7 +56,7 @@ export const PRINT_FORMATS = {
     width: 8.5, 
     height: 8.5, 
     bleed: 0.125, 
-    baseGutter: 0.75, // Recommended safe value from user guide
+    baseGutter: 0.75, // Recommended Universal Safe Value
     outside: 0.5, 
     top: 0.5, 
     bottom: 0.75 

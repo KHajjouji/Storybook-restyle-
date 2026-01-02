@@ -216,7 +216,6 @@ export const restyleIllustration = async (
   }
 
   charRefs.forEach((ref) => {
-    // Only include character refs that are actually assigned to this scene to save tokens and improve focus
     if (assignments.some(a => a.refId === ref.id)) {
       parts.push({
         inlineData: {
@@ -249,6 +248,52 @@ export const restyleIllustration = async (
   }
 
   throw new Error("Industrial render failed.");
+};
+
+export const upscaleIllustration = async (
+  currentImageBase64: string,
+  stylePrompt: string,
+  isSpread: boolean = false
+): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const model = 'gemini-3-pro-image-preview';
+
+  const parts: any[] = [
+    {
+      inlineData: {
+        data: currentImageBase64.split(',')[1],
+        mimeType: 'image/png'
+      }
+    },
+    {
+      text: `UP SCALE AND ENHANCE: Professional 4K upscale of this children's book illustration. 
+      Retain exactly the same composition, characters, and style. 
+      Sharpen textures, enhance fine lines, and refine lighting details. 
+      Aesthetic context: ${stylePrompt}. 
+      Target: High-resolution, crisp master print quality.`
+    }
+  ];
+
+  const response = await ai.models.generateContent({
+    model,
+    contents: { parts },
+    config: {
+      imageConfig: {
+        aspectRatio: isSpread ? "16:9" : "1:1",
+        imageSize: "4K"
+      }
+    }
+  });
+
+  if (response.candidates?.[0]?.content?.parts) {
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+    }
+  }
+
+  throw new Error("4K Upscale failed.");
 };
 
 export const extractTextFromImage = async (imageBase64: string): Promise<string> => {
