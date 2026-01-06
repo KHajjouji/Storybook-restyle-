@@ -1,14 +1,19 @@
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { CharacterRef, CharacterAssignment } from "./types";
 
-export const parsePromptPack = async (rawText: string): Promise<{ masterBible: string, scenes: { prompt: string, isSpread: boolean }[] }> => {
+export const parsePromptPack = async (rawText: string): Promise<{ 
+  masterBible: string, 
+  characterIdentities: { name: string, description: string }[],
+  scenes: { prompt: string, isSpread: boolean }[] 
+}> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Analyze this children's book production script. 
-    1. Extract the "Master Bible" (Global Style, Character Descriptions, Format rules).
-    2. Split the rest into individual scenes. 
-    3. For each scene, extract the specific visual prompt and determine if it should be a "spread" (ultra-wide, 2:1, panoramic) based on descriptions like "Wide", "Ultra-wide", or "Spread".
+    1. Extract the "Master Bible" (The core global style and character lock definitions).
+    2. Identify specific Character Identities (Name and physical description for consistent generation).
+    3. Split the text into individual scenes. 
+    4. For each scene, extract the specific visual prompt and determine if it should be a "spread" (ultra-wide, 2:1, panoramic) based on descriptions like "Wide", "Ultra-wide", or "Spread".
     
     Script:
     ${rawText}`,
@@ -18,6 +23,17 @@ export const parsePromptPack = async (rawText: string): Promise<{ masterBible: s
         type: Type.OBJECT,
         properties: {
           masterBible: { type: Type.STRING },
+          characterIdentities: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                description: { type: Type.STRING }
+              },
+              required: ['name', 'description']
+            }
+          },
           scenes: {
             type: Type.ARRAY,
             items: {
@@ -30,15 +46,15 @@ export const parsePromptPack = async (rawText: string): Promise<{ masterBible: s
             }
           }
         },
-        required: ['masterBible', 'scenes']
+        required: ['masterBible', 'characterIdentities', 'scenes']
       }
     }
   });
   
   try {
-    return JSON.parse(response.text || '{"masterBible":"", "scenes":[]}');
+    return JSON.parse(response.text || '{"masterBible":"", "characterIdentities":[], "scenes":[]}');
   } catch (e) {
-    return { masterBible: "", scenes: [] };
+    return { masterBible: "", characterIdentities: [], scenes: [] };
   }
 };
 
@@ -103,7 +119,7 @@ export const identifyAndDesignCharacters = async (fullScript: string, stylePromp
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const identification = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Identify the main characters. Script: ${fullScript}`,
+    contents: `Identify the main characters from this script or style bible. Script/Bible: ${fullScript}`,
     config: {
       responseMimeType: 'application/json',
       responseSchema: {
@@ -126,7 +142,7 @@ export const identifyAndDesignCharacters = async (fullScript: string, stylePromp
   const results: CharacterRef[] = [];
   for (const char of charData) {
     const parts: any[] = [
-      { text: `Character sheet for: ${char.name}. Description: ${char.description}. Style: ${stylePrompt}. White background, multiple angles.` }
+      { text: `Industrial character sheet for: ${char.name}. Description: ${char.description}. Style: ${stylePrompt}. Requirements: White background, 3-angle turnaround (front, side, 3/4). High readability.` }
     ];
     if (styleRef) { parts.push({ inlineData: { data: styleRef.split(',')[1], mimeType: 'image/png' } }); }
 
@@ -178,8 +194,9 @@ export const restyleIllustration = async (
   ${styleRefBase64 ? "VISUAL ANCHOR: Follow the attached Style Reference exactly." : ""}
   
   CHARACTERS:
+  ${charRefs.length > 0 ? `Use these characters for visual reference to maintain consistency.` : ""}
   ${assignments.length > 0 ? 
-    `Character mapping:
+    `Character mapping for this specific scene:
     ${assignments.map(a => {
       const ref = charRefs.find(r => r.id === a.refId);
       return `- ${ref?.name} as ${a.description}.`;
@@ -188,10 +205,10 @@ export const restyleIllustration = async (
   TEXT: ${cleanBackground ? "No text." : (targetText ? `Embed: "${targetText}".` : "No text.")}`;
 
   if (styleRefBase64) { parts.push({ inlineData: { data: styleRefBase64.split(',')[1], mimeType: 'image/png' } }); }
+  
+  // Inject character images as visual consistency anchors
   charRefs.forEach((ref) => {
-    if (assignments.some(a => a.refId === ref.id)) {
-      parts.push({ inlineData: { data: ref.image.split(',')[1], mimeType: 'image/png' } });
-    }
+    parts.push({ inlineData: { data: ref.image.split(',')[1], mimeType: 'image/png' } });
   });
 
   parts.push({ text: instruction });

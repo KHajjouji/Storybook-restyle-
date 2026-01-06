@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project } from './types';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack } from './geminiService';
@@ -34,6 +34,7 @@ const App: React.FC = () => {
   const [lastSaved, setLastSaved] = useState<number | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
+  const [isDesigningChars, setIsDesigningChars] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
 
@@ -90,6 +91,17 @@ const App: React.FC = () => {
     finally { setIsParsing(false); }
   };
 
+  const handleDesignFromBible = async () => {
+    if (!settings.masterBible) return;
+    setIsDesigningChars(true);
+    try {
+      const characters = await identifyAndDesignCharacters(settings.masterBible, settings.targetStyle);
+      setSettings(prev => ({ ...prev, characterReferences: characters }));
+      setCurrentStep('characters');
+    } catch (err) { console.error(err); }
+    finally { setIsDesigningChars(false); }
+  };
+
   const loadProject = (project: Project) => {
     setProjectId(project.id);
     setProjectName(project.name);
@@ -103,19 +115,19 @@ const App: React.FC = () => {
     } else setCurrentStep('landing');
   };
 
-  // Fix: Implemented handleUpscale to perform 4K enhancement using Gemini 3 Pro
   const handleUpscale = async (pageId: string) => {
     const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
 
     const page = pages.find(p => p.id === pageId);
-    if (!page?.originalImage) return;
+    const targetImg = page?.processedImage || page?.originalImage;
+    if (!targetImg) return;
 
     setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
     
     try {
       const processedImage = await upscaleIllustration(
-        page.originalImage,
+        targetImg,
         settings.targetStyle,
         page.isSpread
       );
@@ -137,7 +149,19 @@ const App: React.FC = () => {
       setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
       try {
         const p = pages.find(pg => pg.id === pageId)!;
-        const processedImage = await restyleIllustration(undefined, p.overrideStylePrompt || settings.targetStyle, undefined, undefined, [], [], true, false, p.isSpread, settings.masterBible);
+        // Prompt pack mode uses Bible + Generated Characters as visual anchors
+        const processedImage = await restyleIllustration(
+          undefined, 
+          p.overrideStylePrompt || settings.targetStyle, 
+          undefined, 
+          undefined, 
+          settings.characterReferences, 
+          p.assignments, 
+          true, 
+          false, 
+          p.isSpread, 
+          settings.masterBible
+        );
         setPages(current => current.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage } : pg));
       } catch (e) { setPages(current => current.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg)); }
     }
@@ -224,7 +248,7 @@ const App: React.FC = () => {
         return (
           <div className="max-w-6xl mx-auto space-y-12 py-12 animate-in fade-in duration-500">
              <div className="bg-white p-10 rounded-[4rem] border-2 border-slate-100 shadow-sm space-y-6">
-                <div className="flex justify-between items-center"><h3 className="text-2xl font-black">Master Bible (Injected into every Scene)</h3><button onClick={() => setCurrentStep('prompt-pack')} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-4 py-2 rounded-full">Return to Importer</button></div>
+                <div className="flex justify-between items-center"><h3 className="text-2xl font-black">Master Bible (Style & Character Rules)</h3><button onClick={() => setCurrentStep('prompt-pack')} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-4 py-2 rounded-full">Return to Importer</button></div>
                 <textarea 
                   className="w-full bg-slate-50 border-none rounded-3xl p-6 text-sm font-medium h-40 resize-none italic"
                   value={settings.masterBible || ""}
@@ -258,8 +282,50 @@ const App: React.FC = () => {
              <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-3xl border-t-2 border-slate-100 p-10 z-50 shadow-2xl rounded-t-[5rem]">
                <div className="max-w-6xl mx-auto flex justify-between items-center px-10">
                   <button onClick={() => setCurrentStep('prompt-pack')} className="px-12 py-5 rounded-[2.5rem] font-bold text-slate-400 hover:bg-slate-50 transition-colors">Restart Importer</button>
-                  <button onClick={() => processBulk()} className="bg-indigo-600 text-white px-16 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-5 hover:bg-indigo-700 shadow-2xl hover:scale-105 transition-all"><Sparkles size={36} /> EXECUTE PRODUCTION QUEUE</button>
+                  <button onClick={handleDesignFromBible} className="bg-indigo-600 text-white px-16 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-5 hover:bg-indigo-700 shadow-2xl hover:scale-105 transition-all">
+                    {isDesigningChars ? <Loader2 className="animate-spin" size={36} /> : <UserCheck size={36} />} DESIGN CHARACTERS FIRST
+                  </button>
                </div>
+            </div>
+          </div>
+        );
+
+      case 'characters':
+        return (
+          <div className="max-w-6xl mx-auto space-y-12 py-12 animate-in fade-in duration-500">
+            <div className="text-center space-y-4">
+              <h2 className="text-4xl font-black">Consistent Visual Identities</h2>
+              <p className="text-slate-500">Verify these character sheets. They will be used as visual anchors for every scene.</p>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
+              {settings.characterReferences.map((ref, idx) => (
+                <div key={ref.id} className="bg-white p-6 rounded-[3.5rem] border-2 border-slate-100 shadow-sm hover:shadow-xl transition-all">
+                  <div className="aspect-square bg-slate-50 rounded-[2.5rem] mb-6 overflow-hidden relative">
+                    {ref.image ? <img src={ref.image} className="w-full h-full object-cover" alt={ref.name} /> : <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-indigo-600" /></div>}
+                  </div>
+                  <input 
+                    className="w-full bg-transparent border-none font-bold text-center text-lg outline-none"
+                    value={ref.name}
+                    onChange={(e) => {
+                      const n = [...settings.characterReferences];
+                      n[idx].name = e.target.value;
+                      setSettings({...settings, characterReferences: n});
+                    }}
+                  />
+                  <p className="text-xs text-slate-400 text-center mt-2 italic px-2">{ref.description}</p>
+                </div>
+              ))}
+              <button 
+                onClick={() => setSettings({...settings, characterReferences: [...settings.characterReferences, { id: Math.random().toString(36).substring(7), name: "New Char", image: "" }]})}
+                className="aspect-square border-4 border-dashed border-slate-200 rounded-[3.5rem] flex flex-col items-center justify-center text-slate-300 hover:border-indigo-400 hover:text-indigo-400 transition-all"
+              >
+                <Plus size={48} />
+                <span className="font-black uppercase text-xs mt-4">Add Manual Identity</span>
+              </button>
+            </div>
+            <div className="flex justify-between pt-12">
+              <button onClick={() => setCurrentStep('prompt-pack-editor')} className="px-12 py-6 rounded-[2.5rem] font-bold text-slate-400">Back</button>
+              <button onClick={() => processBulk()} className="bg-indigo-600 text-white px-20 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-5 hover:bg-indigo-700 shadow-2xl"><Sparkles size={36} /> START PRODUCTION RENDER</button>
             </div>
           </div>
         );
@@ -278,13 +344,16 @@ const App: React.FC = () => {
                   <div className="p-10 space-y-4 bg-white relative z-10">
                      <div className="flex justify-between items-center"><span className="text-xs font-black uppercase text-slate-400">Scene {idx+1} {p.isSpread ? '— Spread' : '— Single'}</span><button onClick={() => { setEditingPageId(p.id); setCurrentStep('prompt-pack-editor'); }} className="text-indigo-600 font-bold text-xs">Edit Prompt</button></div>
                      <p className="text-xs text-slate-500 italic line-clamp-2">{p.overrideStylePrompt}</p>
+                     <div className="flex gap-2 pt-2">
+                        <button onClick={() => handleUpscale(p.id)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-indigo-100"><Maximize2 size={14} /> 4K Enhance</button>
+                     </div>
                   </div>
                 </div>
               ))}
             </div>
             <div className="fixed bottom-0 inset-x-0 bg-slate-900 text-white p-14 shadow-2xl z-50 rounded-t-[7rem]">
                <div className="max-w-6xl mx-auto flex flex-col xl:flex-row items-center justify-between gap-12 px-10">
-                  <div className="flex items-center gap-8"><button onClick={() => setCurrentStep('prompt-pack-editor')} className="bg-white/10 p-5 rounded-full"><ChevronLeft size={32} /></button><span className="text-2xl font-black uppercase tracking-tight">Queue Progress: {stats.progress}%</span></div>
+                  <div className="flex items-center gap-8"><button onClick={() => setCurrentStep('characters')} className="bg-white/10 p-5 rounded-full"><ChevronLeft size={32} /></button><span className="text-2xl font-black uppercase tracking-tight">Queue Progress: {stats.progress}%</span></div>
                   <button disabled={isProcessing || !pages.every(p => p.status === 'completed')} onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode)} className="bg-indigo-600 text-white px-20 py-8 rounded-[3.5rem] font-black text-2xl flex items-center gap-8 hover:bg-indigo-500 shadow-2xl disabled:opacity-30"><Download size={40} /> EXPORT PRODUCTION PDF</button>
                </div>
             </div>
