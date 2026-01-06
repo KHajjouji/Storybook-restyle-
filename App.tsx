@@ -2,20 +2,21 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project } from './types';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration } from './geminiService';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
 
-type Step = 'landing' | 'upload' | 'script' | 'settings' | 'characters' | 'mapping' | 'generate' | 'direct-upscale';
+type Step = 'landing' | 'upload' | 'script' | 'prompt-pack' | 'prompt-pack-editor' | 'settings' | 'characters' | 'mapping' | 'generate' | 'direct-upscale';
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<Step>('landing');
   const [projectId, setProjectId] = useState<string>(Math.random().toString(36).substring(7));
   const [projectName, setProjectName] = useState<string>("Untitled Masterpiece");
   const [pages, setPages] = useState<BookPage[]>([]);
+  const [rawPackText, setRawPackText] = useState("");
   const [settings, setSettings] = useState<AppSettings>({
     mode: 'restyle',
     targetStyle: '3D Pixar-style animation, warm volumetric lighting, soft render',
@@ -31,25 +32,19 @@ const App: React.FC = () => {
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<number | null>(null);
-
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
-  const [isAnalyzingScript, setIsAnalyzingScript] = useState(false);
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const charRefInputRef = useRef<HTMLInputElement>(null);
-  const styleRefInputRef = useRef<HTMLInputElement>(null);
   const directUpscaleInputRef = useRef<HTMLInputElement>(null);
 
   const stats = useMemo(() => {
     const total = pages.length;
     const completed = pages.filter(p => p.status === 'completed').length;
     const processing = pages.filter(p => p.status === 'processing').length;
-    const errors = pages.filter(p => p.status === 'error').length;
     const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
-    return { total, completed, processing, errors, progress };
+    return { total, completed, processing, progress };
   }, [pages]);
 
   useEffect(() => {
@@ -57,9 +52,7 @@ const App: React.FC = () => {
       try {
         const projs = await persistenceService.getAllProjects();
         setSavedProjects(projs);
-      } catch (e) {
-        console.error("Failed to load project library:", e);
-      }
+      } catch (e) { console.error(e); }
     };
     fetchProjects();
   }, []);
@@ -68,23 +61,33 @@ const App: React.FC = () => {
     setIsSaving(true);
     try {
       const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
-      const project: Project = {
-        id: projectId,
-        name: projectName,
-        lastModified: Date.now(),
-        settings,
-        pages,
-        thumbnail
-      };
+      const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages, thumbnail };
       await persistenceService.saveProject(project);
       const updatedList = await persistenceService.getAllProjects();
       setSavedProjects(updatedList);
       setLastSaved(Date.now());
-    } catch (e) {
-      console.error("Save failed:", e);
-    } finally {
-      setIsSaving(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setIsSaving(false); }
+  };
+
+  const handleParsePack = async () => {
+    if (!rawPackText) return;
+    setIsParsing(true);
+    try {
+      const result = await parsePromptPack(rawPackText);
+      setSettings(prev => ({ ...prev, masterBible: result.masterBible }));
+      const newPages: BookPage[] = result.scenes.map(s => ({
+        id: Math.random().toString(36).substring(7),
+        originalText: "",
+        status: 'idle',
+        assignments: [],
+        isSpread: s.isSpread,
+        overrideStylePrompt: s.prompt
+      }));
+      setPages(newPages);
+      setCurrentStep('prompt-pack-editor');
+    } catch (e) { console.error(e); }
+    finally { setIsParsing(false); }
   };
 
   const loadProject = (project: Project) => {
@@ -92,108 +95,35 @@ const App: React.FC = () => {
     setProjectName(project.name);
     setSettings(project.settings);
     setPages(project.pages);
-    if (project.settings.mode === 'upscale') {
-      setCurrentStep('direct-upscale');
-      return;
-    }
+    if (project.settings.mode === 'upscale') { setCurrentStep('direct-upscale'); return; }
+    if (project.settings.mode === 'prompt-pack') { setCurrentStep('prompt-pack-editor'); return; }
     if (project.pages.length > 0) {
       if (project.pages.some(p => p.processedImage)) setCurrentStep('generate');
       else setCurrentStep('mapping');
-    } else if (project.settings.fullScript) {
-      setCurrentStep('settings');
-    } else {
-      setCurrentStep('landing');
-    }
+    } else setCurrentStep('landing');
   };
 
-  const deleteProject = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirm("Delete this project forever?")) {
-      try {
-        await persistenceService.deleteProject(id);
-        const updatedList = await persistenceService.getAllProjects();
-        setSavedProjects(updatedList);
-      } catch (e) {
-        console.error("Delete failed:", e);
-      }
-    }
-  };
-
-  const handleDirectUpscaleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setIsUploading(true);
-    try {
-      const reader = new FileReader();
-      const base64 = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      setPages([{
-        id: 'upscale-target',
-        originalImage: base64,
-        originalText: '',
-        status: 'idle',
-        assignments: [],
-        isSpread: false
-      }]);
-    } catch (err) { console.error(err); }
-    finally { setIsUploading(false); }
-  };
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-    setIsUploading(true);
-    const fileList = Array.from(files) as File[];
-    const newPages: BookPage[] = [];
-    for (const file of fileList) {
-      try {
-        const reader = new FileReader();
-        const base64 = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        newPages.push({ id: Math.random().toString(36).substring(7), originalImage: base64, originalText: "Analyzing...", status: 'idle', assignments: [], isSpread: false });
-      } catch (err) { console.error(err); }
-    }
-    setPages(prev => [...prev, ...newPages]);
-    setIsUploading(false);
-    for (const p of newPages) {
-      try {
-        const extractedText = await extractTextFromImage(p.originalImage!);
-        setPages(current => current.map(item => item.id === p.id ? { ...item, originalText: extractedText || "" } : item));
-      } catch (err) { console.error(err); }
-    }
-  };
-
+  // Fix: Implemented handleUpscale to perform 4K enhancement using Gemini 3 Pro
   const handleUpscale = async (pageId: string) => {
     const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+
+    const page = pages.find(p => p.id === pageId);
+    if (!page?.originalImage) return;
+
     setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
+    
     try {
-      const page = pages.find(p => p.id === pageId)!;
-      const targetImg = page.processedImage || page.originalImage;
-      if (!targetImg) throw new Error("No image to upscale");
-      const upscaledImage = await upscaleIllustration(targetImg, page.overrideStylePrompt || settings.targetStyle, page.isSpread);
-      setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'completed', processedImage: upscaledImage } : p));
-      handleSaveProject();
+      const processedImage = await upscaleIllustration(
+        page.originalImage,
+        settings.targetStyle,
+        page.isSpread
+      );
+      setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'completed', processedImage } : p));
     } catch (e) {
       console.error(e);
       setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'error' } : p));
     }
-  };
-
-  const handleAutoAnalyzeStyle = async () => {
-    if (!settings.styleReference) return;
-    setIsAnalyzingStyle(true);
-    try {
-      const prompt = await analyzeStyleFromImage(settings.styleReference);
-      setSettings(prev => ({ ...prev, targetStyle: prompt }));
-    } catch (err) { console.error(err); }
-    finally { setIsAnalyzingStyle(false); }
   };
 
   const processBulk = async () => {
@@ -207,21 +137,11 @@ const App: React.FC = () => {
       setPages(current => current.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
       try {
         const p = pages.find(pg => pg.id === pageId)!;
-        const activePrompt = p.overrideStylePrompt || settings.targetStyle;
-        const processedImage = await restyleIllustration(p.originalImage, activePrompt, settings.styleReference, undefined, settings.characterReferences, p.assignments, settings.useProModel, settings.targetLanguage === 'NONE_CLEAN_BG', p.isSpread);
+        const processedImage = await restyleIllustration(undefined, p.overrideStylePrompt || settings.targetStyle, undefined, undefined, [], [], true, false, p.isSpread, settings.masterBible);
         setPages(current => current.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage } : pg));
-      } catch (e: any) { 
-        setPages(current => current.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg));
-      }
+      } catch (e) { setPages(current => current.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg)); }
     }
     setIsProcessing(false);
-  };
-
-  const downloadImage = (base64: string, name: string) => {
-    const link = document.createElement('a');
-    link.href = base64;
-    link.download = `${name}.png`;
-    link.click();
   };
 
   const renderStep = () => {
@@ -230,50 +150,143 @@ const App: React.FC = () => {
         return (
           <div className="max-w-6xl mx-auto space-y-16 py-12 animate-in fade-in duration-700">
             <div className="text-center space-y-4">
-              <h2 className="text-5xl font-black text-slate-900 tracking-tight">Industrial Production Dashboard</h2>
-              <p className="text-slate-500 text-lg max-w-xl mx-auto">Select your specialized workflow below to begin processing.</p>
+              <h2 className="text-5xl font-black text-slate-900 tracking-tight">Production Studio</h2>
+              <p className="text-slate-500 text-lg">Choose your industrial creative workflow.</p>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <button onClick={() => { setProjectId(Math.random().toString(36).substring(7)); setProjectName("Restyle Project"); setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[3.5rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all">
-                <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white mb-8 transition-all"><Palette size={28} /></div>
-                <h4 className="text-2xl font-black mb-3 text-slate-900">Book Restyler</h4>
-                <p className="text-slate-400 text-sm font-medium leading-relaxed">Upgrade and re-style entire children's books with character consistency.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <button onClick={() => { setProjectId(Math.random().toString(36).substring(7)); setSettings({...settings, mode: 'prompt-pack'}); setPages([]); setCurrentStep('prompt-pack'); }} className="p-8 bg-indigo-600 text-white rounded-[3.5rem] text-left hover:shadow-2xl transition-all group">
+                <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center mb-6"><FileText size={24} /></div>
+                <h4 className="text-xl font-black mb-2">Production Prompt Pack</h4>
+                <p className="text-white/60 text-xs">Execute pre-written scene prompts with a Master Bible.</p>
               </button>
-
-              <button onClick={() => { setProjectId(Math.random().toString(36).substring(7)); setProjectName("Upscale Job"); setSettings({...settings, mode: 'upscale'}); setPages([]); setCurrentStep('direct-upscale'); }} className="group p-10 bg-indigo-600 border-2 border-indigo-600 rounded-[3.5rem] text-left hover:shadow-2xl transition-all shadow-indigo-100 shadow-xl">
-                <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center text-white mb-8 transition-all"><Maximize2 size={28} /></div>
-                <h4 className="text-2xl font-black mb-3 text-white">Direct 4K Upscale</h4>
-                <p className="text-white/60 text-sm font-medium leading-relaxed">Fast-track high-fidelity image enhancement for master prints.</p>
+              <button onClick={() => { setProjectId(Math.random().toString(36).substring(7)); setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); }} className="p-8 bg-white border-2 border-slate-100 rounded-[3.5rem] text-left hover:border-indigo-600 transition-all">
+                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 text-slate-400"><Palette size={24} /></div>
+                <h4 className="text-xl font-black mb-2">Book Restyler</h4>
+                <p className="text-slate-400 text-xs">Upgrade existing illustrations to a new aesthetic.</p>
               </button>
-
-              <button onClick={() => { setProjectId(Math.random().toString(36).substring(7)); setProjectName("Script Build"); setSettings({...settings, mode: 'create'}); setCurrentStep('script'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[3.5rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all">
-                <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white mb-8 transition-all"><Rocket size={28} /></div>
-                <h4 className="text-2xl font-black mb-3 text-slate-900">Script-to-Book</h4>
-                <p className="text-slate-400 text-sm font-medium leading-relaxed">Full AI generation from raw story text to finalized illustrations.</p>
+              <button onClick={() => { setProjectId(Math.random().toString(36).substring(7)); setSettings({...settings, mode: 'upscale'}); setPages([]); setCurrentStep('direct-upscale'); }} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 transition-all">
+                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 text-slate-400"><Maximize2 size={24} /></div>
+                <h4 className="text-xl font-black mb-2">Direct 4K Upscale</h4>
+                <p className="text-slate-400 text-xs">Fast-track enhancement for master prints.</p>
+              </button>
+              <button onClick={() => { setProjectId(Math.random().toString(36).substring(7)); setSettings({...settings, mode: 'create'}); setCurrentStep('script'); }} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 transition-all">
+                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 text-slate-400"><Rocket size={24} /></div>
+                <h4 className="text-xl font-black mb-2">Script-to-Book</h4>
+                <p className="text-slate-400 text-xs">Full AI planning and generation from raw story text.</p>
               </button>
             </div>
-
-            <div className="space-y-8 pt-8">
-              <h3 className="text-2xl font-black flex items-center gap-3"><FolderOpen className="text-indigo-600" /> Recent Cloud Library</h3>
-              {savedProjects.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {savedProjects.sort((a,b) => b.lastModified - a.lastModified).map(project => (
-                    <div key={project.id} onClick={() => loadProject(project)} className="group bg-white border-2 border-slate-100 rounded-[3rem] p-6 hover:border-indigo-600 hover:shadow-xl transition-all cursor-pointer relative">
-                       <div className="aspect-video rounded-[2rem] bg-slate-50 overflow-hidden mb-6 relative">
-                          {project.thumbnail ? <img src={project.thumbnail} className="w-full h-full object-cover group-hover:scale-110 transition-all" alt={project.name} /> : <div className="w-full h-full flex items-center justify-center text-slate-200"><BookOpen size={48} /></div>}
-                          <div className="absolute top-4 left-4 bg-black/40 backdrop-blur-xl px-4 py-2 rounded-full text-[9px] font-black text-white uppercase tracking-widest">{project.settings.mode.toUpperCase()}</div>
-                       </div>
-                       <div className="flex justify-between items-start">
-                          <div><h4 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600">{project.name}</h4><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{new Date(project.lastModified).toLocaleDateString()}</p></div>
-                          <button onClick={(e) => deleteProject(project.id, e)} className="p-2 text-slate-300 hover:text-red-500"><Trash2 size={18} /></button>
-                       </div>
+            {savedProjects.length > 0 && (
+              <div className="space-y-6">
+                <h3 className="text-2xl font-black">Resume Production</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {savedProjects.map(proj => (
+                    <div key={proj.id} onClick={() => loadProject(proj)} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer group">
+                      <div className="aspect-video bg-slate-50 rounded-2xl mb-4 overflow-hidden">
+                        {proj.thumbnail && <img src={proj.thumbnail} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />}
+                      </div>
+                      <h4 className="font-bold">{proj.name}</h4>
+                      <p className="text-xs text-slate-400 uppercase font-black mt-1">{proj.settings.mode}</p>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="h-[200px] bg-slate-50 border-4 border-dashed border-slate-200 rounded-[3rem] flex flex-col items-center justify-center text-slate-300 font-bold uppercase tracking-widest">Library Empty</div>
-              )}
+              </div>
+            )}
+          </div>
+        );
+
+      case 'prompt-pack':
+        return (
+          <div className="max-w-5xl mx-auto space-y-12 py-12 animate-in fade-in duration-500">
+             <div className="text-center space-y-4">
+                <h2 className="text-4xl font-black">Production Pack Importer</h2>
+                <p className="text-slate-500">Paste your entire Master Bible and Scene prompts below. AI will structure the production.</p>
+             </div>
+             <div className="bg-white p-12 rounded-[4rem] border-2 border-slate-100 shadow-xl space-y-8">
+                <textarea 
+                  className="w-full bg-slate-50 border-none rounded-[2rem] p-10 text-sm font-medium outline-none h-[500px] resize-none italic shadow-inner"
+                  placeholder="Paste your Master Bible + Story Scenes (Scene 1, Scene 2...) here..."
+                  value={rawPackText}
+                  onChange={(e) => setRawPackText(e.target.value)}
+                />
+                <button 
+                  disabled={!rawPackText || isParsing}
+                  onClick={handleParsePack}
+                  className="w-full bg-indigo-600 text-white py-8 rounded-[2.5rem] font-black text-2xl hover:bg-indigo-700 shadow-2xl transition-all flex items-center justify-center gap-6 disabled:opacity-50"
+                >
+                  {isParsing ? <><Loader2 className="animate-spin" size={32} /> ANALYZING PRODUCTION STRUCTURE...</> : <><ClipboardList size={32} /> PARSE & INITIALIZE PRODUCTION</>}
+                </button>
+             </div>
+             <button onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600">Cancel</button>
+          </div>
+        );
+
+      case 'prompt-pack-editor':
+        return (
+          <div className="max-w-6xl mx-auto space-y-12 py-12 animate-in fade-in duration-500">
+             <div className="bg-white p-10 rounded-[4rem] border-2 border-slate-100 shadow-sm space-y-6">
+                <div className="flex justify-between items-center"><h3 className="text-2xl font-black">Master Bible (Injected into every Scene)</h3><button onClick={() => setCurrentStep('prompt-pack')} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-4 py-2 rounded-full">Return to Importer</button></div>
+                <textarea 
+                  className="w-full bg-slate-50 border-none rounded-3xl p-6 text-sm font-medium h-40 resize-none italic"
+                  value={settings.masterBible || ""}
+                  onChange={(e) => setSettings({...settings, masterBible: e.target.value})}
+                />
+             </div>
+             
+             <div className="space-y-8">
+                <div className="flex justify-between items-center"><h3 className="text-3xl font-black">Production Drafting Board</h3><button onClick={() => setPages([...pages, { id: Math.random().toString(36).substring(7), originalText: "", status: 'idle', assignments: [], isSpread: false }])} className="bg-indigo-600 text-white px-8 py-4 rounded-3xl font-bold flex items-center gap-2 shadow-lg"><Plus /> New Scene</button></div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                   {pages.map((p, idx) => (
+                     <div key={p.id} className="bg-white p-8 rounded-[3.5rem] border-2 border-slate-100 shadow-sm space-y-6 relative group hover:border-indigo-400 transition-colors">
+                        <button onClick={() => setPages(pages.filter(pg => pg.id !== p.id))} className="absolute top-8 right-8 text-slate-200 hover:text-red-500"><Trash2 size={20} /></button>
+                        <div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-lg">S{idx+1}</div><h4 className="font-bold text-slate-800">Scene Instruction</h4></div>
+                        <textarea 
+                          className="w-full bg-slate-50 border-none rounded-2xl p-6 text-xs font-medium h-48 resize-none shadow-inner"
+                          value={p.overrideStylePrompt || ""}
+                          onChange={(e) => { const n = [...pages]; n[idx].overrideStylePrompt = e.target.value; setPages(n); }}
+                        />
+                        <div className="flex justify-between items-center bg-slate-50 p-4 rounded-[1.5rem] border border-slate-100">
+                           <div className="flex items-center gap-2"><Layers size={14} className="text-slate-400" /><span className="text-[10px] font-black uppercase text-slate-400">Crossing Format</span></div>
+                           <div className="flex gap-2">
+                              <button onClick={() => { const n = [...pages]; n[idx].isSpread = false; setPages(n); }} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${!p.isSpread ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-400 hover:bg-slate-100'}`}>Single Page</button>
+                              <button onClick={() => { const n = [...pages]; n[idx].isSpread = true; setPages(n); }} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${p.isSpread ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-400 hover:bg-slate-100'}`}>Double Spread</button>
+                           </div>
+                        </div>
+                     </div>
+                   ))}
+                </div>
+             </div>
+             <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-3xl border-t-2 border-slate-100 p-10 z-50 shadow-2xl rounded-t-[5rem]">
+               <div className="max-w-6xl mx-auto flex justify-between items-center px-10">
+                  <button onClick={() => setCurrentStep('prompt-pack')} className="px-12 py-5 rounded-[2.5rem] font-bold text-slate-400 hover:bg-slate-50 transition-colors">Restart Importer</button>
+                  <button onClick={() => processBulk()} className="bg-indigo-600 text-white px-16 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-5 hover:bg-indigo-700 shadow-2xl hover:scale-105 transition-all"><Sparkles size={36} /> EXECUTE PRODUCTION QUEUE</button>
+               </div>
+            </div>
+          </div>
+        );
+
+      case 'generate':
+        return (
+          <div className="space-y-12 animate-in fade-in duration-500 pb-56 px-8">
+            <div className="text-center"><h2 className="text-4xl font-black">Industrial Queue Active</h2><p className="text-slate-500">{stats.completed} of {stats.total} master illustrations generated.</p></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+              {pages.map((p, idx) => (
+                <div key={p.id} className="bg-white rounded-[4rem] border-4 border-slate-50 overflow-hidden shadow-sm relative group">
+                  <div className="aspect-square bg-slate-50 relative overflow-hidden">
+                    {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'blur-2xl opacity-40' : ''}`} />}
+                    {p.status === 'processing' && <div className="absolute inset-0 flex items-center justify-center bg-indigo-600/5"><div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin"></div></div>}
+                  </div>
+                  <div className="p-10 space-y-4 bg-white relative z-10">
+                     <div className="flex justify-between items-center"><span className="text-xs font-black uppercase text-slate-400">Scene {idx+1} {p.isSpread ? '— Spread' : '— Single'}</span><button onClick={() => { setEditingPageId(p.id); setCurrentStep('prompt-pack-editor'); }} className="text-indigo-600 font-bold text-xs">Edit Prompt</button></div>
+                     <p className="text-xs text-slate-500 italic line-clamp-2">{p.overrideStylePrompt}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="fixed bottom-0 inset-x-0 bg-slate-900 text-white p-14 shadow-2xl z-50 rounded-t-[7rem]">
+               <div className="max-w-6xl mx-auto flex flex-col xl:flex-row items-center justify-between gap-12 px-10">
+                  <div className="flex items-center gap-8"><button onClick={() => setCurrentStep('prompt-pack-editor')} className="bg-white/10 p-5 rounded-full"><ChevronLeft size={32} /></button><span className="text-2xl font-black uppercase tracking-tight">Queue Progress: {stats.progress}%</span></div>
+                  <button disabled={isProcessing || !pages.every(p => p.status === 'completed')} onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode)} className="bg-indigo-600 text-white px-20 py-8 rounded-[3.5rem] font-black text-2xl flex items-center gap-8 hover:bg-indigo-500 shadow-2xl disabled:opacity-30"><Download size={40} /> EXPORT PRODUCTION PDF</button>
+               </div>
             </div>
           </div>
         );
@@ -281,112 +294,37 @@ const App: React.FC = () => {
       case 'direct-upscale':
         const targetPage = pages[0];
         return (
-          <div className="max-w-5xl mx-auto space-y-12 py-12 animate-in fade-in slide-in-from-bottom-8 duration-500">
-             <div className="flex justify-between items-center">
-                <button onClick={() => setCurrentStep('landing')} className="flex items-center gap-2 text-slate-400 font-bold hover:text-slate-600 transition-colors"><ChevronLeft /> Back to Dashboard</button>
-                <div className="flex items-center gap-3 bg-indigo-50 px-6 py-3 rounded-full"><Zap className="text-indigo-600" size={18} /><span className="text-indigo-600 font-black text-xs uppercase tracking-widest">Master 4K Engine Active</span></div>
-             </div>
-
-             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                <div className="space-y-8">
-                   <div className="bg-white p-10 rounded-[4rem] border-2 border-slate-100 shadow-sm space-y-8">
-                      <h3 className="text-2xl font-black">1. Source Image</h3>
-                      <div 
-                        onClick={() => !isUploading && directUpscaleInputRef.current?.click()}
-                        className="aspect-square bg-slate-50 border-4 border-dashed border-slate-200 rounded-[3rem] overflow-hidden flex flex-col items-center justify-center cursor-pointer hover:border-indigo-600 transition-all group"
-                      >
-                         {targetPage?.originalImage ? (
-                           <img src={targetPage.originalImage} className="w-full h-full object-cover" alt="Source" />
-                         ) : (
-                           <div className="text-center space-y-4">
-                              <div className="w-20 h-20 bg-white rounded-3xl mx-auto flex items-center justify-center text-slate-200 group-hover:text-indigo-600 transition-colors shadow-lg"><Upload /></div>
-                              <p className="text-slate-400 font-bold text-sm uppercase">Drop Master File</p>
-                           </div>
-                         )}
-                         <input type="file" hidden ref={directUpscaleInputRef} accept="image/*" onChange={handleDirectUpscaleUpload} />
-                      </div>
-                   </div>
-
-                   <div className="bg-white p-10 rounded-[4rem] border-2 border-slate-100 shadow-sm space-y-6">
-                      <h3 className="text-2xl font-black">2. Style Context</h3>
-                      <p className="text-slate-400 text-sm">Specifying the original artistic style helps the AI enhance textures accurately.</p>
-                      <textarea 
-                        className="w-full bg-slate-50 border-none rounded-3xl p-6 text-sm font-medium outline-none focus:ring-4 focus:ring-indigo-500/10 h-32 resize-none"
-                        placeholder="e.g., 3D Pixar-style character with fur textures and soft lighting..."
-                        value={settings.targetStyle}
-                        onChange={(e) => setSettings({...settings, targetStyle: e.target.value})}
-                      />
-                      <button 
-                        disabled={!targetPage || targetPage.status === 'processing'}
-                        onClick={() => handleUpscale(targetPage.id)}
-                        className="w-full bg-indigo-600 text-white py-6 rounded-[2rem] font-black text-xl hover:bg-indigo-700 shadow-xl transition-all active:scale-95 disabled:opacity-30 flex items-center justify-center gap-4"
-                      >
-                        {targetPage?.status === 'processing' ? <Loader2 className="animate-spin" /> : <Maximize2 />} PERFORM 4K UPSCALE
-                      </button>
+          <div className="max-w-5xl mx-auto space-y-12 py-12 animate-in fade-in duration-500">
+             <div className="flex justify-between items-center"><button onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold flex items-center gap-2"><ChevronLeft /> Dashboard</button><div className="bg-indigo-50 px-6 py-3 rounded-full flex items-center gap-2"><Zap size={18} className="text-indigo-600" /><span className="text-indigo-600 font-black text-xs uppercase">Direct 4K Engine</span></div></div>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                <div className="bg-white p-10 rounded-[4rem] border-2 border-slate-100 shadow-sm space-y-6">
+                   <h3 className="text-2xl font-black">1. Upload File</h3>
+                   <div onClick={() => directUpscaleInputRef.current?.click()} className="aspect-square bg-slate-50 border-4 border-dashed rounded-[3rem] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-600 transition-all">
+                      {targetPage?.originalImage ? <img src={targetPage.originalImage} className="w-full h-full object-cover" /> : <div className="text-center text-slate-300"><Upload className="mx-auto mb-4" /><span>DROP MASTER</span></div>}
+                      <input type="file" hidden ref={directUpscaleInputRef} accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onload = () => setPages([{id:'u', originalImage: r.result as string, status:'idle', assignments:[], isSpread:false, originalText:''}]); r.readAsDataURL(f); } }} />
                    </div>
                 </div>
-
-                <div className="bg-slate-900 rounded-[5rem] overflow-hidden shadow-2xl flex flex-col items-center justify-center p-4 min-h-[600px] relative">
-                   {targetPage?.status === 'processing' && (
-                     <div className="absolute inset-0 z-10 bg-slate-900/80 backdrop-blur-md flex flex-col items-center justify-center gap-6">
-                        <div className="w-24 h-24 border-[8px] border-indigo-500 border-t-transparent rounded-full animate-spin shadow-2xl"></div>
-                        <span className="text-indigo-400 font-black uppercase tracking-[0.5em] animate-pulse">Deep Enhancing...</span>
-                     </div>
-                   )}
-                   
-                   {targetPage?.processedImage ? (
-                     <div className="w-full h-full flex flex-col gap-8">
-                        <img src={targetPage.processedImage} className="w-full h-full object-contain rounded-[3rem]" alt="Upscaled result" />
-                        <div className="flex gap-4 w-full">
-                           <button onClick={() => downloadImage(targetPage.processedImage!, projectName)} className="flex-1 bg-indigo-600 py-6 rounded-3xl font-black flex items-center justify-center gap-3 hover:bg-indigo-500 transition-all"><Download /> DOWNLOAD 4K PNG</button>
-                           <button onClick={() => setPages([])} className="bg-white/10 p-6 rounded-3xl text-white hover:bg-white/20 transition-all"><RefreshCw /></button>
-                        </div>
-                     </div>
-                   ) : (
-                     <div className="text-center space-y-6 opacity-30">
-                        <Sparkles size={80} className="text-indigo-400 mx-auto" />
-                        <p className="text-white font-black uppercase tracking-[0.3em]">Awaiting Generation</p>
-                     </div>
-                   )}
+                <div className="bg-slate-900 rounded-[5rem] p-4 flex flex-col items-center justify-center min-h-[500px] relative">
+                   {targetPage?.status === 'processing' && <Loader2 className="animate-spin text-indigo-500" size={64} />}
+                   {targetPage?.processedImage ? <img src={targetPage.processedImage} className="w-full h-full object-contain rounded-[3rem]" /> : <span className="text-white/20 font-black uppercase">Ready for Enhance</span>}
+                   {targetPage?.originalImage && targetPage.status !== 'processing' && !targetPage.processedImage && <button onClick={() => handleUpscale(targetPage.id)} className="absolute bottom-10 bg-indigo-600 text-white px-10 py-5 rounded-full font-black">PERFORM 4K UPSCALE</button>}
                 </div>
              </div>
           </div>
         );
 
-      case 'upload':
-        return (
-          <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="text-center mb-8"><h2 className="text-4xl font-bold mb-2">Import Story Pages</h2><p className="text-slate-500 text-lg">Upload your original book assets.</p></div>
-            <div onClick={() => !isUploading && fileInputRef.current?.click()} className={`h-[400px] bg-white border-4 border-dashed rounded-[4rem] flex flex-col items-center justify-center gap-6 cursor-pointer group ${isUploading ? 'opacity-50 cursor-wait' : 'hover:border-indigo-500'}`}>
-              {isUploading ? <Loader2 className="animate-spin text-indigo-600" size={64} /> : <Upload size={48} className="text-slate-200 group-hover:text-indigo-600 transition-colors" />}
-              <p className="font-bold text-slate-400">SELECT FILES</p>
-              <input type="file" multiple hidden ref={fileInputRef} accept="image/*" onChange={handleFileUpload} />
-            </div>
-            <div className="flex justify-between pt-12"><button onClick={() => setCurrentStep('landing')} className="px-10 py-5 rounded-[2rem] font-bold text-slate-500 hover:bg-slate-100">Back</button><button disabled={pages.length === 0} onClick={() => setCurrentStep('settings')} className="bg-indigo-600 text-white px-12 py-5 rounded-[2rem] font-bold hover:bg-indigo-700">Next <ChevronRight /></button></div>
-          </div>
-        );
-
-      // Remaining steps (script, settings, characters, mapping, generate) use the same logic as before...
-      // For brevity, keeping the standard generate/render loop but showing the updated structure
       default:
-        return (
-          <div className="flex items-center justify-center h-[400px]">
-            <button onClick={() => setCurrentStep('landing')} className="bg-indigo-600 text-white px-10 py-5 rounded-full font-bold">Return to Dashboard</button>
-          </div>
-        );
+        return <div className="text-center py-40"><button onClick={() => setCurrentStep('landing')} className="bg-indigo-600 text-white px-12 py-5 rounded-full font-black">Dashboard</button></div>;
     }
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
-      <header className="bg-white/90 backdrop-blur-2xl border-b border-slate-200 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-[1400px] mx-auto px-12 h-28 flex items-center justify-between gap-12">
-          <div className="flex items-center gap-6 cursor-pointer shrink-0" onClick={() => setCurrentStep('landing')}><div className="w-14 h-14 bg-indigo-600 rounded-[1.2rem] flex items-center justify-center text-white shadow-xl rotate-3 hover:rotate-0 transition-transform"><Sparkles size={28} /></div><h1 className="text-2xl font-bold text-slate-900 leading-none">StoryFlow <span className="text-indigo-600">Pro</span></h1></div>
-          <div className="flex-1 max-w-md hidden md:flex items-center gap-4 bg-slate-50 border border-slate-100 px-6 py-3 rounded-2xl"><input className="bg-transparent border-none outline-none font-bold text-slate-700 flex-1 text-sm" value={projectName} onChange={(e) => setProjectName(e.target.value)} /><button onClick={handleSaveProject} disabled={isSaving} className="p-2 bg-indigo-600 text-white rounded-lg shadow-lg"><Save size={18} /></button></div>
-          <div className="hidden lg:flex items-center gap-4">{['landing', 'upload', 'settings', 'characters', 'mapping', 'generate'].map((s, i) => (<div key={s} onClick={() => setCurrentStep(s as Step)} className={`w-10 h-10 rounded-full flex items-center justify-center text-[10px] font-black cursor-pointer transition-all ${currentStep === s ? 'bg-indigo-600 text-white scale-110' : 'bg-slate-100 text-slate-400'}`}>{i+1}</div>))}</div>
-        </div>
+      <header className="bg-white/90 backdrop-blur-2xl border-b border-slate-200 sticky top-0 z-50 h-28 flex items-center px-12 justify-between shadow-sm">
+        <div className="flex items-center gap-4 cursor-pointer" onClick={() => setCurrentStep('landing')}><div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg"><Sparkles /></div><h1 className="text-2xl font-black text-slate-900">StoryFlow <span className="text-indigo-600">Pro</span></h1></div>
+        <div className="flex items-center gap-4 bg-slate-50 px-6 py-3 rounded-2xl border border-slate-100 shadow-inner"><input className="bg-transparent border-none outline-none font-bold text-sm text-slate-700" value={projectName} onChange={(e) => setProjectName(e.target.value)} /><button onClick={handleSaveProject} disabled={isSaving} className="p-2 bg-indigo-600 text-white rounded-lg shadow-xl hover:bg-indigo-700 transition-all">{isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}</button></div>
       </header>
-      <main className="flex-1 max-w-[1400px] mx-auto w-full px-12 py-12">{renderStep()}</main>
+      <main className="flex-1 w-full max-w-[1400px] mx-auto py-12">{renderStep()}</main>
     </div>
   );
 };

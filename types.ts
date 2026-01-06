@@ -12,23 +12,24 @@ export interface CharacterAssignment {
 
 export interface BookPage {
   id: string;
-  originalImage?: string; // Optional in 'create' mode
+  originalImage?: string; 
   processedImage?: string; 
   originalText: string;
   translatedText?: string;
   status: 'idle' | 'processing' | 'completed' | 'error';
   assignments: CharacterAssignment[];
   isSpread: boolean; 
-  overrideStylePrompt?: string; // For per-page prompt tweaking
+  overrideStylePrompt?: string; 
 }
 
 export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'INGRAM_PREMIUM';
 export type SpreadExportMode = 'SPLIT_PAGES' | 'WIDE_SPREAD';
-export type AppMode = 'restyle' | 'create' | 'upscale';
+export type AppMode = 'restyle' | 'create' | 'upscale' | 'prompt-pack';
 
 export interface AppSettings {
   mode: AppMode;
   fullScript?: string;
+  masterBible?: string; // New: For "Prompt Pack" mode
   targetStyle: string;
   styleReference?: string; 
   targetLanguage: string | 'NONE_CLEAN_BG';
@@ -49,14 +50,13 @@ export interface Project {
   thumbnail?: string;
 }
 
-// Technical Margin Rules based on the provided guide
 export const PRINT_FORMATS = {
   KDP_SQUARE: { 
     name: 'KDP Square (8.5" x 8.5")', 
     width: 8.5, 
     height: 8.5, 
     bleed: 0.125, 
-    baseGutter: 0.75, // Recommended Universal Safe Value
+    baseGutter: 0.75,
     outside: 0.5, 
     top: 0.5, 
     bottom: 0.75 
