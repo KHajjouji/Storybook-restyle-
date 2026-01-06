@@ -93,7 +93,7 @@ export const identifyAndDesignCharacters = async (charDescription: string, style
     id: Math.random().toString(36).substring(7), 
     name: "Character", 
     description: charDescription, 
-    image: base64 
+    images: base64 ? [base64] : [] 
   }];
 };
 
@@ -124,17 +124,19 @@ export const restyleIllustration = async (
   ${stylePrompt}
   
   CONSISTENCY ANCHORS:
-  I have attached reference sheets for the main characters. They MUST look identical to these references in the scene.
-  - Pay attention to specific outfits, hair styles (e.g. ponytail for mom, simple pigtails for girl), and skin tones.
+  I have attached one or more reference images for each character. They MUST look identical to these references in the scene (face, hair, skin, clothing).
+  - Pay attention to specific outfits, hair styles, and skin tones.
+  - Replicate the facial features exactly.
   
   CONSTRAINTS: No text, no logos, cozy warm lighting, soft painterly style.`;
 
   parts.push({ text: instruction });
 
+  // Attach all reference images for all characters
   charRefs.forEach((ref) => {
-    if (ref.image) {
-      parts.push({ inlineData: { data: ref.image.split(',')[1], mimeType: 'image/png' } });
-    }
+    ref.images.forEach((img) => {
+      parts.push({ inlineData: { data: img.split(',')[1], mimeType: 'image/png' } });
+    });
   });
 
   if (styleRefBase64) { 
@@ -147,7 +149,7 @@ export const restyleIllustration = async (
     config: { 
       imageConfig: { 
         aspectRatio: isSpread ? "16:9" : "4:3", 
-        imageSize: "1K" 
+        ...(usePro ? { imageSize: "1K" } : {})
       } 
     }
   });

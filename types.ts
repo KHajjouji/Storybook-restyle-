@@ -1,6 +1,6 @@
 export interface CharacterRef {
   id: string;
-  image: string; // base64
+  images: string[]; // Changed from single image to array of base64 strings
   name: string;
   description?: string;
 }
@@ -29,7 +29,7 @@ export type AppMode = 'restyle' | 'create' | 'upscale' | 'prompt-pack';
 export interface AppSettings {
   mode: AppMode;
   fullScript?: string;
-  masterBible?: string; // New: For "Prompt Pack" mode
+  masterBible?: string; // For "Prompt Pack" mode
   targetStyle: string;
   styleReference?: string; 
   targetLanguage: string | 'NONE_CLEAN_BG';

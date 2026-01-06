@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project } from './types';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack } from './geminiService';
@@ -36,6 +36,7 @@ const App: React.FC = () => {
 
   const directUpscaleInputRef = useRef<HTMLInputElement>(null);
   const restyleInputRef = useRef<HTMLInputElement>(null);
+  const charUploadRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
 
   const stats = useMemo(() => {
     const total = pages.length;
@@ -73,7 +74,12 @@ const App: React.FC = () => {
       setSettings(prev => ({ 
         ...prev, 
         masterBible: result.masterBible,
-        characterReferences: result.characterIdentities.map(c => ({ id: Math.random().toString(36).substring(7), name: c.name, description: c.description, image: "" }))
+        characterReferences: result.characterIdentities.map(c => ({ 
+          id: Math.random().toString(36).substring(7), 
+          name: c.name, 
+          description: c.description, 
+          images: [] // Initialize with empty images array
+        }))
       }));
       setPages(result.scenes.map(s => ({
         id: Math.random().toString(36).substring(7),
@@ -104,20 +110,38 @@ const App: React.FC = () => {
     finally { setIsParsing(false); }
   };
 
+  const handleCharacterImageUpload = (charId: string, file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSettings(prev => ({
+        ...prev,
+        characterReferences: prev.characterReferences.map(c => 
+          c.id === charId ? { ...c, images: [...c.images, reader.result as string] } : c
+        )
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeCharacterImage = (charId: string, imgIdx: number) => {
+    setSettings(prev => ({
+      ...prev,
+      characterReferences: prev.characterReferences.map(c => 
+        c.id === charId ? { ...c, images: c.images.filter((_, i) => i !== imgIdx) } : c
+      )
+    }));
+  };
+
   const designIndividualCharacter = async (idx: number) => {
     const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
     
     const char = settings.characterReferences[idx];
-    const newChars = [...settings.characterReferences];
-    newChars[idx] = { ...char, image: "" }; 
-    setSettings({ ...settings, characterReferences: newChars });
-
     try {
       const designedList = await identifyAndDesignCharacters(char.description || char.name, settings.targetStyle);
-      if (designedList[0]) {
+      if (designedList[0] && designedList[0].images.length > 0) {
         const updated = [...settings.characterReferences];
-        updated[idx] = { ...char, image: designedList[0].image };
+        updated[idx] = { ...char, images: [...char.images, ...designedList[0].images] };
         setSettings({ ...settings, characterReferences: updated });
       }
     } catch (err) { console.error(err); }
@@ -279,8 +303,27 @@ const App: React.FC = () => {
 
       case 'prompt-pack':
         return (
-          <div className="max-w-5xl mx-auto py-12 space-y-8 animate-in slide-in-from-bottom duration-500">
-            <div className="text-center"><h2 className="text-4xl font-black">Industrial Script Import</h2><p className="text-slate-500">Paste your fully expanded prompt pack (Master Bible + Story Scenes).</p></div>
+          <div className="max-w-5xl mx-auto py-12 space-y-12 animate-in slide-in-from-bottom duration-500">
+            <div className="text-center space-y-4">
+              <h2 className="text-4xl font-black">Industrial Script Import</h2>
+              <p className="text-slate-500">Automate your entire production from a single "Prompt Pack".</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 flex items-start gap-4">
+                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center shrink-0 font-black">1</div>
+                <div><h6 className="font-bold text-slate-800 text-sm mb-1">Paste Script</h6><p className="text-slate-400 text-xs">AI extracts your Global Style Lock and Character Bible.</p></div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 flex items-start gap-4">
+                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center shrink-0 font-black">2</div>
+                <div><h6 className="font-bold text-slate-800 text-sm mb-1">Lock Identity</h6><p className="text-slate-400 text-xs">AI or Manual Upload of character sheets for absolute continuity.</p></div>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 flex items-start gap-4">
+                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center shrink-0 font-black">3</div>
+                <div><h6 className="font-bold text-slate-800 text-sm mb-1">Batch Render</h6><p className="text-slate-400 text-xs">Execute all scenes at once using the locked visual anchors.</p></div>
+              </div>
+            </div>
+
             <div className="bg-white p-12 rounded-[5rem] shadow-2xl border-2 border-slate-100 space-y-8">
               <textarea 
                 className="w-full h-[500px] bg-slate-50 border-none rounded-[3rem] p-10 font-medium text-sm outline-none resize-none italic shadow-inner"
@@ -345,31 +388,64 @@ const App: React.FC = () => {
           <div className="max-w-6xl mx-auto py-12 space-y-12 animate-in fade-in duration-500 pb-40">
             <div className="text-center space-y-4">
               <h2 className="text-5xl font-black">Consistent Identity Anchors</h2>
-              <p className="text-slate-500 text-lg">Generate visual reference sheets to lock character likeness.</p>
+              <p className="text-slate-500 text-lg">Upload multiple reference scenes OR generate AI sheets. Every image you add strengthens face consistency.</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            
+            <div className="space-y-12">
               {settings.characterReferences.map((char, idx) => (
-                <div key={char.id} className="bg-white p-8 rounded-[4rem] border-2 border-slate-100 shadow-xl space-y-6 relative group">
-                  <div className="aspect-square bg-slate-50 rounded-[3rem] overflow-hidden relative border-4 border-slate-50 shadow-inner">
-                    {char.image ? <img src={char.image} className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 italic px-4 text-center text-xs"><Wand2 size={48} className="mb-4 opacity-20" />Ready to design "{char.name}"</div>}
-                    <button onClick={() => designIndividualCharacter(idx)} className="absolute inset-0 bg-indigo-600/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><div className="bg-white text-indigo-600 px-6 py-3 rounded-full font-black text-xs shadow-2xl flex items-center gap-2"><RefreshCw size={14} /> GENERATE SHEET</div></button>
+                <div key={char.id} className="bg-white p-12 rounded-[4rem] border-2 border-slate-100 shadow-xl space-y-8">
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-6">
+                    <div className="flex items-center gap-6">
+                      <div className="w-16 h-16 bg-indigo-600 text-white rounded-2xl flex items-center justify-center font-black text-2xl">{idx + 1}</div>
+                      <div>
+                        <h5 className="font-black text-3xl text-slate-800">{char.name}</h5>
+                        <p className="text-sm text-slate-400 font-medium italic">{char.description}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-4">
+                      <button onClick={() => designIndividualCharacter(idx)} className="bg-indigo-50 text-indigo-600 px-8 py-4 rounded-2xl font-black text-xs flex items-center gap-2 hover:bg-indigo-100 transition-all shadow-sm"><Wand2 size={16} /> GENERATE SHEET</button>
+                      <button onClick={() => charUploadRefs.current[char.id]?.click()} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-xs flex items-center gap-2 hover:bg-slate-800 transition-all shadow-lg"><Plus size={16} /> ADD REFERENCE</button>
+                      <input 
+                        type="file" 
+                        hidden 
+                        ref={el => { charUploadRefs.current[char.id] = el; }}
+                        onChange={(e) => e.target.files?.[0] && handleCharacterImageUpload(char.id, e.target.files[0])}
+                      />
+                    </div>
                   </div>
-                  <div className="text-center space-y-2">
-                    <h5 className="font-black text-xl text-slate-800">{char.name}</h5>
-                    <p className="text-[10px] text-slate-400 uppercase font-black leading-tight h-16 overflow-hidden line-clamp-3">{char.description}</p>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                    {char.images.map((img, imgIdx) => (
+                      <div key={imgIdx} className="aspect-square bg-slate-50 rounded-3xl overflow-hidden relative border-2 border-slate-100 group shadow-sm">
+                        <img src={img} className="w-full h-full object-cover" />
+                        <button 
+                          onClick={() => removeCharacterImage(char.id, imgIdx)}
+                          className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                    {char.images.length === 0 && (
+                      <div className="col-span-full py-16 flex flex-col items-center justify-center text-slate-200 italic border-4 border-dashed border-slate-50 rounded-[3rem]">
+                        <ImageIcon size={64} className="mb-4 opacity-20" />
+                        <p className="font-bold text-lg">No visual anchors locked for this character</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
+
             <div className="fixed bottom-0 inset-x-0 bg-slate-900 text-white p-12 z-50 rounded-t-[5rem] shadow-2xl border-t border-white/5">
               <div className="max-w-6xl mx-auto flex justify-between items-center">
                 <button onClick={() => setCurrentStep('prompt-pack-editor')} className="text-white/50 font-black flex items-center gap-2 hover:text-white"><ChevronLeft /> Adjust Story</button>
                 <button 
-                  disabled={!settings.characterReferences.every(c => c.image)}
+                  disabled={!settings.characterReferences.every(c => c.images.length > 0)}
                   onClick={processBulkRender}
                   className="bg-indigo-600 text-white px-16 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-4 hover:bg-indigo-500 shadow-2xl disabled:opacity-30 transition-all"
                 >
-                  <Sparkles size={36} /> EXECUTE PRODUCTION
+                  <Sparkles size={36} /> EXECUTE BULK RENDER
                 </button>
               </div>
             </div>
