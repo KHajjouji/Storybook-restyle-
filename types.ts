@@ -1,6 +1,6 @@
 export interface CharacterRef {
   id: string;
-  images: string[]; // Changed from single image to array of base64 strings
+  images: string[]; 
   name: string;
   description?: string;
 }
@@ -26,10 +26,19 @@ export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'INGRAM_P
 export type SpreadExportMode = 'SPLIT_PAGES' | 'WIDE_SPREAD';
 export type AppMode = 'restyle' | 'create' | 'upscale' | 'prompt-pack';
 
+export interface SeriesPreset {
+  id: string;
+  title: string;
+  description: string;
+  masterBible: string;
+  characters: { name: string, description: string }[];
+  scenes: { id: string, text: string, prompt: string, isSpread: boolean }[];
+}
+
 export interface AppSettings {
   mode: AppMode;
   fullScript?: string;
-  masterBible?: string; // For "Prompt Pack" mode
+  masterBible?: string; 
   targetStyle: string;
   styleReference?: string; 
   targetLanguage: string | 'NONE_CLEAN_BG';
