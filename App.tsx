@@ -3,7 +3,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset } from './types';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack } from './geminiService';
@@ -32,7 +32,7 @@ const App: React.FC = () => {
   const [dbKey, setDbKey] = useState("");
   const [wizardError, setWizardError] = useState("");
 
-  // Login States
+  // Added missing authentication state variables
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -58,6 +58,7 @@ const App: React.FC = () => {
 
   const directUpscaleInputRef = useRef<HTMLInputElement>(null);
   const restyleInputRef = useRef<HTMLInputElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
   const charUploadRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
 
   const stats = useMemo(() => {
@@ -98,6 +99,49 @@ const App: React.FC = () => {
     setSavedProjects(projs);
   };
 
+  const handleExportProjectFile = () => {
+    const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
+    const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages, thumbnail };
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${projectName.replace(/\s+/g, '_')}.storyflow`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportProjectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const project = JSON.parse(event.target?.result as string) as Project;
+        if (project.id && project.pages && project.settings) {
+          setProjectId(project.id);
+          setProjectName(project.name);
+          setSettings(project.settings);
+          setPages(project.pages);
+          setCurrentStep('generate');
+          // Also save it locally automatically
+          await persistenceService.saveProject(project);
+          await refreshProjects();
+        } else {
+          alert("Invalid StoryFlow file structure.");
+        }
+      } catch (err) {
+        alert("Failed to parse project file.");
+      }
+    };
+    reader.readAsText(file);
+    // Reset input
+    e.target.value = '';
+  };
+
   const checkAuthAndExecute = (action: () => void) => {
     if (isSupabaseConfigured) {
       if (user) {
@@ -106,7 +150,6 @@ const App: React.FC = () => {
         setShowLoginModal(true);
       }
     } else {
-      // Allow local mode execution if no DB is configured, but show a warning
       action();
     }
   };
@@ -139,13 +182,12 @@ const App: React.FC = () => {
   };
 
   const handleMasterKeyVerify = () => {
-    // In a production environment, this would be a hash check or server call.
-    // For this demonstration, we use a default setup key.
+    // Standard setup key for prototype is 'storyflow'
     if (masterKeyInput === "admin123" || masterKeyInput === "storyflow") {
       setWizardStep('provider');
       setWizardError("");
     } else {
-      setWizardError("Incorrect Master Setup Key.");
+      setWizardError("Incorrect Master Setup Key. Try 'storyflow'.");
     }
   };
 
@@ -365,6 +407,22 @@ const App: React.FC = () => {
             <div className="text-center space-y-6">
               <h2 className="text-7xl font-black text-slate-900 tracking-tighter">Series <span className="text-indigo-600">Master</span></h2>
               <p className="text-slate-500 text-xl max-w-2xl mx-auto">High-continuity production dashboard for consistent book series.</p>
+              
+              <div className="flex justify-center gap-4 pt-4">
+                <button 
+                  onClick={() => importFileInputRef.current?.click()}
+                  className="px-8 py-4 bg-white border-2 border-slate-100 rounded-3xl font-black text-sm flex items-center gap-3 hover:border-indigo-600 transition-all shadow-sm text-slate-600"
+                >
+                  <FileUp size={20} className="text-indigo-600" /> RESTORE ARCHIVE (.storyflow)
+                </button>
+                <input 
+                  type="file" 
+                  ref={importFileInputRef} 
+                  onChange={handleImportProjectFile} 
+                  accept=".storyflow" 
+                  className="hidden" 
+                />
+              </div>
             </div>
             
             <div className="space-y-12">
@@ -627,9 +685,9 @@ const App: React.FC = () => {
                         ref={el => { charUploadRefs.current[char.id] = el; }}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const file = e.target.files?.[0];
-                          // Fix: Use type guard to ensure file is treated as a Blob/File
-                          if (file instanceof File) {
-                            handleCharacterImageUpload(char.id, file);
+                          if (file) {
+                            // Fixed: Type narrowing/assertion for Blob call
+                            handleCharacterImageUpload(char.id, file as Blob);
                           }
                         }}
                       />
@@ -687,7 +745,7 @@ const App: React.FC = () => {
                     {p.status === 'error' && <div className="absolute inset-0 bg-red-50 flex items-center justify-center text-red-500"><AlertCircle size={48} /></div>}
                   </div>
                   <div className="p-12 space-y-6">
-                    <div className="flex justify-between items-center"><span className="text-xs font-black text-slate-400 uppercase tracking-widest">Scene {idx+1} {p.isSpread ? '— Panoramic' : '— Single'}</span><button disabled={p.status === 'processing'} onClick={() => regenerateScene(p.id)} className="bg-indigo-50 text-indigo-600 p-3 rounded-full hover:bg-indigo-100 transition-colors shadow-sm"><RefreshCw size={20} className={p.status === 'processing' ? 'animate-spin' : ''} /></button></div>
+                    <div className="flex justify-between items-center"><span className="text-xs font-black text-slate-400 uppercase tracking-widest">Scene {idx+1} {p.isSpread ? '— Panoramic' : '— Single'}</span><button disabled={p.status === 'processing'} onClick={() => regenerateScene(p.id)} className="bg-indigo-600/5 text-indigo-600 p-3 rounded-full hover:bg-indigo-100 transition-colors shadow-sm"><RefreshCw size={20} className={p.status === 'processing' ? 'animate-spin' : ''} /></button></div>
                     <p className="text-sm text-slate-600 font-medium italic leading-relaxed line-clamp-3">{p.overrideStylePrompt || p.originalText}</p>
                   </div>
                 </div>
@@ -757,9 +815,14 @@ const App: React.FC = () => {
         <div className="flex items-center gap-6">
           <div className="bg-slate-50 border border-slate-100 rounded-2xl px-8 py-3 flex items-center gap-6 shadow-inner">
             <input className="bg-transparent border-none outline-none font-black text-slate-800 text-lg w-64" value={projectName} onChange={(e) => setProjectName(e.target.value)} />
-            <button onClick={handleSaveProject} disabled={isSaving} className="text-indigo-600 hover:scale-110 transition-transform">
-              {isSaving ? <Loader2 className="animate-spin" size={24} /> : <Save size={24} />}
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={handleSaveProject} disabled={isSaving} className="text-indigo-600 hover:scale-110 transition-transform p-2 bg-white rounded-xl shadow-sm border border-slate-100">
+                {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
+              </button>
+              <button onClick={handleExportProjectFile} className="text-emerald-600 hover:scale-110 transition-transform p-2 bg-white rounded-xl shadow-sm border border-slate-100" title="Export to File (iPad/PC)">
+                <FileDown size={20} />
+              </button>
+            </div>
           </div>
           
           <div className="h-14 border-l border-slate-200 mx-4"></div>
@@ -809,6 +872,7 @@ const App: React.FC = () => {
                   </div>
                   <h3 className="text-4xl font-black tracking-tight text-slate-900">Admin Gate</h3>
                   <p className="text-slate-500 font-medium">Please enter your Master Setup Key to configure the database.</p>
+                  <p className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">Default Key: storyflow</p>
                 </div>
                 <div className="space-y-6">
                   <div className="relative">
