@@ -21,44 +21,54 @@ const getStoredConfig = (): DatabaseConfig | null => {
 
 const config = getStoredConfig();
 
-// These should be set in your environment variables
+// Load from environment or runtime storage
 const SUPABASE_URL = (process.env as any).SUPABASE_URL || config?.url;
 const SUPABASE_ANON_KEY = (process.env as any).SUPABASE_ANON_KEY || config?.key;
 
 export const isSupabaseConfigured = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 
-// Only initialize if keys are present
+// Initialize client only if configured
 export let supabase: SupabaseClient | null = isSupabaseConfigured 
   ? createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!) 
   : null;
 
 export const supabaseService = {
-  async testConnection(url: string, key: string): Promise<boolean> {
+  /**
+   * Tests a connection to a specific Supabase instance.
+   */
+  async testConnection(url: string, key: string): Promise<{success: boolean, message: string}> {
     try {
       const tempClient = createClient(url, key);
+      // Attempt to ping the auth or a specific table
       const { error } = await tempClient.from('projects').select('id').limit(1);
-      // If error is 404 (table not found), it's still "connected" to Supabase, 
-      // but if it's 401/403 or network error, it's failed.
-      if (error && error.code !== 'PGRST116' && error.status !== 404) {
-        console.error("Connection test error:", error);
-        return false;
+      
+      if (error) {
+        if (error.code === 'PGRST116' || error.status === 404) {
+          return { success: true, message: "Connected! Warning: 'projects' table not found, but DB is reachable." };
+        }
+        return { success: false, message: error.message };
       }
-      return true;
-    } catch (e) {
-      return false;
+      return { success: true, message: "Handshake successful. Table 'projects' found." };
+    } catch (e: any) {
+      return { success: false, message: e.message || "Connection failed" };
     }
   },
 
+  /**
+   * Saves credentials to local storage and reloads for immediate effect.
+   */
   async saveConfig(url: string, key: string) {
     localStorage.setItem('storyflow_db_config', JSON.stringify({
       provider: 'supabase',
       url,
       key
     }));
-    supabase = createClient(url, key);
-    window.location.reload(); // Reload to re-initialize all services with new client
+    window.location.reload(); 
   },
 
+  /**
+   * Standard project persistence methods
+   */
   async saveProject(project: Project, userId: string): Promise<void> {
     if (!supabase) return;
     const { error } = await supabase

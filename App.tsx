@@ -3,7 +3,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset } from './types';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack } from './geminiService';
@@ -13,7 +13,7 @@ import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 import { supabase, isSupabaseConfigured, supabaseService } from './supabaseService';
 
 type Step = 'landing' | 'upload' | 'script' | 'prompt-pack' | 'prompt-pack-editor' | 'characters' | 'generate' | 'direct-upscale';
-type WizardStep = 'provider' | 'credentials' | 'verifying' | 'success';
+type WizardStep = 'master-key' | 'provider' | 'credentials' | 'verifying' | 'success';
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<Step>('landing');
@@ -25,7 +25,8 @@ const App: React.FC = () => {
   
   // Database Wizard States
   const [showDatabaseWizard, setShowDatabaseWizard] = useState(false);
-  const [wizardStep, setWizardStep] = useState<WizardStep>('provider');
+  const [wizardStep, setWizardStep] = useState<WizardStep>('master-key');
+  const [masterKeyInput, setMasterKeyInput] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<'supabase' | 'firebase' | null>(null);
   const [dbUrl, setDbUrl] = useState("");
   const [dbKey, setDbKey] = useState("");
@@ -97,6 +98,19 @@ const App: React.FC = () => {
     setSavedProjects(projs);
   };
 
+  const checkAuthAndExecute = (action: () => void) => {
+    if (isSupabaseConfigured) {
+      if (user) {
+        action();
+      } else {
+        setShowLoginModal(true);
+      }
+    } else {
+      // Allow local mode execution if no DB is configured, but show a warning
+      action();
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supabase) return;
@@ -124,19 +138,30 @@ const App: React.FC = () => {
     refreshProjects();
   };
 
+  const handleMasterKeyVerify = () => {
+    // In a production environment, this would be a hash check or server call.
+    // For this demonstration, we use a default setup key.
+    if (masterKeyInput === "admin123" || masterKeyInput === "storyflow") {
+      setWizardStep('provider');
+      setWizardError("");
+    } else {
+      setWizardError("Incorrect Master Setup Key.");
+    }
+  };
+
   const handleConnectDatabase = async () => {
     if (selectedProvider === 'supabase') {
       setWizardStep('verifying');
       setWizardError("");
-      const success = await supabaseService.testConnection(dbUrl, dbKey);
-      if (success) {
+      const result = await supabaseService.testConnection(dbUrl, dbKey);
+      if (result.success) {
         setWizardStep('success');
         setTimeout(() => {
           supabaseService.saveConfig(dbUrl, dbKey);
         }, 1500);
       } else {
         setWizardStep('credentials');
-        setWizardError("Invalid credentials or network error. Please verify your URL and Anon Key.");
+        setWizardError(result.message);
       }
     } else if (selectedProvider === 'firebase') {
       setWizardError("Firebase integration is coming soon. Please use Supabase for now.");
@@ -379,28 +404,32 @@ const App: React.FC = () => {
                 <h3 className="text-3xl font-black text-slate-900">Utility Workflows</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <button onClick={() => { setSettings({...settings, mode: 'prompt-pack'}); setCurrentStep('prompt-pack'); }} className="p-8 bg-indigo-600 text-white rounded-[3rem] text-left hover:scale-[1.05] transition-all shadow-xl relative overflow-hidden group">
+                <button onClick={() => checkAuthAndExecute(() => { setSettings({...settings, mode: 'prompt-pack'}); setCurrentStep('prompt-pack'); })} className="p-8 bg-indigo-600 text-white rounded-[3rem] text-left hover:scale-[1.05] transition-all shadow-xl relative overflow-hidden group">
                   <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center mb-6"><ClipboardList size={24} /></div>
                   <h4 className="text-xl font-black mb-2 leading-tight">Prompt Pack</h4>
                   <p className="text-white/60 text-[10px] uppercase font-bold tracking-widest">Manual Script Flow</p>
+                  {!user && isSupabaseConfigured && <Lock className="absolute top-8 right-8 text-white/20" size={16} />}
                 </button>
 
-                <button onClick={() => { setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); }} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group">
+                <button onClick={() => checkAuthAndExecute(() => { setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); })} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group relative">
                   <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 text-slate-400 group-hover:text-indigo-600"><Palette size={24} /></div>
                   <h4 className="text-xl font-black mb-2 text-slate-800 leading-tight">Restyler</h4>
                   <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest">Artwork Conversion</p>
+                  {!user && isSupabaseConfigured && <Lock className="absolute top-8 right-8 text-slate-100" size={16} />}
                 </button>
 
-                <button onClick={() => { setSettings({...settings, mode: 'upscale'}); setPages([]); setCurrentStep('direct-upscale'); }} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group">
+                <button onClick={() => checkAuthAndExecute(() => { setSettings({...settings, mode: 'upscale'}); setPages([]); setCurrentStep('direct-upscale'); })} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group relative">
                   <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 text-slate-400 group-hover:text-indigo-600"><Maximize2 size={24} /></div>
                   <h4 className="text-xl font-black mb-2 text-slate-800 leading-tight">4K Upscale</h4>
                   <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest">Print Mastery</p>
+                  {!user && isSupabaseConfigured && <Lock className="absolute top-8 right-8 text-slate-100" size={16} />}
                 </button>
 
-                <button onClick={() => { setSettings({...settings, mode: 'create'}); setCurrentStep('script'); }} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group">
+                <button onClick={() => checkAuthAndExecute(() => { setSettings({...settings, mode: 'create'}); setCurrentStep('script'); })} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group relative">
                   <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 text-slate-400 group-hover:text-indigo-600"><Rocket size={24} /></div>
                   <h4 className="text-xl font-black mb-2 text-slate-800 leading-tight">Script-to-Book</h4>
                   <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest">Text Storyboards</p>
+                  {!user && isSupabaseConfigured && <Lock className="absolute top-8 right-8 text-slate-100" size={16} />}
                 </button>
               </div>
             </div>
@@ -413,7 +442,7 @@ const App: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                   {savedProjects.map(proj => (
-                    <div key={proj.id} onClick={() => { setPages(proj.pages); setSettings(proj.settings); setProjectName(proj.name); setProjectId(proj.id); setCurrentStep('generate'); }} className="bg-white p-6 rounded-[3rem] border-2 border-slate-100 cursor-pointer hover:shadow-xl transition-all group relative">
+                    <div key={proj.id} onClick={() => checkAuthAndExecute(() => { setPages(proj.pages); setSettings(proj.settings); setProjectName(proj.name); setProjectId(proj.id); setCurrentStep('generate'); })} className="bg-white p-6 rounded-[3rem] border-2 border-slate-100 cursor-pointer hover:shadow-xl transition-all group relative">
                       <div className="aspect-video bg-slate-50 rounded-3xl mb-4 overflow-hidden shadow-inner">
                         {proj.thumbnail && <img src={proj.thumbnail} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={proj.name} />}
                       </div>
@@ -598,7 +627,10 @@ const App: React.FC = () => {
                         ref={el => { charUploadRefs.current[char.id] = el; }}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           const file = e.target.files?.[0];
-                          if (file) handleCharacterImageUpload(char.id, file);
+                          // Fix: Use type guard to ensure file is treated as a Blob/File
+                          if (file instanceof File) {
+                            handleCharacterImageUpload(char.id, file);
+                          }
                         }}
                       />
                     </div>
@@ -753,23 +785,61 @@ const App: React.FC = () => {
             )
           ) : (
             <button 
-              onClick={() => { setWizardStep('provider'); setShowDatabaseWizard(true); }}
+              onClick={() => { setWizardStep('master-key'); setShowDatabaseWizard(true); }}
               className="flex items-center gap-2 px-6 py-3 bg-indigo-50 hover:bg-indigo-100 transition-colors rounded-2xl border border-indigo-200 text-indigo-600 font-black text-xs uppercase tracking-widest"
             >
-              <DatabaseZap size={16} /> CONNECT DATABASE
+              <Settings2 size={16} /> SYSTEM SETUP
             </button>
           )}
         </div>
       </header>
       <main className="flex-1 w-full max-w-[1600px] mx-auto">{renderStep()}</main>
 
-      {/* Database Wizard Modal */}
+      {/* Database Wizard Modal (Admin Protected) */}
       {showDatabaseWizard && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 animate-in fade-in duration-300">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setShowDatabaseWizard(false)}></div>
           <div className="bg-white w-full max-w-xl rounded-[4rem] p-12 shadow-2xl relative z-10 space-y-10 animate-in zoom-in-95 duration-300">
-            {wizardStep === 'provider' && (
+            
+            {wizardStep === 'master-key' && (
               <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
+                <div className="text-center space-y-2">
+                  <div className="w-20 h-20 bg-indigo-50 rounded-[2.5rem] flex items-center justify-center text-indigo-600 mx-auto mb-6">
+                    <ShieldCheck size={40} />
+                  </div>
+                  <h3 className="text-4xl font-black tracking-tight text-slate-900">Admin Gate</h3>
+                  <p className="text-slate-500 font-medium">Please enter your Master Setup Key to configure the database.</p>
+                </div>
+                <div className="space-y-6">
+                  <div className="relative">
+                    <KeyRound className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                    <input 
+                      type="password"
+                      className="w-full h-20 bg-slate-50 rounded-[2rem] pl-16 pr-6 font-bold text-slate-800 outline-none focus:ring-2 ring-indigo-500 transition-all text-xl tracking-[0.5em]"
+                      placeholder="••••••••"
+                      value={masterKeyInput}
+                      onChange={e => setMasterKeyInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleMasterKeyVerify()}
+                    />
+                  </div>
+                  {wizardError && (
+                    <div className="bg-red-50 text-red-500 p-4 rounded-2xl flex items-center gap-3 text-xs font-bold animate-in shake duration-300">
+                      <AlertCircle size={16} />
+                      {wizardError}
+                    </div>
+                  )}
+                  <button 
+                    onClick={handleMasterKeyVerify}
+                    className="w-full h-20 bg-indigo-600 text-white rounded-[2rem] font-black text-xl flex items-center justify-center gap-4 hover:bg-indigo-700 transition-all shadow-xl"
+                  >
+                    ENTER SETUP MODE <ChevronRight />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {wizardStep === 'provider' && (
+              <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
                 <div className="text-center space-y-2">
                   <div className="w-20 h-20 bg-indigo-50 rounded-[2.5rem] flex items-center justify-center text-indigo-600 mx-auto mb-6">
                     <Database size={40} />
@@ -788,7 +858,7 @@ const App: React.FC = () => {
                   </button>
                   <button 
                     onClick={() => { setSelectedProvider('firebase'); setWizardStep('credentials'); }}
-                    className="p-8 border-2 border-slate-100 rounded-[3rem] text-left hover:border-orange-500 hover:bg-orange-50/30 transition-all group"
+                    className="p-8 border-2 border-slate-100 rounded-[3rem] text-left hover:border-orange-500 hover:bg-orange-50/30 transition-all group opacity-50 cursor-not-allowed"
                   >
                     <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mb-6"><Zap size={24} /></div>
                     <h4 className="text-xl font-black text-slate-800">Firebase</h4>
@@ -801,10 +871,10 @@ const App: React.FC = () => {
             {wizardStep === 'credentials' && (
               <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
                 <div className="flex items-center gap-4">
-                  <button onClick={() => setWizardStep('provider')} className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-indigo-600"><ChevronLeft /></button>
+                  <button onClick={() => setWizardStep('provider')} className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors"><ChevronLeft /></button>
                   <div>
                     <h3 className="text-3xl font-black text-slate-900">{selectedProvider === 'supabase' ? 'Supabase' : 'Firebase'} Credentials</h3>
-                    <p className="text-slate-500 text-sm">Enter your project access details.</p>
+                    <p className="text-slate-500 text-sm">Enter your project access details from your dashboard.</p>
                   </div>
                 </div>
 
@@ -837,9 +907,9 @@ const App: React.FC = () => {
                 </div>
 
                 {wizardError && (
-                  <div className="bg-red-50 text-red-500 p-6 rounded-3xl flex items-center gap-4 text-xs font-black italic">
-                    <AlertCircle size={20} />
-                    {wizardError}
+                  <div className="bg-red-50 text-red-500 p-6 rounded-3xl flex flex-col gap-2 text-xs font-black italic">
+                    <div className="flex items-center gap-4"><AlertCircle size={20} /> CONNECTION ERROR</div>
+                    <p className="font-normal opacity-80">{wizardError}</p>
                   </div>
                 )}
 
@@ -848,7 +918,7 @@ const App: React.FC = () => {
                   disabled={!dbUrl || !dbKey}
                   className="w-full h-20 bg-indigo-600 text-white rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-4 hover:bg-indigo-700 transition-all shadow-xl disabled:opacity-50"
                 >
-                  TEST & LINK DATABASE <ArrowRight />
+                  RUN CONNECTION TEST <ChevronRight />
                 </button>
               </div>
             )}
@@ -860,8 +930,8 @@ const App: React.FC = () => {
                   <div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
                 </div>
                 <div className="text-center">
-                  <h4 className="text-2xl font-black text-slate-900">Verifying Handshake</h4>
-                  <p className="text-slate-400 font-medium">Checking project availability...</p>
+                  <h4 className="text-2xl font-black text-slate-900">Testing Handshake</h4>
+                  <p className="text-slate-400 font-medium">Validating project access and schema...</p>
                 </div>
               </div>
             )}
@@ -872,8 +942,8 @@ const App: React.FC = () => {
                   <CheckCircle2 size={48} />
                 </div>
                 <div className="text-center">
-                  <h4 className="text-3xl font-black text-slate-900">Database Linked!</h4>
-                  <p className="text-slate-500 font-medium">StoryFlow is now cloud-enabled. Reloading production environment...</p>
+                  <h4 className="text-3xl font-black text-slate-900">System Linked!</h4>
+                  <p className="text-slate-500 font-medium">StoryFlow is now enterprise-enabled. Reloading production state...</p>
                 </div>
               </div>
             )}
@@ -881,17 +951,17 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Login Modal */}
+      {/* Admin Login Modal (Supplied by Supabase) */}
       {showLoginModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowLoginModal(false)}></div>
-          <div className="bg-white w-full max-md rounded-[3.5rem] p-12 shadow-2xl relative z-10 space-y-8 animate-in zoom-in-95 duration-300">
+          <div className="bg-white w-full max-w-md rounded-[3.5rem] p-12 shadow-2xl relative z-10 space-y-8 animate-in zoom-in-95 duration-300">
             <div className="text-center space-y-2">
               <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-600 mx-auto mb-6">
                 <Lock size={36} />
               </div>
-              <h3 className="text-3xl font-black">Admin Access</h3>
-              <p className="text-slate-500 text-sm">Secure login for cloud project management</p>
+              <h3 className="text-3xl font-black text-slate-900">Production Access</h3>
+              <p className="text-slate-500 text-sm">Login with your database account to access project workflows.</p>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-6">
