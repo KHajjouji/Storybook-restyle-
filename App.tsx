@@ -3,16 +3,17 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset } from './types';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
-import { supabase, isSupabaseConfigured } from './supabaseService';
+import { supabase, isSupabaseConfigured, supabaseService } from './supabaseService';
 
 type Step = 'landing' | 'upload' | 'script' | 'prompt-pack' | 'prompt-pack-editor' | 'characters' | 'generate' | 'direct-upscale';
+type WizardStep = 'provider' | 'credentials' | 'verifying' | 'success';
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<Step>('landing');
@@ -21,6 +22,16 @@ const App: React.FC = () => {
   const [pages, setPages] = useState<BookPage[]>([]);
   const [rawPackText, setRawPackText] = useState("");
   const [user, setUser] = useState<any>(null);
+  
+  // Database Wizard States
+  const [showDatabaseWizard, setShowDatabaseWizard] = useState(false);
+  const [wizardStep, setWizardStep] = useState<WizardStep>('provider');
+  const [selectedProvider, setSelectedProvider] = useState<'supabase' | 'firebase' | null>(null);
+  const [dbUrl, setDbUrl] = useState("");
+  const [dbKey, setDbKey] = useState("");
+  const [wizardError, setWizardError] = useState("");
+
+  // Login States
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -113,6 +124,25 @@ const App: React.FC = () => {
     refreshProjects();
   };
 
+  const handleConnectDatabase = async () => {
+    if (selectedProvider === 'supabase') {
+      setWizardStep('verifying');
+      setWizardError("");
+      const success = await supabaseService.testConnection(dbUrl, dbKey);
+      if (success) {
+        setWizardStep('success');
+        setTimeout(() => {
+          supabaseService.saveConfig(dbUrl, dbKey);
+        }, 1500);
+      } else {
+        setWizardStep('credentials');
+        setWizardError("Invalid credentials or network error. Please verify your URL and Anon Key.");
+      }
+    } else if (selectedProvider === 'firebase') {
+      setWizardError("Firebase integration is coming soon. Please use Supabase for now.");
+    }
+  };
+
   const handleSaveProject = async () => {
     setIsSaving(true);
     try {
@@ -203,7 +233,7 @@ const App: React.FC = () => {
     finally { setIsParsing(false); }
   };
 
-  const handleCharacterImageUpload = (charId: string, file: File) => {
+  const handleCharacterImageUpload = (charId: string, file: Blob) => {
     const reader = new FileReader();
     reader.onload = () => {
       setSettings(prev => ({
@@ -254,11 +284,13 @@ const App: React.FC = () => {
     setPages(curr => curr.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
     
     try {
-      const p = pages.find(pg => pg.id === pageId)!;
+      const p = pages.find(pg => pg.id === pageId);
+      if (!p) throw new Error("Page not found");
+
       let result;
-      if (settings.mode === 'upscale') {
+      if (settings.mode === 'upscale' && p.originalImage) {
         result = await upscaleIllustration(
-          p.originalImage!, 
+          p.originalImage, 
           p.overrideStylePrompt || settings.targetStyle, 
           p.isSpread
         );
@@ -414,8 +446,8 @@ const App: React.FC = () => {
                 hidden 
                 ref={restyleInputRef} 
                 accept="image/*" 
-                onChange={(e) => {
-                  const files = Array.from(e.currentTarget.files || []);
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  const files = Array.from(e.target.files || []);
                   const newPages: BookPage[] = files.map(f => {
                     const reader = new FileReader();
                     const pageId = Math.random().toString(36).substring(7);
@@ -564,8 +596,8 @@ const App: React.FC = () => {
                         type="file" 
                         hidden 
                         ref={el => { charUploadRefs.current[char.id] = el; }}
-                        onChange={(e) => {
-                          const file = e.currentTarget.files?.[0];
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          const file = e.target.files?.[0];
                           if (file) handleCharacterImageUpload(char.id, file);
                         }}
                       />
@@ -654,9 +686,8 @@ const App: React.FC = () => {
                         hidden 
                         ref={directUpscaleInputRef} 
                         accept="image/*" 
-                        // Explicitly type event and cast target to fix TypeScript unknown error
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => { 
-                          const file = (e.target as HTMLInputElement).files?.[0]; 
+                          const file = e.target.files?.[0]; 
                           if (file) { 
                             const reader = new FileReader(); 
                             reader.onload = () => {
@@ -721,19 +752,140 @@ const App: React.FC = () => {
               </button>
             )
           ) : (
-            <div className="flex items-center gap-2 px-6 py-3 bg-slate-100 rounded-2xl border border-slate-200 text-slate-400 font-black text-xs uppercase tracking-widest">
-              <DatabaseZap size={16} className="text-slate-300" /> LOCAL MODE
-            </div>
+            <button 
+              onClick={() => { setWizardStep('provider'); setShowDatabaseWizard(true); }}
+              className="flex items-center gap-2 px-6 py-3 bg-indigo-50 hover:bg-indigo-100 transition-colors rounded-2xl border border-indigo-200 text-indigo-600 font-black text-xs uppercase tracking-widest"
+            >
+              <DatabaseZap size={16} /> CONNECT DATABASE
+            </button>
           )}
         </div>
       </header>
       <main className="flex-1 w-full max-w-[1600px] mx-auto">{renderStep()}</main>
 
+      {/* Database Wizard Modal */}
+      {showDatabaseWizard && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setShowDatabaseWizard(false)}></div>
+          <div className="bg-white w-full max-w-xl rounded-[4rem] p-12 shadow-2xl relative z-10 space-y-10 animate-in zoom-in-95 duration-300">
+            {wizardStep === 'provider' && (
+              <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
+                <div className="text-center space-y-2">
+                  <div className="w-20 h-20 bg-indigo-50 rounded-[2.5rem] flex items-center justify-center text-indigo-600 mx-auto mb-6">
+                    <Database size={40} />
+                  </div>
+                  <h3 className="text-4xl font-black tracking-tight text-slate-900">Link your Database</h3>
+                  <p className="text-slate-500 font-medium">Choose a provider to enable cloud sync and persistence.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <button 
+                    onClick={() => { setSelectedProvider('supabase'); setWizardStep('credentials'); }}
+                    className="p-8 border-2 border-slate-100 rounded-[3rem] text-left hover:border-emerald-500 hover:bg-emerald-50/30 transition-all group"
+                  >
+                    <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mb-6"><Globe size={24} /></div>
+                    <h4 className="text-xl font-black text-slate-800">Supabase</h4>
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Recommended</p>
+                  </button>
+                  <button 
+                    onClick={() => { setSelectedProvider('firebase'); setWizardStep('credentials'); }}
+                    className="p-8 border-2 border-slate-100 rounded-[3rem] text-left hover:border-orange-500 hover:bg-orange-50/30 transition-all group"
+                  >
+                    <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mb-6"><Zap size={24} /></div>
+                    <h4 className="text-xl font-black text-slate-800">Firebase</h4>
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Coming Soon</p>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {wizardStep === 'credentials' && (
+              <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
+                <div className="flex items-center gap-4">
+                  <button onClick={() => setWizardStep('provider')} className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-indigo-600"><ChevronLeft /></button>
+                  <div>
+                    <h3 className="text-3xl font-black text-slate-900">{selectedProvider === 'supabase' ? 'Supabase' : 'Firebase'} Credentials</h3>
+                    <p className="text-slate-500 text-sm">Enter your project access details.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">API URL / PROJECT URL</label>
+                    <div className="relative">
+                      <Globe className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                      <input 
+                        className="w-full h-16 bg-slate-50 rounded-2xl pl-16 pr-6 font-bold text-slate-800 outline-none focus:ring-2 ring-indigo-500 transition-all"
+                        placeholder="https://xyz.supabase.co"
+                        value={dbUrl}
+                        onChange={e => setDbUrl(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">ANON / PUBLIC KEY</label>
+                    <div className="relative">
+                      <Lock className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                      <input 
+                        type="password"
+                        className="w-full h-16 bg-slate-50 rounded-2xl pl-16 pr-6 font-bold text-slate-800 outline-none focus:ring-2 ring-indigo-500 transition-all"
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR..."
+                        value={dbKey}
+                        onChange={e => setDbKey(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {wizardError && (
+                  <div className="bg-red-50 text-red-500 p-6 rounded-3xl flex items-center gap-4 text-xs font-black italic">
+                    <AlertCircle size={20} />
+                    {wizardError}
+                  </div>
+                )}
+
+                <button 
+                  onClick={handleConnectDatabase}
+                  disabled={!dbUrl || !dbKey}
+                  className="w-full h-20 bg-indigo-600 text-white rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-4 hover:bg-indigo-700 transition-all shadow-xl disabled:opacity-50"
+                >
+                  TEST & LINK DATABASE <ArrowRight />
+                </button>
+              </div>
+            )}
+
+            {wizardStep === 'verifying' && (
+              <div className="py-20 flex flex-col items-center justify-center space-y-8 animate-in fade-in duration-500">
+                <div className="relative">
+                  <div className="w-24 h-24 border-8 border-indigo-100 rounded-full"></div>
+                  <div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
+                </div>
+                <div className="text-center">
+                  <h4 className="text-2xl font-black text-slate-900">Verifying Handshake</h4>
+                  <p className="text-slate-400 font-medium">Checking project availability...</p>
+                </div>
+              </div>
+            )}
+
+            {wizardStep === 'success' && (
+              <div className="py-20 flex flex-col items-center justify-center space-y-8 animate-in zoom-in-95 duration-500">
+                <div className="w-24 h-24 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-2xl shadow-emerald-200 animate-bounce">
+                  <CheckCircle2 size={48} />
+                </div>
+                <div className="text-center">
+                  <h4 className="text-3xl font-black text-slate-900">Database Linked!</h4>
+                  <p className="text-slate-500 font-medium">StoryFlow is now cloud-enabled. Reloading production environment...</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Login Modal */}
       {showLoginModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowLoginModal(false)}></div>
-          <div className="bg-white w-full max-w-md rounded-[3.5rem] p-12 shadow-2xl relative z-10 space-y-8 animate-in zoom-in-95 duration-300">
+          <div className="bg-white w-full max-md rounded-[3.5rem] p-12 shadow-2xl relative z-10 space-y-8 animate-in zoom-in-95 duration-300">
             <div className="text-center space-y-2">
               <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-600 mx-auto mb-6">
                 <Lock size={36} />
@@ -782,4 +934,14 @@ const App: React.FC = () => {
               >
                 {authLoading ? <Loader2 className="animate-spin" /> : <>AUTHENTICATE <ChevronRight /></>}
               </button>
-            
+            </form>
+
+            <button onClick={() => setShowLoginModal(false)} className="w-full text-slate-400 font-bold text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default App;

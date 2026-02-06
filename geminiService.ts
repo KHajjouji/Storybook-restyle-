@@ -1,13 +1,19 @@
+
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { CharacterRef, CharacterAssignment } from "./types";
 
+/**
+ * Parses a raw script text into a structured prompt pack.
+ * Uses gemini-3-flash-preview for text analysis.
+ */
 export const parsePromptPack = async (rawText: string): Promise<{ 
   masterBible: string, 
   characterIdentities: { name: string, description: string }[],
   scenes: { prompt: string, isSpread: boolean }[] 
 }> => {
+  // Use named parameter for apiKey and create instance right before call
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const response = await ai.models.generateContent({
+  const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `You are an expert production assistant for children's books. Analyze the provided script to extract structural production data.
     
@@ -52,13 +58,19 @@ export const parsePromptPack = async (rawText: string): Promise<{
     }
   });
   
+  // Property access for text, handle potential undefined
+  const jsonStr = response.text?.trim() || '{"masterBible":"", "characterIdentities":[], "scenes":[]}';
   try {
-    return JSON.parse(response.text || '{"masterBible":"", "characterIdentities":[], "scenes":[]}');
+    return JSON.parse(jsonStr);
   } catch (e) {
     return { masterBible: "", characterIdentities: [], scenes: [] };
   }
 };
 
+/**
+ * Designs character sheets based on descriptions.
+ * Uses gemini-3-pro-image-preview for high-quality character consistency.
+ */
 export const identifyAndDesignCharacters = async (charDescription: string, stylePrompt: string): Promise<CharacterRef[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
@@ -74,13 +86,14 @@ export const identifyAndDesignCharacters = async (charDescription: string, style
   - Rounded simplified shapes, big expressive eyes, soft painterly rendering.
   - High readability and consistent color palette.`;
 
-  const imgResponse = await ai.models.generateContent({
+  const imgResponse: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
     contents: { parts: [{ text: instruction }] },
     config: { imageConfig: { aspectRatio: '1:1', imageSize: '1K' } }
   });
 
   let base64 = "";
+  // Safely iterate through candidates and parts to find the image part
   if (imgResponse.candidates?.[0]?.content?.parts) {
     for (const part of imgResponse.candidates[0].content.parts) {
       if (part.inlineData) { 
@@ -97,6 +110,10 @@ export const identifyAndDesignCharacters = async (charDescription: string, style
   }];
 };
 
+/**
+ * Restyles an illustration while maintaining character consistency.
+ * Uses gemini-2.5-flash-image or gemini-3-pro-image-preview.
+ */
 export const restyleIllustration = async (
   originalImageBase64: string | undefined,
   stylePrompt: string,
@@ -111,9 +128,8 @@ export const restyleIllustration = async (
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = usePro ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
-  const parts: any[] = [];
-
-  let instruction = `You are a master children's book illustrator.
+  
+  const instruction = `You are a master children's book illustrator.
   
   STRICT GLOBAL RULES (THE BIBLE):
   ${masterBible}
@@ -130,20 +146,22 @@ export const restyleIllustration = async (
   
   CONSTRAINTS: No text, no logos, cozy warm lighting, soft painterly style.`;
 
-  parts.push({ text: instruction });
+  const parts: any[] = [{ text: instruction }];
 
-  // Attach all reference images for all characters
+  // Safely extract base64 data for inlineData parts
   charRefs.forEach((ref) => {
     ref.images.forEach((img) => {
-      parts.push({ inlineData: { data: img.split(',')[1], mimeType: 'image/png' } });
+      const data = img.includes(',') ? img.split(',')[1] : img;
+      parts.push({ inlineData: { data, mimeType: 'image/png' } });
     });
   });
 
   if (styleRefBase64) { 
-    parts.push({ inlineData: { data: styleRefBase64.split(',')[1], mimeType: 'image/png' } }); 
+    const data = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
+    parts.push({ inlineData: { data, mimeType: 'image/png' } }); 
   }
 
-  const response = await ai.models.generateContent({
+  const response: GenerateContentResponse = await ai.models.generateContent({
     model,
     contents: { parts },
     config: { 
@@ -162,21 +180,29 @@ export const restyleIllustration = async (
   throw new Error("Render failed.");
 };
 
+/**
+ * Upscales an illustration to 4K.
+ * Uses gemini-3-pro-image-preview for high-quality upscaling.
+ */
 export const upscaleIllustration = async (
   currentImageBase64: string,
   stylePrompt: string,
   isSpread: boolean = false
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const data = currentImageBase64.includes(',') ? currentImageBase64.split(',')[1] : currentImageBase64;
+  
   const parts: any[] = [
-    { inlineData: { data: currentImageBase64.split(',')[1], mimeType: 'image/png' } },
+    { inlineData: { data, mimeType: 'image/png' } },
     { text: `UPSCALE 4K: High-resolution enhancement. Maintain exact character likeness and art style. Context: ${stylePrompt}` }
   ];
-  const response = await ai.models.generateContent({
+  
+  const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
     contents: { parts },
     config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", imageSize: "4K" } }
   });
+  
   if (response.candidates?.[0]?.content?.parts) {
     for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
@@ -185,23 +211,32 @@ export const upscaleIllustration = async (
   throw new Error("Upscale failed.");
 };
 
+/**
+ * Translates text using gemini-3-flash-preview.
+ */
 export const translateText = async (text: string, targetLanguage: string): Promise<string> => {
   if (targetLanguage === 'NONE_CLEAN_BG' || targetLanguage === 'English') return text;
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const response = await ai.models.generateContent({
+  const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Translate to ${targetLanguage}: "${text}"`,
   });
+  // Use property access for text
   return response.text?.trim() || text;
 };
 
+/**
+ * Analyzes an image and describes its art style.
+ */
 export const analyzeStyleFromImage = async (imageBase64: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const response = await ai.models.generateContent({
+  const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+  
+  const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: {
       parts: [
-        { inlineData: { data: imageBase64.split(',')[1], mimeType: 'image/png' } },
+        { inlineData: { data, mimeType: 'image/png' } },
         { text: "Describe this art style for an AI prompt." }
       ]
     }
@@ -209,9 +244,12 @@ export const analyzeStyleFromImage = async (imageBase64: string): Promise<string
   return response.text?.trim() || "";
 };
 
+/**
+ * Plans story scenes based on a full script.
+ */
 export const planStoryScenes = async (fullScript: string, characters: CharacterRef[]): Promise<{pages: {text: string, isSpread: boolean, mappedCharacterNames: string[]}[]}> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const response = await ai.models.generateContent({
+  const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Plan the storyboards for this book. Script: ${fullScript}`,
     config: {
@@ -235,16 +273,22 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
       }
     }
   });
-  try { return JSON.parse(response.text || '{"pages":[]}'); } catch (e) { return { pages: [] }; }
+  const jsonStr = response.text || '{"pages":[]}';
+  try { return JSON.parse(jsonStr); } catch (e) { return { pages: [] }; }
 };
 
+/**
+ * Extracts text from an image.
+ */
 export const extractTextFromImage = async (imageBase64: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const response = await ai.models.generateContent({
+  const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+  
+  const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: {
       parts: [
-        { inlineData: { data: imageBase64.split(',')[1], mimeType: 'image/png' } },
+        { inlineData: { data, mimeType: 'image/png' } },
         { text: "Extract text." }
       ]
     },
