@@ -26,7 +26,7 @@ const App: React.FC = () => {
   
   // Referenced Mode States
   const [isReferencedMode, setIsReferencedMode] = useState(true);
-  const [globalFixPrompt, setGlobalFixPrompt] = useState("Ensure the man in Image 2 has the exact same facial features as the man in Image 1.");
+  const [globalFixPrompt, setGlobalFixPrompt] = useState("Apply the face of the man in Image 1 to the man in Image 2. Ensure the mother in both wears the same hijab style.");
   const [selectedForProduction, setSelectedForProduction] = useState<Set<string>>(new Set());
 
   // Database Wizard States
@@ -94,16 +94,16 @@ const App: React.FC = () => {
   const handleExportProjectFile = () => {
     const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
     const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages, thumbnail };
-    // Fix: Use global Blob and URL to avoid type mismatches that can occur with window-prefixed objects in strict environments
+    // FIX: Using global Blob instead of window.Blob to avoid potential typing issues where window.Blob returns 'unknown'
     const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `${projectName.replace(/\s+/g, '_')}.storyflow`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    window.URL.revokeObjectURL(url);
   };
 
   const handleImportProjectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -243,7 +243,6 @@ const App: React.FC = () => {
     const char = settings.characterReferences.find(c => c.id === charId);
     if (!char) return;
 
-    // Check for API key selection before using Pro models (Mandatory for gemini-3-pro-image-preview)
     const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
 
@@ -265,21 +264,15 @@ const App: React.FC = () => {
         }));
       }
     } catch (e: any) {
-      console.error(e);
-      // Handle the case where the key might have been revoked or lost
       if (e?.message?.includes("Requested entity was not found")) { await (window as any).aistudio?.openSelectKey(); }
       alert("Failed to design character.");
-      setSettings(prev => ({
-        ...prev,
-        characterReferences: prev.characterReferences.map(c => 
-          c.id === charId ? { ...c, images: [] } : c
-        )
-      }));
+      setSettings(prev => ({ ...prev, characterReferences: prev.characterReferences.map(c => c.id === charId ? { ...c, images: [] } : c) }));
     }
   };
 
   const handleRestyleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+    // FIX: Cast array from FileList to File[] explicitly to resolve potential 'unknown' type inference issues
+    const files = Array.from(e.target.files || []) as File[];
     let loaded = 0;
     const newPages: BookPage[] = [];
 
@@ -300,7 +293,6 @@ const App: React.FC = () => {
         loaded++;
         if (loaded === files.length) {
           setPages(prev => [...prev, ...newPages]);
-          // Default all newly uploaded images as active for production in fixer
           setSelectedForProduction(prev => {
             const next = new Set(prev);
             newPages.forEach(pg => next.add(pg.id));
@@ -327,20 +319,19 @@ const App: React.FC = () => {
       if (settings.mode === 'upscale' && p.originalImage) {
         result = await upscaleIllustration(p.originalImage, p.overrideStylePrompt || settings.targetStyle, p.isSpread);
       } else {
-        // Feature Fixer Logic
         const prompt = (isReferencedMode ? globalFixPrompt : p.overrideStylePrompt) || settings.targetStyle;
         const targetImg = p.originalImage;
 
         if (targetImg) {
-          // Send ALL images from the fixer workspace as potential context
-          const allReferences = pages
-            .filter(pg => pg.originalImage)
+          // Send OTHER images from the fixer workspace as potential context, excluding the current target to avoid redundancy
+          const otherReferences = pages
+            .filter(pg => pg.id !== pageId && pg.originalImage)
             .map((pg) => ({ 
               base64: pg.originalImage!, 
               index: pages.indexOf(pg) + 1 
             }));
             
-          result = await refineIllustration(targetImg, prompt, allReferences, p.isSpread);
+          result = await refineIllustration(targetImg, prompt, otherReferences, p.isSpread);
         } else {
           result = await restyleIllustration(
             undefined,
@@ -378,7 +369,7 @@ const App: React.FC = () => {
       if (!imgToRefine) throw new Error("No image to refine");
 
       const allReferences = pages
-        .filter(pg => (pg.processedImage || pg.originalImage))
+        .filter(pg => pg.id !== pageId && (pg.processedImage || pg.originalImage))
         .map((pg) => ({ 
           base64: (pg.processedImage || pg.originalImage)!, 
           index: pages.indexOf(pg) + 1 
@@ -399,12 +390,12 @@ const App: React.FC = () => {
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
     setIsProcessing(true);
     
-    // Only process pages that are selected and either not completed or need re-run
     const targets = pages.filter(p => selectedForProduction.has(p.id));
-    
     setCurrentStep('generate');
     
     for (let i = 0; i < targets.length; i++) {
+      // Small artificial pause to ensure UI updates between heavy API calls
+      await new Promise(r => setTimeout(r, 100));
       await regenerateScene(targets[i].id);
     }
     setIsProcessing(false);
@@ -478,7 +469,7 @@ const App: React.FC = () => {
                   <h4 className="text-xl font-black mb-2 text-slate-800 leading-tight">4K Upscale</h4>
                   <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest">Print Mastery</p>
                 </button>
-                <button onClick={() => checkAuthAndExecute(() => { setSettings({...settings, mode: 'create'}); setCurrentStep('script'); })} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group relative">
+                <button onClick={() => checkAuthAndExecute(() => { setSettings({...settings, mode: 'create'}); setCurrentStep('script'); })} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:scale-[1.05] transition-all shadow-xl relative overflow-hidden group">
                   <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 text-slate-400 group-hover:text-indigo-600"><Rocket size={24} /></div>
                   <h4 className="text-xl font-black mb-2 text-slate-800 leading-tight">Script-to-Book</h4>
                   <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest">Text Storyboards</p>
@@ -506,30 +497,35 @@ const App: React.FC = () => {
                   </div>
                   <p className="text-slate-500 text-lg">
                     {isReferencedMode 
-                      ? "The Global Workspace Prompt can see all numbered images. Coordinate features between them." 
-                      : "Modify each illustration individually. Numbers act as source identifiers."}
+                      ? "The Global Workspace Prompt sees all numbered images. Use it to coordinate features between them." 
+                      : "Modify each illustration individually using independent prompts."}
                   </p>
                 </div>
 
                 <div className="bg-white border-2 border-slate-100 rounded-[4rem] p-10 shadow-2xl space-y-6">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Transformation Prompt</h3>
-                    {isReferencedMode && <span className="bg-emerald-50 text-emerald-600 px-4 py-1 rounded-full text-[10px] font-black">MULTI-IMAGE CONTEXT ACTIVE</span>}
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Master Fix Prompt</h3>
+                    {isReferencedMode && <span className="bg-emerald-50 text-emerald-600 px-4 py-1 rounded-full text-[10px] font-black uppercase">Multi-Image Engine</span>}
                   </div>
                   <textarea 
                     className="w-full h-48 bg-slate-50 border-none rounded-3xl p-8 text-xl font-medium outline-none resize-none shadow-inner leading-relaxed"
-                    placeholder={isReferencedMode ? "e.g. 'Use the facial features from Image 1 for the man in Image 2...'" : "General instructions for all images..."}
-                    value={isReferencedMode ? globalFixPrompt : "Processing..."}
+                    placeholder={isReferencedMode ? "Example: 'The father in Image 1 should have the same coat as the father in Image 2...'" : "Disabled in Individual Mode..."}
+                    value={isReferencedMode ? globalFixPrompt : ""}
                     onChange={(e) => isReferencedMode && setGlobalFixPrompt(e.target.value)}
                     disabled={!isReferencedMode}
                   />
                   <div className="flex gap-4">
                     <div className="flex-1 p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
-                       <span className="text-[10px] font-black text-slate-400 block mb-2">TARGET SELECTION</span>
-                       <p className="text-xs font-bold text-slate-600">Select images in the grid to apply this transformation to.</p>
+                       <span className="text-[10px] font-black text-slate-400 block mb-2 uppercase">Selection Context</span>
+                       <p className="text-xs font-bold text-slate-600">Selected images ({selectedForProduction.size}) will be processed using the Master Fix Prompt.</p>
                     </div>
-                    <button onClick={processBulkRender} className="bg-indigo-600 text-white px-12 py-7 rounded-[2.5rem] font-black text-xl flex items-center gap-4 shadow-2xl hover:scale-105 transition-all">
-                      <Sparkles size={28} /> RUN SELECTION
+                    <button 
+                      disabled={selectedForProduction.size === 0 || isProcessing}
+                      onClick={processBulkRender} 
+                      className="bg-indigo-600 text-white px-12 py-7 rounded-[2.5rem] font-black text-xl flex items-center gap-4 shadow-2xl hover:scale-105 transition-all disabled:opacity-30"
+                    >
+                      {isProcessing ? <Loader2 className="animate-spin" size={28} /> : <Sparkles size={28} />} 
+                      RUN SELECTED FIXES
                     </button>
                   </div>
                 </div>
@@ -547,14 +543,19 @@ const App: React.FC = () => {
                        {selectedForProduction.has(p.id) && <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-xl"><Check size={24} /></div>}
                        <button onClick={(e) => { e.stopPropagation(); setPages(pages.filter(pg => pg.id !== p.id)); }} className="w-12 h-12 bg-white text-slate-200 rounded-2xl flex items-center justify-center shadow-lg hover:text-red-500 transition-colors"><Trash2 size={20} /></button>
                     </div>
-                    <div className="aspect-[4/3] bg-slate-100 rounded-[2.5rem] overflow-hidden shadow-inner">
+                    <div className="aspect-[4/3] bg-slate-100 rounded-[2.5rem] overflow-hidden shadow-inner relative">
                       {p.originalImage && <img src={p.originalImage} className="w-full h-full object-cover" alt={`Source ${idx + 1}`} />}
+                      {p.status === 'processing' && (
+                        <div className="absolute inset-0 bg-indigo-600/20 backdrop-blur-sm flex items-center justify-center">
+                          <Loader2 className="animate-spin text-white" size={48} />
+                        </div>
+                      )}
                     </div>
                     {!isReferencedMode && (
                       <div className="mt-6">
                         <textarea 
                           className="w-full bg-slate-50 rounded-2xl p-4 text-xs font-bold outline-none border-none shadow-inner"
-                          placeholder="Individual override..."
+                          placeholder="Individual instructions for this specific image..."
                           value={p.overrideStylePrompt}
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) => { const n = [...pages]; n[idx].overrideStylePrompt = e.target.value; setPages(n); }}
@@ -568,7 +569,7 @@ const App: React.FC = () => {
                   className="aspect-[4/3] border-4 border-dashed border-slate-200 rounded-[3.5rem] flex flex-col items-center justify-center gap-4 text-slate-300 hover:border-indigo-600 hover:text-indigo-600 transition-all bg-white/50"
                 >
                   <Plus size={48} />
-                  <span className="font-black text-xs uppercase tracking-widest">Add Image</span>
+                  <span className="font-black text-xs uppercase tracking-widest">Add Source Image</span>
                   <input type="file" multiple hidden ref={restyleInputRef} accept="image/*" onChange={handleRestyleUpload} />
                 </button>
               </div>
@@ -579,18 +580,19 @@ const App: React.FC = () => {
       case 'generate':
         return (
           <div className="max-w-7xl mx-auto py-12 space-y-12 animate-in fade-in duration-500 pb-60 px-8">
-            <div className="text-center"><h2 className="text-5xl font-black">Production Rendering</h2><p className="text-slate-500 text-xl font-medium tracking-tight">Processing {stats.completed} of {stats.total} master scenes.</p></div>
+            <div className="text-center"><h2 className="text-5xl font-black">Production Rendering</h2><p className="text-slate-500 text-xl font-medium tracking-tight">Updating selected master frames using industrial logic.</p></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               {pages.map((p, idx) => (
                 <div key={p.id} className="bg-white rounded-[5rem] border-4 border-slate-50 overflow-hidden shadow-2xl relative group">
                   <div className="absolute top-8 left-8 z-10 w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black shadow-2xl">#{idx + 1}</div>
-                  <div className="aspect-[4/3] bg-slate-50 relative overflow-hidden">
+                  <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
                     {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-xl' : 'opacity-100'}`} alt={`Scene ${idx+1}`} />}
-                    {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/5"><div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div><span className="text-indigo-600 font-black text-xs uppercase tracking-widest">Rendering...</span></div>}
+                    {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/5"><div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div><span className="text-indigo-600 font-black text-xs uppercase tracking-widest">Rendering Frame...</span></div>}
+                    {p.status === 'error' && <div className="absolute inset-0 bg-red-50/90 flex flex-col items-center justify-center text-red-600 p-8 text-center"><AlertCircle size={48} className="mb-4" /><h4 className="font-black text-xl mb-2">Generation Failed</h4><p className="text-xs font-bold leading-relaxed">The AI encountered a technical hurdle. Try refining the prompt or checking your API key.</p></div>}
                   </div>
                   <div className="p-12 space-y-6">
                     <div className="flex justify-between items-center">
-                      <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Modified Scene {idx+1}</span>
+                      <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Modified Version {idx+1}</span>
                       <div className="flex gap-2">
                         <button disabled={p.status === 'processing'} onClick={() => setActiveRefineId(p.id)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-[10px] font-black flex items-center gap-2 hover:bg-indigo-100 transition-colors"><MessageSquareCode size={16} /> QUICK TWEAK</button>
                         <button disabled={p.status === 'processing'} onClick={() => regenerateScene(p.id)} className="bg-indigo-600/5 text-indigo-600 p-2 rounded-xl hover:bg-indigo-100 transition-colors"><RefreshCw size={16} className={p.status === 'processing' ? 'animate-spin' : ''} /></button>
@@ -600,17 +602,19 @@ const App: React.FC = () => {
                       <div className="bg-indigo-50 p-6 rounded-[2rem] space-y-4 animate-in slide-in-from-top-4 duration-300">
                         <textarea 
                           className="w-full bg-white border-none rounded-2xl p-4 text-xs font-bold outline-none resize-none shadow-sm"
-                          placeholder="Small correction? (e.g., 'Make the eyes match Image 1')"
+                          placeholder="What small fix is needed? (e.g., 'Matches Image 1 exactly')"
                           value={refinePrompt}
                           onChange={(e) => setRefinePrompt(e.target.value)}
                         />
                         <div className="flex justify-end gap-2">
                           <button onClick={() => { setActiveRefineId(null); setRefinePrompt(""); }} className="text-[10px] font-bold text-slate-400 px-4 py-2">CANCEL</button>
-                          <button onClick={() => handleRefineScene(p.id)} className="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[10px] font-black shadow-lg">APPLY</button>
+                          <button onClick={() => handleRefineScene(p.id)} className="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[10px] font-black shadow-lg">APPLY FIX</button>
                         </div>
                       </div>
                     )}
-                    <p className="text-sm text-slate-600 font-medium italic leading-relaxed line-clamp-3">{isReferencedMode ? globalFixPrompt : (p.overrideStylePrompt || p.originalText)}</p>
+                    <p className="text-sm text-slate-600 font-medium italic leading-relaxed line-clamp-3">
+                      {isReferencedMode ? globalFixPrompt : (p.overrideStylePrompt || p.originalText)}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -618,6 +622,7 @@ const App: React.FC = () => {
             <div className="fixed bottom-0 inset-x-0 bg-slate-900 text-white p-14 z-50 rounded-t-[7rem] shadow-2xl flex flex-col md:flex-row items-center justify-between gap-12">
                 <div className="flex items-center gap-8"><div className="w-24 h-24 bg-white/10 rounded-full flex items-center justify-center text-indigo-400 font-black text-3xl shadow-inner">{stats.progress}%</div><span className="text-3xl font-black uppercase tracking-tighter">Progress</span></div>
                 <div className="flex gap-8">
+                  <button onClick={() => setCurrentStep('restyle-editor')} className="px-12 py-10 bg-white/10 rounded-[4rem] font-black text-xl hover:bg-white/20 transition-all">BACK TO FIXER</button>
                   <button onClick={handleSaveProject} className="p-10 bg-white/10 rounded-[2.5rem] hover:bg-white/20 transition-all text-white"><Save size={40} /></button>
                   <button disabled={stats.completed < stats.total} onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode)} className="bg-indigo-600 px-24 py-10 rounded-[4rem] font-black text-3xl flex items-center gap-8 hover:bg-indigo-500 transition-all disabled:opacity-30 shadow-2xl scale-105"><Download size={48} /> MASTER EXPORT</button>
                 </div>
