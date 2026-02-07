@@ -45,7 +45,6 @@ const App: React.FC = () => {
 
   const [settings, setSettings] = useState<AppSettings>({
     mode: 'prompt-pack',
-    // DEFAULT TO THE BEAUTIFUL RAMADAN STYLE
     targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, soft gradients, minimal hard outlines, warm pastel palette, cozy atmosphere',
     targetLanguage: 'NONE_CLEAN_BG',
     exportFormat: 'KDP_SQUARE',
@@ -94,8 +93,8 @@ const App: React.FC = () => {
   const handleExportProjectFile = () => {
     const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
     const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages, thumbnail };
-    // Fix: Explicitly use window.Blob and window.URL to avoid potential shadowing/conflicts and resolve 'unknown' type issues
-    const blob = new window.Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+    // Fix: Using the global Blob constructor directly to avoid type inference issues with window.Blob
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -113,7 +112,6 @@ const App: React.FC = () => {
     reader.onload = async (event) => {
       try {
         const result = event.target?.result;
-        // Fix: Ensure result is a string before parsing to avoid 'unknown' errors
         if (typeof result !== 'string') return;
         const project = JSON.parse(result) as Project;
         if (project.id && project.pages && project.settings) {
@@ -163,7 +161,6 @@ const App: React.FC = () => {
     try {
       const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
       const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages, thumbnail };
-      // Fix: Line 219 and surrounding area often trigger type errors if the project structure isn't perfectly mapped
       await persistenceService.saveProject(project);
       await refreshProjects();
     } catch (e) { console.error(e); }
@@ -211,7 +208,6 @@ const App: React.FC = () => {
           status: 'idle', 
           assignments: [], 
           isSpread: false,
-          // DEFAULT PROMPT TO STYLE LOCK
           overrideStylePrompt: settings.targetStyle 
         };
         newPages.push(p);
@@ -239,15 +235,22 @@ const App: React.FC = () => {
       if (settings.mode === 'upscale' && p.originalImage) {
         result = await upscaleIllustration(p.originalImage, p.overrideStylePrompt || settings.targetStyle, p.isSpread);
       } else {
-        // Use refinement if we have an image and a short corrective prompt
         const prompt = p.overrideStylePrompt || settings.targetStyle;
-        const isCorrection = prompt.length < 100 || prompt.includes("add") || prompt.includes("change");
-        
-        if (p.originalImage && isCorrection) {
-          result = await refineIllustration(p.originalImage, prompt, p.isSpread);
+        const targetImg = p.originalImage;
+
+        if (targetImg) {
+          // FEATURE FIXER MODE: Send all other images as potential references
+          const otherImages = pages
+            .filter(pg => pg.id !== pageId && pg.originalImage)
+            .map((pg, idx) => ({ 
+              base64: pg.originalImage!, 
+              index: pages.indexOf(pg) + 1 
+            }));
+
+          result = await refineIllustration(targetImg, prompt, otherImages, p.isSpread);
         } else {
           result = await restyleIllustration(
-            p.originalImage,
+            undefined,
             prompt,
             settings.styleReference,
             undefined,
@@ -281,7 +284,15 @@ const App: React.FC = () => {
       const imgToRefine = p?.processedImage || p?.originalImage;
       if (!imgToRefine) throw new Error("No image to refine");
 
-      const result = await refineIllustration(imgToRefine, refinePrompt, p.isSpread);
+      // Pass other images as context during quick tweaks too
+      const otherImages = pages
+        .filter(pg => pg.id !== pageId && (pg.processedImage || pg.originalImage))
+        .map((pg, idx) => ({ 
+          base64: (pg.processedImage || pg.originalImage)!, 
+          index: pages.indexOf(pg) + 1 
+        }));
+
+      const result = await refineIllustration(imgToRefine, refinePrompt, otherImages, p.isSpread);
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
       setRefinePrompt("");
     } catch (e: any) {
@@ -403,26 +414,30 @@ const App: React.FC = () => {
           <div className="max-w-7xl mx-auto py-12 space-y-12 animate-in fade-in duration-500 pb-40 px-8">
             <div className="text-center space-y-4">
               <h2 className="text-5xl font-black">Feature Correction Board</h2>
-              <p className="text-slate-500 text-lg">Specify the changes for each image. The prompt is pre-filled with your **Ramadan Series** style lock.</p>
+              <p className="text-slate-500 text-lg">Use the **Image Numbers** in your prompt to refer to specific images.</p>
+              <div className="inline-flex items-center gap-3 bg-indigo-50 border border-indigo-100 px-6 py-3 rounded-2xl text-indigo-600 font-bold text-xs">
+                <Info size={16} /> 
+                <span>Example: "Apply the face of the man in Image 1 to the person in Image 2."</span>
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               {pages.map((p, idx) => (
-                <div key={p.id} className="bg-white p-8 rounded-[4rem] border-2 border-slate-100 shadow-xl space-y-8 group hover:border-indigo-400 transition-all">
+                <div key={p.id} className="bg-white p-8 rounded-[4rem] border-2 border-slate-100 shadow-xl space-y-8 group hover:border-indigo-400 transition-all relative">
                   <div className="flex justify-between items-center">
-                    <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black">IMAGE {idx+1}</div>
+                    <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-lg">#{idx + 1}</div>
                     <button onClick={() => setPages(pages.filter(pg => pg.id !== p.id))} className="text-slate-200 hover:text-red-500"><Trash2 size={24} /></button>
                   </div>
                   <div className="aspect-[4/3] bg-slate-50 rounded-3xl overflow-hidden relative shadow-inner">
-                    {p.originalImage && <img src={p.originalImage} className="w-full h-full object-cover" alt="Preview" />}
+                    {p.originalImage && <img src={p.originalImage} className="w-full h-full object-cover" alt={`Preview ${idx + 1}`} />}
                     <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md p-3 rounded-2xl shadow-lg border border-slate-100">
                       <span className="text-[10px] font-black uppercase text-indigo-600">Locked Style Active</span>
                     </div>
                   </div>
                   <div className="space-y-4">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Modification Instructions (e.g. "Add a hijab")</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Modification Instructions for Image {idx + 1}</label>
                     <textarea 
                       className="w-full h-40 bg-slate-50 border-none rounded-3xl p-6 text-sm font-medium outline-none resize-none shadow-inner"
-                      placeholder="Add a hijab, change colors, etc."
+                      placeholder={`Describe changes for Image ${idx+1}. You can refer to other images by number.`}
                       value={p.overrideStylePrompt}
                       onChange={(e) => { const n = [...pages]; n[idx].overrideStylePrompt = e.target.value; setPages(n); }}
                     />
@@ -432,7 +447,7 @@ const App: React.FC = () => {
             </div>
             <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-3xl p-12 z-50 border-t-2 border-slate-100 flex justify-center gap-6 shadow-2xl rounded-t-[5rem]">
                <button onClick={() => setCurrentStep('landing')} className="px-12 py-7 rounded-[3rem] font-bold text-slate-400">Discard All</button>
-               <button onClick={processBulkRender} className="bg-indigo-600 text-white px-20 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-4 shadow-2xl hover:scale-105 transition-all"><Sparkles size={32} /> GENERATE MODIFICATIONS</button>
+               <button onClick={processBulkRender} className="bg-indigo-600 text-white px-20 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-4 shadow-2xl hover:scale-105 transition-all"><Sparkles size={32} /> RUN ALL MODIFICATIONS</button>
             </div>
           </div>
         );
@@ -444,13 +459,14 @@ const App: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               {pages.map((p, idx) => (
                 <div key={p.id} className="bg-white rounded-[5rem] border-4 border-slate-50 overflow-hidden shadow-2xl relative group">
+                  <div className="absolute top-8 left-8 z-10 w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black shadow-2xl">#{idx + 1}</div>
                   <div className="aspect-[4/3] bg-slate-50 relative overflow-hidden">
                     {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-xl' : 'opacity-100'}`} alt={`Scene ${idx+1}`} />}
                     {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/5"><div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div><span className="text-indigo-600 font-black text-xs uppercase tracking-widest">Rendering...</span></div>}
                   </div>
                   <div className="p-12 space-y-6">
                     <div className="flex justify-between items-center">
-                      <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Scene {idx+1}</span>
+                      <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Modified Scene {idx+1}</span>
                       <div className="flex gap-2">
                         <button disabled={p.status === 'processing'} onClick={() => setActiveRefineId(p.id)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-[10px] font-black flex items-center gap-2 hover:bg-indigo-100 transition-colors"><MessageSquareCode size={16} /> QUICK TWEAK</button>
                         <button disabled={p.status === 'processing'} onClick={() => regenerateScene(p.id)} className="bg-indigo-600/5 text-indigo-600 p-2 rounded-xl hover:bg-indigo-100 transition-colors"><RefreshCw size={16} className={p.status === 'processing' ? 'animate-spin' : ''} /></button>
@@ -460,7 +476,7 @@ const App: React.FC = () => {
                       <div className="bg-indigo-50 p-6 rounded-[2rem] space-y-4 animate-in slide-in-from-top-4 duration-300">
                         <textarea 
                           className="w-full bg-white border-none rounded-2xl p-4 text-xs font-bold outline-none resize-none shadow-sm"
-                          placeholder="Small correction? (e.g., 'Add a hijab to the woman')"
+                          placeholder="Small correction? (e.g., 'Make the eyes match Image 1')"
                           value={refinePrompt}
                           onChange={(e) => setRefinePrompt(e.target.value)}
                         />

@@ -157,33 +157,46 @@ export const restyleIllustration = async (
 };
 
 /**
- * REFINE ILLUSTRATION: targeted corrective edits.
+ * REFINE ILLUSTRATION: targeted corrective edits with multiple references.
  */
 export const refineIllustration = async (
-  currentImageBase64: string,
+  targetImageBase64: string,
   refinementPrompt: string,
+  referenceImages: { base64: string, index: number }[] = [],
   isSpread: boolean = false
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const data = currentImageBase64.includes(',') ? currentImageBase64.split(',')[1] : currentImageBase64;
+  const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
   
-  const instruction = `TARGETED IMAGE CORRECTION:
-  Using the attached image as a BASE, apply ONLY the following change: "${refinementPrompt}"
+  const instruction = `TARGETED IMAGE CORRECTION TASK:
+  
+  GOAL: Modify the "TARGET IMAGE" based on this prompt: "${refinementPrompt}"
+  
+  CONTEXT: You are provided with the "TARGET IMAGE" and several "REFERENCE IMAGES" labeled by number.
+  
   STRICT RULES:
-  - Do NOT change the overall artistic style. Keep it as-is.
-  - Keep all character faces and backgrounds identical unless specifically told to change them.
-  - Maintain the existing lighting, shadows, and composition.
-  - This is an edit of an existing illustration.
-  - Example: if asked to "add a hijab", put it on the woman's head but keep her face and clothes the same.`;
+  1. Only generate a modified version of the TARGET IMAGE.
+  2. If the prompt mentions "Image X", refer to the corresponding numbered REFERENCE IMAGE.
+  3. Maintain the artistic style, lighting, and composition of the TARGET IMAGE.
+  4. Transfer specific features (like faces, clothing, or objects) from the REFERENCE IMAGES to the TARGET IMAGE if requested.
+  5. The output must be a single cohesive illustration.`;
+
+  const parts: any[] = [
+    { text: instruction },
+    { text: "--- TARGET IMAGE ---" },
+    { inlineData: { data: targetData, mimeType: 'image/png' } }
+  ];
+
+  // Add reference images labeled clearly
+  referenceImages.forEach((ref) => {
+    const data = ref.base64.includes(',') ? ref.base64.split(',')[1] : ref.base64;
+    parts.push({ text: `--- REFERENCE IMAGE ${ref.index} ---` });
+    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+  });
 
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
-    contents: {
-      parts: [
-        { inlineData: { data, mimeType: 'image/png' } },
-        { text: instruction }
-      ]
-    },
+    contents: { parts },
     config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", imageSize: "1K" } }
   });
 
