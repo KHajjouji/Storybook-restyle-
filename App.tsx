@@ -3,7 +3,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset } from './types';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration } from './geminiService';
@@ -24,13 +24,15 @@ const App: React.FC = () => {
   const [fullScript, setFullScript] = useState("");
   const [user, setUser] = useState<any>(null);
   
+  // Referenced Mode States
+  const [isReferencedMode, setIsReferencedMode] = useState(true);
+  const [globalFixPrompt, setGlobalFixPrompt] = useState("Ensure the man in Image 2 has the exact same facial features as the man in Image 1.");
+  const [selectedForProduction, setSelectedForProduction] = useState<Set<string>>(new Set());
+
   // Database Wizard States
   const [showDatabaseWizard, setShowDatabaseWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>('master-key');
   const [masterKeyInput, setMasterKeyInput] = useState("");
-  const [selectedProvider, setSelectedProvider] = useState<'supabase' | 'firebase' | null>(null);
-  const [dbUrl, setDbUrl] = useState("");
-  const [dbKey, setDbKey] = useState("");
   const [wizardError, setWizardError] = useState("");
 
   // Refinement UI States
@@ -62,7 +64,6 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
 
-  const directUpscaleInputRef = useRef<HTMLInputElement>(null);
   const restyleInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -93,16 +94,16 @@ const App: React.FC = () => {
   const handleExportProjectFile = () => {
     const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
     const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages, thumbnail };
-    // Use window.Blob explicitly to resolve the correct browser constructor type
-    const blob = new window.Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
-    const url = window.URL.createObjectURL(blob);
+    // Fix: Use global Blob and URL to avoid type mismatches that can occur with window-prefixed objects in strict environments
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `${projectName.replace(/\s+/g, '_')}.storyflow`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
+    URL.revokeObjectURL(url);
   };
 
   const handleImportProjectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -142,12 +143,6 @@ const App: React.FC = () => {
     setAuthLoading(false);
     if (error) { setAuthError(error.message); } 
     else { setShowLoginModal(false); }
-  };
-
-  const handleLogout = async () => {
-    if (supabase) await supabase.auth.signOut();
-    setUser(null);
-    refreshProjects();
   };
 
   const handleMasterKeyVerify = () => {
@@ -248,6 +243,10 @@ const App: React.FC = () => {
     const char = settings.characterReferences.find(c => c.id === charId);
     if (!char) return;
 
+    // Check for API key selection before using Pro models (Mandatory for gemini-3-pro-image-preview)
+    const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+    if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+
     setSettings(prev => ({
       ...prev,
       characterReferences: prev.characterReferences.map(c => 
@@ -265,8 +264,17 @@ const App: React.FC = () => {
           )
         }));
       }
-    } catch (e) {
+    } catch (e: any) {
+      console.error(e);
+      // Handle the case where the key might have been revoked or lost
+      if (e?.message?.includes("Requested entity was not found")) { await (window as any).aistudio?.openSelectKey(); }
       alert("Failed to design character.");
+      setSettings(prev => ({
+        ...prev,
+        characterReferences: prev.characterReferences.map(c => 
+          c.id === charId ? { ...c, images: [] } : c
+        )
+      }));
     }
   };
 
@@ -292,6 +300,12 @@ const App: React.FC = () => {
         loaded++;
         if (loaded === files.length) {
           setPages(prev => [...prev, ...newPages]);
+          // Default all newly uploaded images as active for production in fixer
+          setSelectedForProduction(prev => {
+            const next = new Set(prev);
+            newPages.forEach(pg => next.add(pg.id));
+            return next;
+          });
           setCurrentStep(settings.mode === 'upscale' ? 'generate' : 'restyle-editor');
         }
       };
@@ -313,17 +327,20 @@ const App: React.FC = () => {
       if (settings.mode === 'upscale' && p.originalImage) {
         result = await upscaleIllustration(p.originalImage, p.overrideStylePrompt || settings.targetStyle, p.isSpread);
       } else {
-        const prompt = p.overrideStylePrompt || settings.targetStyle;
+        // Feature Fixer Logic
+        const prompt = (isReferencedMode ? globalFixPrompt : p.overrideStylePrompt) || settings.targetStyle;
         const targetImg = p.originalImage;
 
         if (targetImg) {
-          const otherImages = pages
-            .filter(pg => pg.id !== pageId && pg.originalImage)
+          // Send ALL images from the fixer workspace as potential context
+          const allReferences = pages
+            .filter(pg => pg.originalImage)
             .map((pg) => ({ 
               base64: pg.originalImage!, 
               index: pages.indexOf(pg) + 1 
             }));
-          result = await refineIllustration(targetImg, prompt, otherImages, p.isSpread);
+            
+          result = await refineIllustration(targetImg, prompt, allReferences, p.isSpread);
         } else {
           result = await restyleIllustration(
             undefined,
@@ -360,18 +377,19 @@ const App: React.FC = () => {
       const imgToRefine = p?.processedImage || p?.originalImage;
       if (!imgToRefine) throw new Error("No image to refine");
 
-      const otherImages = pages
-        .filter(pg => pg.id !== pageId && (pg.processedImage || pg.originalImage))
+      const allReferences = pages
+        .filter(pg => (pg.processedImage || pg.originalImage))
         .map((pg) => ({ 
           base64: (pg.processedImage || pg.originalImage)!, 
           index: pages.indexOf(pg) + 1 
         }));
 
-      const result = await refineIllustration(imgToRefine, refinePrompt, otherImages, p.isSpread);
+      const result = await refineIllustration(imgToRefine, refinePrompt, allReferences, p.isSpread);
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
       setRefinePrompt("");
     } catch (e: any) {
       console.error(e);
+      if (e?.message?.includes("Requested entity was not found")) { await (window as any).aistudio?.openSelectKey(); }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg));
     }
   };
@@ -380,12 +398,25 @@ const App: React.FC = () => {
     const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
     setIsProcessing(true);
+    
+    // Only process pages that are selected and either not completed or need re-run
+    const targets = pages.filter(p => selectedForProduction.has(p.id));
+    
     setCurrentStep('generate');
-    for (let i = 0; i < pages.length; i++) {
-      if (pages[i].status === 'completed') continue;
-      await regenerateScene(pages[i].id);
+    
+    for (let i = 0; i < targets.length; i++) {
+      await regenerateScene(targets[i].id);
     }
     setIsProcessing(false);
+  };
+
+  const toggleProductionSelection = (id: string) => {
+    setSelectedForProduction(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const renderStep = () => {
@@ -453,6 +484,143 @@ const App: React.FC = () => {
                   <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest">Text Storyboards</p>
                 </button>
               </div>
+            </div>
+          </div>
+        );
+
+      case 'restyle-editor':
+        return (
+          <div className="max-w-7xl mx-auto py-12 space-y-12 animate-in fade-in duration-500 pb-56 px-8">
+            <div className="flex flex-col md:flex-row gap-12 items-start">
+              <div className="flex-1 space-y-8 sticky top-36">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-end">
+                    <h2 className="text-5xl font-black">Feature Fixer</h2>
+                    <button 
+                      onClick={() => setIsReferencedMode(!isReferencedMode)}
+                      className={`px-8 py-3 rounded-2xl font-black text-xs uppercase flex items-center gap-3 transition-all ${isReferencedMode ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-200' : 'bg-slate-100 text-slate-400'}`}
+                    >
+                      {isReferencedMode ? <Layers size={18} /> : <Scissors size={18} />}
+                      {isReferencedMode ? 'Referenced Mode: ON' : 'Individual Mode'}
+                    </button>
+                  </div>
+                  <p className="text-slate-500 text-lg">
+                    {isReferencedMode 
+                      ? "The Global Workspace Prompt can see all numbered images. Coordinate features between them." 
+                      : "Modify each illustration individually. Numbers act as source identifiers."}
+                  </p>
+                </div>
+
+                <div className="bg-white border-2 border-slate-100 rounded-[4rem] p-10 shadow-2xl space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Transformation Prompt</h3>
+                    {isReferencedMode && <span className="bg-emerald-50 text-emerald-600 px-4 py-1 rounded-full text-[10px] font-black">MULTI-IMAGE CONTEXT ACTIVE</span>}
+                  </div>
+                  <textarea 
+                    className="w-full h-48 bg-slate-50 border-none rounded-3xl p-8 text-xl font-medium outline-none resize-none shadow-inner leading-relaxed"
+                    placeholder={isReferencedMode ? "e.g. 'Use the facial features from Image 1 for the man in Image 2...'" : "General instructions for all images..."}
+                    value={isReferencedMode ? globalFixPrompt : "Processing..."}
+                    onChange={(e) => isReferencedMode && setGlobalFixPrompt(e.target.value)}
+                    disabled={!isReferencedMode}
+                  />
+                  <div className="flex gap-4">
+                    <div className="flex-1 p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
+                       <span className="text-[10px] font-black text-slate-400 block mb-2">TARGET SELECTION</span>
+                       <p className="text-xs font-bold text-slate-600">Select images in the grid to apply this transformation to.</p>
+                    </div>
+                    <button onClick={processBulkRender} className="bg-indigo-600 text-white px-12 py-7 rounded-[2.5rem] font-black text-xl flex items-center gap-4 shadow-2xl hover:scale-105 transition-all">
+                      <Sparkles size={28} /> RUN SELECTION
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-full md:w-2/5 grid grid-cols-1 gap-8">
+                {pages.map((p, idx) => (
+                  <div 
+                    key={p.id} 
+                    onClick={() => toggleProductionSelection(p.id)}
+                    className={`bg-white p-6 rounded-[3.5rem] border-4 transition-all cursor-pointer group relative ${selectedForProduction.has(p.id) ? 'border-indigo-600 shadow-2xl scale-[1.02]' : 'border-slate-50 opacity-60 grayscale hover:opacity-100 hover:grayscale-0'}`}
+                  >
+                    <div className="absolute top-8 left-8 z-10 w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black shadow-2xl text-xl">#{idx + 1}</div>
+                    <div className="absolute top-8 right-8 z-10 flex gap-2">
+                       {selectedForProduction.has(p.id) && <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-xl"><Check size={24} /></div>}
+                       <button onClick={(e) => { e.stopPropagation(); setPages(pages.filter(pg => pg.id !== p.id)); }} className="w-12 h-12 bg-white text-slate-200 rounded-2xl flex items-center justify-center shadow-lg hover:text-red-500 transition-colors"><Trash2 size={20} /></button>
+                    </div>
+                    <div className="aspect-[4/3] bg-slate-100 rounded-[2.5rem] overflow-hidden shadow-inner">
+                      {p.originalImage && <img src={p.originalImage} className="w-full h-full object-cover" alt={`Source ${idx + 1}`} />}
+                    </div>
+                    {!isReferencedMode && (
+                      <div className="mt-6">
+                        <textarea 
+                          className="w-full bg-slate-50 rounded-2xl p-4 text-xs font-bold outline-none border-none shadow-inner"
+                          placeholder="Individual override..."
+                          value={p.overrideStylePrompt}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => { const n = [...pages]; n[idx].overrideStylePrompt = e.target.value; setPages(n); }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <button 
+                  onClick={() => restyleInputRef.current?.click()}
+                  className="aspect-[4/3] border-4 border-dashed border-slate-200 rounded-[3.5rem] flex flex-col items-center justify-center gap-4 text-slate-300 hover:border-indigo-600 hover:text-indigo-600 transition-all bg-white/50"
+                >
+                  <Plus size={48} />
+                  <span className="font-black text-xs uppercase tracking-widest">Add Image</span>
+                  <input type="file" multiple hidden ref={restyleInputRef} accept="image/*" onChange={handleRestyleUpload} />
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'generate':
+        return (
+          <div className="max-w-7xl mx-auto py-12 space-y-12 animate-in fade-in duration-500 pb-60 px-8">
+            <div className="text-center"><h2 className="text-5xl font-black">Production Rendering</h2><p className="text-slate-500 text-xl font-medium tracking-tight">Processing {stats.completed} of {stats.total} master scenes.</p></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+              {pages.map((p, idx) => (
+                <div key={p.id} className="bg-white rounded-[5rem] border-4 border-slate-50 overflow-hidden shadow-2xl relative group">
+                  <div className="absolute top-8 left-8 z-10 w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black shadow-2xl">#{idx + 1}</div>
+                  <div className="aspect-[4/3] bg-slate-50 relative overflow-hidden">
+                    {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-xl' : 'opacity-100'}`} alt={`Scene ${idx+1}`} />}
+                    {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/5"><div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div><span className="text-indigo-600 font-black text-xs uppercase tracking-widest">Rendering...</span></div>}
+                  </div>
+                  <div className="p-12 space-y-6">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Modified Scene {idx+1}</span>
+                      <div className="flex gap-2">
+                        <button disabled={p.status === 'processing'} onClick={() => setActiveRefineId(p.id)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-[10px] font-black flex items-center gap-2 hover:bg-indigo-100 transition-colors"><MessageSquareCode size={16} /> QUICK TWEAK</button>
+                        <button disabled={p.status === 'processing'} onClick={() => regenerateScene(p.id)} className="bg-indigo-600/5 text-indigo-600 p-2 rounded-xl hover:bg-indigo-100 transition-colors"><RefreshCw size={16} className={p.status === 'processing' ? 'animate-spin' : ''} /></button>
+                      </div>
+                    </div>
+                    {activeRefineId === p.id && (
+                      <div className="bg-indigo-50 p-6 rounded-[2rem] space-y-4 animate-in slide-in-from-top-4 duration-300">
+                        <textarea 
+                          className="w-full bg-white border-none rounded-2xl p-4 text-xs font-bold outline-none resize-none shadow-sm"
+                          placeholder="Small correction? (e.g., 'Make the eyes match Image 1')"
+                          value={refinePrompt}
+                          onChange={(e) => setRefinePrompt(e.target.value)}
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => { setActiveRefineId(null); setRefinePrompt(""); }} className="text-[10px] font-bold text-slate-400 px-4 py-2">CANCEL</button>
+                          <button onClick={() => handleRefineScene(p.id)} className="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[10px] font-black shadow-lg">APPLY</button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-sm text-slate-600 font-medium italic leading-relaxed line-clamp-3">{isReferencedMode ? globalFixPrompt : (p.overrideStylePrompt || p.originalText)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="fixed bottom-0 inset-x-0 bg-slate-900 text-white p-14 z-50 rounded-t-[7rem] shadow-2xl flex flex-col md:flex-row items-center justify-between gap-12">
+                <div className="flex items-center gap-8"><div className="w-24 h-24 bg-white/10 rounded-full flex items-center justify-center text-indigo-400 font-black text-3xl shadow-inner">{stats.progress}%</div><span className="text-3xl font-black uppercase tracking-tighter">Progress</span></div>
+                <div className="flex gap-8">
+                  <button onClick={handleSaveProject} className="p-10 bg-white/10 rounded-[2.5rem] hover:bg-white/20 transition-all text-white"><Save size={40} /></button>
+                  <button disabled={stats.completed < stats.total} onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode)} className="bg-indigo-600 px-24 py-10 rounded-[4rem] font-black text-3xl flex items-center gap-8 hover:bg-indigo-500 transition-all disabled:opacity-30 shadow-2xl scale-105"><Download size={48} /> MASTER EXPORT</button>
+                </div>
             </div>
           </div>
         );
@@ -597,95 +765,6 @@ const App: React.FC = () => {
               <input type="file" multiple hidden ref={restyleInputRef} accept="image/*" onChange={handleRestyleUpload} />
             </div>
             <button onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600 block mx-auto">Cancel</button>
-          </div>
-        );
-
-      case 'restyle-editor':
-        return (
-          <div className="max-w-7xl mx-auto py-12 space-y-12 animate-in fade-in duration-500 pb-40 px-8">
-            <div className="text-center space-y-4">
-              <h2 className="text-5xl font-black">Feature Correction Board</h2>
-              <p className="text-slate-500 text-lg">Use the **Image Numbers** in your prompt to refer to specific images.</p>
-              <div className="inline-flex items-center gap-3 bg-indigo-50 border border-indigo-100 px-6 py-3 rounded-2xl text-indigo-600 font-bold text-xs">
-                <Info size={16} /> 
-                <span>Example: "Apply the face of the man in Image 1 to the person in Image 2."</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-              {pages.map((p, idx) => (
-                <div key={p.id} className="bg-white p-8 rounded-[4rem] border-2 border-slate-100 shadow-xl space-y-8 group hover:border-indigo-400 transition-all relative">
-                  <div className="flex justify-between items-center">
-                    <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-lg">#{idx + 1}</div>
-                    <button onClick={() => setPages(pages.filter(pg => pg.id !== p.id))} className="text-slate-200 hover:text-red-500"><Trash2 size={24} /></button>
-                  </div>
-                  <div className="aspect-[4/3] bg-slate-50 rounded-3xl overflow-hidden relative shadow-inner">
-                    {p.originalImage && <img src={p.originalImage} className="w-full h-full object-cover" alt={`Preview ${idx + 1}`} />}
-                  </div>
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Modification Instructions for Image {idx + 1}</label>
-                    <textarea 
-                      className="w-full h-40 bg-slate-50 border-none rounded-3xl p-6 text-sm font-medium outline-none resize-none shadow-inner"
-                      placeholder={`Describe changes for Image ${idx+1}. You can refer to other images by number.`}
-                      value={p.overrideStylePrompt}
-                      onChange={(e) => { const n = [...pages]; n[idx].overrideStylePrompt = e.target.value; setPages(n); }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-3xl p-12 z-50 border-t-2 border-slate-100 flex justify-center gap-6 shadow-2xl rounded-t-[5rem]">
-               <button onClick={() => setCurrentStep('landing')} className="px-12 py-7 rounded-[3rem] font-bold text-slate-400">Discard All</button>
-               <button onClick={processBulkRender} className="bg-indigo-600 text-white px-20 py-7 rounded-[3rem] font-black text-2xl flex items-center gap-4 shadow-2xl hover:scale-105 transition-all"><Sparkles size={32} /> RUN ALL MODIFICATIONS</button>
-            </div>
-          </div>
-        );
-
-      case 'generate':
-        return (
-          <div className="max-w-7xl mx-auto py-12 space-y-12 animate-in fade-in duration-500 pb-60 px-8">
-            <div className="text-center"><h2 className="text-5xl font-black">Production Rendering</h2><p className="text-slate-500 text-xl font-medium tracking-tight">Processing {stats.completed} of {stats.total} master scenes.</p></div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-              {pages.map((p, idx) => (
-                <div key={p.id} className="bg-white rounded-[5rem] border-4 border-slate-50 overflow-hidden shadow-2xl relative group">
-                  <div className="absolute top-8 left-8 z-10 w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black shadow-2xl">#{idx + 1}</div>
-                  <div className="aspect-[4/3] bg-slate-50 relative overflow-hidden">
-                    {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-xl' : 'opacity-100'}`} alt={`Scene ${idx+1}`} />}
-                    {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/5"><div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div><span className="text-indigo-600 font-black text-xs uppercase tracking-widest">Rendering...</span></div>}
-                  </div>
-                  <div className="p-12 space-y-6">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Modified Scene {idx+1}</span>
-                      <div className="flex gap-2">
-                        <button disabled={p.status === 'processing'} onClick={() => setActiveRefineId(p.id)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-[10px] font-black flex items-center gap-2 hover:bg-indigo-100 transition-colors"><MessageSquareCode size={16} /> QUICK TWEAK</button>
-                        <button disabled={p.status === 'processing'} onClick={() => regenerateScene(p.id)} className="bg-indigo-600/5 text-indigo-600 p-2 rounded-xl hover:bg-indigo-100 transition-colors"><RefreshCw size={16} className={p.status === 'processing' ? 'animate-spin' : ''} /></button>
-                      </div>
-                    </div>
-                    {activeRefineId === p.id && (
-                      <div className="bg-indigo-50 p-6 rounded-[2rem] space-y-4 animate-in slide-in-from-top-4 duration-300">
-                        <textarea 
-                          className="w-full bg-white border-none rounded-2xl p-4 text-xs font-bold outline-none resize-none shadow-sm"
-                          placeholder="Small correction? (e.g., 'Make the eyes match Image 1')"
-                          value={refinePrompt}
-                          onChange={(e) => setRefinePrompt(e.target.value)}
-                        />
-                        <div className="flex justify-end gap-2">
-                          <button onClick={() => { setActiveRefineId(null); setRefinePrompt(""); }} className="text-[10px] font-bold text-slate-400 px-4 py-2">CANCEL</button>
-                          <button onClick={() => handleRefineScene(p.id)} className="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[10px] font-black shadow-lg">APPLY</button>
-                        </div>
-                      </div>
-                    )}
-                    <p className="text-sm text-slate-600 font-medium italic leading-relaxed line-clamp-3">{p.overrideStylePrompt || p.originalText}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="fixed bottom-0 inset-x-0 bg-slate-900 text-white p-14 z-50 rounded-t-[7rem] shadow-2xl flex flex-col md:flex-row items-center justify-between gap-12">
-                <div className="flex items-center gap-8"><div className="w-24 h-24 bg-white/10 rounded-full flex items-center justify-center text-indigo-400 font-black text-3xl shadow-inner">{stats.progress}%</div><span className="text-3xl font-black uppercase tracking-tighter">Progress</span></div>
-                <div className="flex gap-8">
-                  <button onClick={handleSaveProject} className="p-10 bg-white/10 rounded-[2.5rem] hover:bg-white/20 transition-all text-white"><Save size={40} /></button>
-                  <button disabled={stats.completed < stats.total} onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode)} className="bg-indigo-600 px-24 py-10 rounded-[4rem] font-black text-3xl flex items-center gap-8 hover:bg-indigo-500 transition-all disabled:opacity-30 shadow-2xl scale-105"><Download size={48} /> MASTER EXPORT</button>
-                </div>
-            </div>
           </div>
         );
 
