@@ -124,6 +124,12 @@ export const restyleIllustration = async (
   Maintain character likeness exactly. No text.`;
 
   const parts: any[] = [{ text: instruction }];
+  
+  if (originalImageBase64) {
+    const data = originalImageBase64.includes(',') ? originalImageBase64.split(',')[1] : originalImageBase64;
+    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+  }
+
   charRefs.forEach((ref) => {
     ref.images.forEach((img) => {
       const data = img.includes(',') ? img.split(',')[1] : img;
@@ -164,10 +170,11 @@ export const refineIllustration = async (
   const instruction = `TARGETED IMAGE CORRECTION:
   Using the attached image as a BASE, apply ONLY the following change: "${refinementPrompt}"
   STRICT RULES:
-  - Do NOT change the overall style.
-  - Keep all character faces and backgrounds identical unless specified.
-  - Maintain the existing lighting and composition.
-  - This is an edit of an existing illustration.`;
+  - Do NOT change the overall artistic style. Keep it as-is.
+  - Keep all character faces and backgrounds identical unless specifically told to change them.
+  - Maintain the existing lighting, shadows, and composition.
+  - This is an edit of an existing illustration.
+  - Example: if asked to "add a hijab", put it on the woman's head but keep her face and clothes the same.`;
 
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
