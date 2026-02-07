@@ -251,6 +251,26 @@ const App: React.FC = () => {
     });
   };
 
+  /**
+   * Helper to select the most relevant reference images.
+   * Sending too many high-res images causes 500/Payload Too Large errors.
+   */
+  const getOptimizedReferences = (currentPageId: string) => {
+    const available = pages.filter(pg => pg.id !== currentPageId && (pg.processedImage || pg.originalImage));
+    if (available.length <= 3) {
+      return available.map(pg => ({
+        base64: (pg.processedImage || pg.originalImage)!,
+        index: pages.indexOf(pg) + 1
+      }));
+    }
+    // Select first two (usually character-heavy intro scenes) and the single most recent one
+    const selection = [available[0], available[1], available[available.length - 1]];
+    return selection.map(pg => ({
+      base64: (pg.processedImage || pg.originalImage)!,
+      index: pages.indexOf(pg) + 1
+    }));
+  };
+
   const regenerateScene = async (pageId: string) => {
     const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
@@ -271,10 +291,8 @@ const App: React.FC = () => {
         
         const targetImg = p.originalImage;
         if (targetImg) {
-          const otherReferences = pages
-            .filter(pg => pg.id !== pageId && pg.originalImage)
-            .map((pg) => ({ base64: pg.originalImage!, index: pages.indexOf(pg) + 1 }));
-            
+          // Send optimized references to maintain consistency without crashing API
+          const otherReferences = getOptimizedReferences(pageId);
           result = await refineIllustration(targetImg, finalPrompt, otherReferences, targetAspectRatio === '16:9');
         } else {
           result = await restyleIllustration(
@@ -301,7 +319,8 @@ const App: React.FC = () => {
     const targets = pages.filter(p => selectedForProduction.has(p.id));
     for (const target of targets) {
       await regenerateScene(target.id);
-      await new Promise(r => setTimeout(r, 200));
+      // Sequental delay prevents browser freezing and backend rate limits
+      await new Promise(r => setTimeout(r, 400));
     }
     setIsProcessing(false);
   };
@@ -319,12 +338,7 @@ const App: React.FC = () => {
       const imgToRefine = p?.processedImage || p?.originalImage;
       if (!imgToRefine) throw new Error("No image to refine");
 
-      const allReferences = pages
-        .filter(pg => pg.id !== pageId && (pg.processedImage || pg.originalImage))
-        .map((pg) => ({ 
-          base64: (pg.processedImage || pg.originalImage)!, 
-          index: pages.indexOf(pg) + 1 
-        }));
+      const allReferences = getOptimizedReferences(pageId);
 
       const result = await refineIllustration(imgToRefine, refinePrompt, allReferences, targetAspectRatio === '16:9');
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
@@ -482,6 +496,7 @@ const App: React.FC = () => {
                   <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
                     {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-xl' : 'opacity-100'}`} alt={`Scene ${idx+1}`} />}
                     {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/5"><div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div><span className="text-indigo-600 font-black text-xs uppercase tracking-widest">Rendering...</span></div>}
+                    {p.status === 'error' && <div className="absolute inset-0 bg-red-50/90 flex flex-col items-center justify-center text-red-600 p-8 text-center"><AlertCircle size={48} className="mb-4" /><h4 className="font-black text-xl mb-2">Error</h4><p className="text-xs font-bold leading-relaxed">Failed to generate. Image size or complexity too high.</p></div>}
                   </div>
                   <div className="p-12 space-y-6">
                     <div className="flex justify-between items-center"><span className="text-xs font-black text-slate-400 uppercase tracking-widest">Final Version {idx+1}</span><div className="flex gap-2"><button disabled={p.status === 'processing'} onClick={() => setActiveRefineId(p.id)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-[10px] font-black">QUICK TWEAK</button></div></div>
