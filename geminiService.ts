@@ -164,7 +164,8 @@ export const restyleIllustration = async (
   usePro: boolean = true,
   cleanBackground: boolean = false,
   isSpread: boolean = false,
-  masterBible?: string
+  masterBible?: string,
+  imageSize: '1K' | '2K' | '4K' = '1K'
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = usePro ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
@@ -192,7 +193,7 @@ export const restyleIllustration = async (
   const response: GenerateContentResponse = await ai.models.generateContent({
     model,
     contents: { parts },
-    config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", ...(usePro ? { imageSize: "1K" } : {}) } }
+    config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", ...(usePro ? { imageSize } : {}) } }
   });
 
   if (response.candidates?.[0]?.content?.parts) {
@@ -210,7 +211,8 @@ export const refineIllustration = async (
   targetImageBase64: string,
   refinementPrompt: string,
   referenceImages: { base64: string, index: number }[] = [],
-  isSpread: boolean = false
+  isSpread: boolean = false,
+  imageSize: '1K' | '2K' | '4K' = '1K'
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
@@ -234,7 +236,7 @@ export const refineIllustration = async (
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
     contents: { parts },
-    config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", imageSize: "1K" } }
+    config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", imageSize } }
   });
 
   if (response.candidates?.[0]?.content?.parts) {
@@ -251,7 +253,8 @@ export const refineIllustration = async (
 export const upscaleIllustration = async (
   currentImageBase64: string,
   stylePrompt: string,
-  isSpread: boolean = false
+  isSpread: boolean = false,
+  imageSize: '1K' | '2K' | '4K' = '4K'
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const data = currentImageBase64.includes(',') ? currentImageBase64.split(',')[1] : currentImageBase64;
@@ -261,10 +264,10 @@ export const upscaleIllustration = async (
     contents: {
       parts: [
         { inlineData: { data, mimeType: 'image/png' } },
-        { text: `UPSCALE 4K enhancement. Context: ${stylePrompt}` }
+        { text: `UPSCALE enhancement. Increase quality and sharpness. Context: ${stylePrompt}` }
       ]
     },
-    config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", imageSize: "4K" } }
+    config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", imageSize } }
   });
   
   if (response.candidates?.[0]?.content?.parts) {
