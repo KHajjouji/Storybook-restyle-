@@ -13,12 +13,11 @@ export const parsePromptPack = async (rawText: string): Promise<{
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `You are an expert production assistant for children's books. Analyze the provided script to extract structural production data.
+    contents: `Analyze the provided script to extract structural production data.
     
-    1. EXTRACT MASTER BIBLE: Look for sections like "PROMPT:" or "Full style lock". Combine them into a single coherent style instruction.
-    2. EXTRACT CHARACTER IDENTITIES: Find the "Consistent characters" section. Extract the exact name and their full physical descriptions.
-    3. EXTRACT SCENES: Find every "Scene X" block. Extract the description and constraints. 
-    4. ASPECT RATIO: Mark isSpread as true if wide/panoramic.
+    1. EXTRACT MASTER BIBLE: Look for style lock instructions.
+    2. EXTRACT CHARACTER IDENTITIES: Find consistent characters and descriptions.
+    3. EXTRACT SCENES: Find scene descriptions.
     
     Script:
     ${rawText}`,
@@ -62,6 +61,59 @@ export const parsePromptPack = async (rawText: string): Promise<{
   } catch (e) {
     return { masterBible: "", characterIdentities: [], scenes: [] };
   }
+};
+
+/**
+ * Designs professional children's book cover.
+ */
+export const generateBookCover = async (
+  projectContext: string,
+  charRefs: CharacterRef[] = [],
+  stylePrompt: string
+): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const instruction = `INDUSTRIAL BOOK COVER DESIGN TASK:
+  
+  PROJECT BRIEF:
+  ${projectContext}
+  
+  ARTISTIC STYLE:
+  ${stylePrompt}
+  
+  RULES:
+  1. Generate a SINGLE professional book cover illustration.
+  2. NO TITLE TEXT. NO LOGOS. Pure illustration only.
+  3. Include the consistent characters provided in the reference images.
+  4. The cover must visually reflect the unique selling points: The modern educational context, family togetherness, and interactive features (perhaps show a child interacting with a tablet or QR code elements in the scenery).
+  5. Use a cinematic, high-end children's book layout (3:4 aspect ratio).
+  6. Composition: Must feel like a series "Master Cover" that makes people eager to buy. Focus on the 'magic' of the learning experience.`;
+
+  const parts: any[] = [{ text: instruction }];
+  
+  // Add character references for likeness
+  charRefs.forEach((ref) => {
+    ref.images.forEach((img) => {
+      if (img && img !== "LOADING") {
+        const data = img.includes(',') ? img.split(',')[1] : img;
+        parts.push({ text: `REFERENCE CHARACTER: ${ref.name}` });
+        parts.push({ inlineData: { data, mimeType: 'image/png' } });
+      }
+    });
+  });
+
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model: 'gemini-3-pro-image-preview',
+    contents: { parts },
+    config: { imageConfig: { aspectRatio: "3:4", imageSize: "2K" } }
+  });
+
+  if (response.candidates?.[0]?.content?.parts) {
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+  }
+  throw new Error("Cover render failed.");
 };
 
 /**
@@ -137,11 +189,6 @@ export const restyleIllustration = async (
     });
   });
 
-  if (styleRefBase64) { 
-    const data = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
-    parts.push({ inlineData: { data, mimeType: 'image/png' } }); 
-  }
-
   const response: GenerateContentResponse = await ai.models.generateContent({
     model,
     contents: { parts },
@@ -169,17 +216,8 @@ export const refineIllustration = async (
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
   
   const instruction = `TARGETED IMAGE CORRECTION TASK:
-  
   GOAL: Modify the "TARGET IMAGE" based on this prompt: "${refinementPrompt}"
-  
-  CONTEXT: You are provided with the "TARGET IMAGE" and several "REFERENCE IMAGES" labeled by number.
-  
-  STRICT RULES:
-  1. Only generate a modified version of the TARGET IMAGE.
-  2. If the prompt mentions "Image X", refer to the corresponding numbered REFERENCE IMAGE.
-  3. Maintain the artistic style, lighting, and composition of the TARGET IMAGE.
-  4. Transfer specific features (like faces, clothing, or objects) from the REFERENCE IMAGES to the TARGET IMAGE if requested.
-  5. The output must be a single cohesive illustration.`;
+  CONTEXT: Transfer specific features from the numbered REFERENCE IMAGES if requested. Maintain style of TARGET.`;
 
   const parts: any[] = [
     { text: instruction },
@@ -187,7 +225,6 @@ export const refineIllustration = async (
     { inlineData: { data: targetData, mimeType: 'image/png' } }
   ];
 
-  // Add reference images labeled clearly
   referenceImages.forEach((ref) => {
     const data = ref.base64.includes(',') ? ref.base64.split(',')[1] : ref.base64;
     parts.push({ text: `--- REFERENCE IMAGE ${ref.index} ---` });

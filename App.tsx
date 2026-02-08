@@ -3,16 +3,16 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Info as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset } from './types';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration } from './geminiService';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 import { supabase, isSupabaseConfigured, supabaseService } from './supabaseService';
 
-type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'prompt-pack-editor' | 'characters' | 'generate' | 'direct-upscale';
+type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'prompt-pack-editor' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master';
 type WizardStep = 'master-key' | 'provider' | 'credentials' | 'verifying' | 'success';
 
 const App: React.FC = () => {
@@ -22,28 +22,32 @@ const App: React.FC = () => {
   const [pages, setPages] = useState<BookPage[]>([]);
   const [rawPackText, setRawPackText] = useState("");
   const [fullScript, setFullScript] = useState("");
-  const [user, setUser] = useState<any>(null);
+  const [projectContext, setProjectContext] = useState("");
+  const [coverImage, setCoverImage] = useState<string | null>(null);
   
+  // Added missing user state for Supabase integration
+  const [user, setUser] = useState<any>(null);
+
   // Referenced Mode States
   const [isReferencedMode, setIsReferencedMode] = useState(true);
-  const [globalFixPrompt, setGlobalFixPrompt] = useState("Apply the face of the man in Image 1 to the man in Image 2. Maintain clothing and style consistency.");
+  const [globalFixPrompt, setGlobalFixPrompt] = useState("Maintain clothing and style consistency. Ensure facial features match between scenes.");
   const [selectedForProduction, setSelectedForProduction] = useState<Set<string>>(new Set());
 
   // Format / Outpainting States
   const [targetAspectRatio, setTargetAspectRatio] = useState<'4:3' | '16:9' | '1:1' | '9:16'>('4:3');
 
-  // Refinement UI States
+  // UI Refinement States
   const [activeRefineId, setActiveRefineId] = useState<string | null>(null);
   const [refinePrompt, setRefinePrompt] = useState("");
 
-  // Database Wizard States
+  // Setup Wizard
   const [showDatabaseWizard, setShowDatabaseWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>('master-key');
   const [masterKeyInput, setMasterKeyInput] = useState("");
   const [wizardError, setWizardError] = useState("");
 
   const [settings, setSettings] = useState<AppSettings>({
-    mode: 'prompt-pack',
+    mode: 'restyle',
     targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, soft gradients, minimal hard outlines, warm pastel palette, cozy atmosphere',
     targetLanguage: 'NONE_CLEAN_BG',
     exportFormat: 'KDP_SQUARE',
@@ -82,13 +86,8 @@ const App: React.FC = () => {
     init();
   }, []);
 
-  const refreshProjects = async () => {
-    const projs = await persistenceService.getAllProjects();
-    setSavedProjects(projs);
-  };
-
   const handleExportProjectFile = () => {
-    const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
+    const thumbnail = coverImage || pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
     const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages, thumbnail };
     const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -117,7 +116,8 @@ const App: React.FC = () => {
           setPages(project.pages);
           setCurrentStep('generate');
           await persistenceService.saveProject(project);
-          await refreshProjects();
+          const projs = await persistenceService.getAllProjects();
+          setSavedProjects(projs);
         }
       } catch (err) { alert("Failed to parse project file."); }
     };
@@ -128,65 +128,13 @@ const App: React.FC = () => {
   const handleSaveProject = async () => {
     setIsSaving(true);
     try {
-      const thumbnail = pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
+      const thumbnail = coverImage || pages.find(p => p.processedImage || p.originalImage)?.processedImage || pages.find(p => p.originalImage)?.originalImage;
       const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages, thumbnail };
       await persistenceService.saveProject(project);
-      await refreshProjects();
+      const projs = await persistenceService.getAllProjects();
+      setSavedProjects(projs);
     } catch (e) { console.error(e); }
     finally { setIsSaving(false); }
-  };
-
-  const handleApplyPreset = (preset: SeriesPreset) => {
-    setProjectName(preset.title);
-    setProjectId(Math.random().toString(36).substring(7));
-    setSettings(prev => ({
-      ...prev,
-      mode: 'prompt-pack',
-      masterBible: preset.masterBible,
-      characterReferences: preset.characters.map(c => ({
-        id: Math.random().toString(36).substring(7),
-        name: c.name,
-        description: c.description,
-        images: []
-      }))
-    }));
-    setPages(preset.scenes.map(s => ({
-      id: Math.random().toString(36).substring(7),
-      originalText: s.text,
-      status: 'idle',
-      assignments: [],
-      isSpread: s.isSpread,
-      overrideStylePrompt: s.prompt
-    })));
-    setCurrentStep('characters');
-  };
-
-  const handleParsePack = async () => {
-    if (!rawPackText) return;
-    setIsParsing(true);
-    try {
-      const result = await parsePromptPack(rawPackText);
-      setSettings(prev => ({
-        ...prev,
-        masterBible: result.masterBible,
-        characterReferences: result.characterIdentities.map(c => ({
-          id: Math.random().toString(36).substring(7),
-          name: c.name,
-          description: c.description,
-          images: []
-        }))
-      }));
-      setPages(result.scenes.map(s => ({
-        id: Math.random().toString(36).substring(7),
-        originalText: s.prompt,
-        status: 'idle',
-        assignments: [],
-        isSpread: s.isSpread,
-        overrideStylePrompt: s.prompt
-      })));
-      setCurrentStep('prompt-pack-editor');
-    } catch (e) { alert("Failed to parse prompt pack."); }
-    finally { setIsParsing(false); }
   };
 
   const handlePlanStory = async () => {
@@ -207,13 +155,62 @@ const App: React.FC = () => {
     finally { setIsParsing(false); }
   };
 
-  // handleMasterKeyVerify: Validates the administrator access key for system setup.
+  // Added handleParsePack to process raw script inputs
+  const handleParsePack = async () => {
+    if (!rawPackText) return;
+    setIsParsing(true);
+    try {
+      const result = await parsePromptPack(rawPackText);
+      setSettings(s => ({
+        ...s,
+        masterBible: result.masterBible || s.masterBible,
+        characterReferences: result.characterIdentities.map(ci => ({
+          id: Math.random().toString(36).substring(7),
+          name: ci.name,
+          description: ci.description,
+          images: []
+        }))
+      }));
+      setPages(result.scenes.map(s => ({
+        id: Math.random().toString(36).substring(7),
+        originalText: s.prompt,
+        status: 'idle',
+        assignments: [],
+        isSpread: s.isSpread,
+        overrideStylePrompt: s.prompt
+      })));
+      setCurrentStep('characters');
+    } catch (e) {
+      alert("Failed to parse prompt pack.");
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handleGenerateCoverDesign = async () => {
+    const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+    if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+    setIsProcessing(true);
+    try {
+      const result = await generateBookCover(
+        projectContext,
+        settings.characterReferences,
+        settings.targetStyle
+      );
+      setCoverImage(result);
+    } catch (e) {
+      alert("Cover production failed. Check context length or API key.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleMasterKeyVerify = () => {
     if (masterKeyInput.toLowerCase() === 'storyflow') {
       setWizardStep('provider');
       setWizardError("");
     } else {
-      setWizardError("Incorrect master key. Please try again.");
+      setWizardError("Incorrect master key.");
     }
   };
 
@@ -251,26 +248,6 @@ const App: React.FC = () => {
     });
   };
 
-  /**
-   * Helper to select the most relevant reference images.
-   * Sending too many high-res images causes 500/Payload Too Large errors.
-   */
-  const getOptimizedReferences = (currentPageId: string) => {
-    const available = pages.filter(pg => pg.id !== currentPageId && (pg.processedImage || pg.originalImage));
-    if (available.length <= 3) {
-      return available.map(pg => ({
-        base64: (pg.processedImage || pg.originalImage)!,
-        index: pages.indexOf(pg) + 1
-      }));
-    }
-    // Select first two (usually character-heavy intro scenes) and the single most recent one
-    const selection = [available[0], available[1], available[available.length - 1]];
-    return selection.map(pg => ({
-      base64: (pg.processedImage || pg.originalImage)!,
-      index: pages.indexOf(pg) + 1
-    }));
-  };
-
   const regenerateScene = async (pageId: string) => {
     const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
@@ -286,13 +263,13 @@ const App: React.FC = () => {
         result = await upscaleIllustration(p.originalImage, p.overrideStylePrompt || settings.targetStyle, p.isSpread);
       } else {
         const basePrompt = (isReferencedMode ? globalFixPrompt : p.overrideStylePrompt) || settings.targetStyle;
-        const outpaintingInstruction = `REFORMAT TASK: Extend the canvas of this image to a ${targetAspectRatio} aspect ratio. Ensure seamless style continuity.`;
+        const outpaintingInstruction = `REFORMAT TASK: Extend the illustration canvas to a ${targetAspectRatio} aspect ratio. Maintain consistency.`;
         const finalPrompt = `${outpaintingInstruction} ${basePrompt}`;
         
         const targetImg = p.originalImage;
         if (targetImg) {
-          // Send optimized references to maintain consistency without crashing API
-          const otherReferences = getOptimizedReferences(pageId);
+          const available = pages.filter(pg => pg.id !== pageId && (pg.processedImage || pg.originalImage));
+          const otherReferences = available.slice(0, 3).map((pg) => ({ base64: (pg.processedImage || pg.originalImage)!, index: pages.indexOf(pg) + 1 }));
           result = await refineIllustration(targetImg, finalPrompt, otherReferences, targetAspectRatio === '16:9');
         } else {
           result = await restyleIllustration(
@@ -304,7 +281,30 @@ const App: React.FC = () => {
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
     } catch (e: any) {
-      console.error("Rendering error:", e);
+      setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg));
+    }
+  };
+
+  // Added handleRefineScene for targeted user refinements
+  const handleRefineScene = async (pageId: string) => {
+    const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+    if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+    
+    setPages(curr => curr.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
+    
+    try {
+      const p = pages.find(pg => pg.id === pageId);
+      if (!p) throw new Error("Page not found");
+
+      const targetImg = p.processedImage || p.originalImage;
+      if (!targetImg) throw new Error("No image to refine");
+
+      const result = await refineIllustration(targetImg, refinePrompt, [], p.isSpread);
+      
+      setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
+      setActiveRefineId(null);
+      setRefinePrompt("");
+    } catch (e: any) {
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg));
     }
   };
@@ -312,40 +312,14 @@ const App: React.FC = () => {
   const processBulkRender = async () => {
     const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
-    
     setIsProcessing(true);
     setCurrentStep('generate');
-    
     const targets = pages.filter(p => selectedForProduction.has(p.id));
     for (const target of targets) {
       await regenerateScene(target.id);
-      // Sequental delay prevents browser freezing and backend rate limits
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 200));
     }
     setIsProcessing(false);
-  };
-
-  const handleRefineScene = async (pageId: string) => {
-    if (!refinePrompt) return;
-    const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-    if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
-    
-    setPages(curr => curr.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
-    setActiveRefineId(null);
-    
-    try {
-      const p = pages.find(pg => pg.id === pageId);
-      const imgToRefine = p?.processedImage || p?.originalImage;
-      if (!imgToRefine) throw new Error("No image to refine");
-
-      const allReferences = getOptimizedReferences(pageId);
-
-      const result = await refineIllustration(imgToRefine, refinePrompt, allReferences, targetAspectRatio === '16:9');
-      setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
-      setRefinePrompt("");
-    } catch (e: any) {
-      setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg));
-    }
   };
 
   const renderStep = () => {
@@ -355,10 +329,10 @@ const App: React.FC = () => {
           <div className="max-w-6xl mx-auto py-16 space-y-16 animate-in fade-in duration-700 pb-32">
             <div className="text-center space-y-6">
               <h2 className="text-7xl font-black text-slate-900 tracking-tighter">Series <span className="text-indigo-600">Master</span></h2>
-              <p className="text-slate-500 text-xl max-w-2xl mx-auto font-medium">Professional continuity dashboard for children's books.</p>
+              <p className="text-slate-500 text-xl max-w-2xl mx-auto font-medium">Professional continuity dashboard for series production.</p>
               <div className="flex justify-center gap-4 pt-4">
                 <button onClick={() => importFileInputRef.current?.click()} className="px-10 py-5 bg-indigo-600 text-white rounded-[2.5rem] font-black text-lg flex items-center gap-3 hover:scale-105 transition-all shadow-xl shadow-indigo-100">
-                  <FileUp size={24} /> RESTORE PRODUCTION FILE (.storyflow)
+                  <FileUp size={24} /> RESTORE PROJECT (.storyflow)
                 </button>
                 <input type="file" ref={importFileInputRef} onChange={handleImportProjectFile} accept=".storyflow" className="hidden" />
               </div>
@@ -367,13 +341,18 @@ const App: React.FC = () => {
             <div className="space-y-12">
               <div className="flex items-center gap-4">
                 <Layout className="text-indigo-600" size={24} />
-                <h3 className="text-3xl font-black text-slate-900">Industrial Tools</h3>
+                <h3 className="text-3xl font-black text-slate-900">Production Engines</h3>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 <button onClick={() => { setSettings({...settings, mode: 'restyle'}); setPages([]); setCurrentStep('upload'); }} className="p-8 bg-indigo-600 text-white rounded-[3rem] text-left hover:scale-[1.05] transition-all shadow-xl relative overflow-hidden group">
                   <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center mb-6"><Palette size={24} /></div>
                   <h4 className="text-xl font-black mb-2 leading-tight">Feature Fixer</h4>
-                  <p className="text-white/60 text-[10px] uppercase font-bold tracking-widest">Upload & Correct</p>
+                  <p className="text-white/60 text-[10px] uppercase font-bold tracking-widest">Consistency Engine</p>
+                </button>
+                <button onClick={() => setCurrentStep('cover-master')} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group relative">
+                  <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors"><BookMarked size={24} /></div>
+                  <h4 className="text-xl font-black mb-2 text-slate-800 leading-tight">Cover Design</h4>
+                  <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest">Production Ready</p>
                 </button>
                 <button onClick={() => { setSettings({...settings, mode: 'prompt-pack'}); setCurrentStep('prompt-pack'); }} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group relative">
                   <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 text-slate-400 group-hover:text-indigo-600"><ClipboardList size={24} /></div>
@@ -388,24 +367,72 @@ const App: React.FC = () => {
                 <button onClick={() => { setSettings({...settings, mode: 'create'}); setCurrentStep('script'); }} className="p-8 bg-white border-2 border-slate-100 rounded-[3rem] text-left hover:border-indigo-600 hover:scale-[1.05] transition-all group relative">
                   <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 text-slate-400 group-hover:text-indigo-600"><Rocket size={24} /></div>
                   <h4 className="text-xl font-black mb-2 text-slate-800 leading-tight">Script-to-Book</h4>
-                  <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest">AI Storyboarding</p>
+                  <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest">Storyboarding</p>
                 </button>
               </div>
             </div>
-            
-            <div className="space-y-12">
-              <div className="flex items-center gap-4">
-                <Heart className="text-red-500 fill-red-500" size={24} />
-                <h3 className="text-3xl font-black text-slate-900">Series Presets</h3>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {SERIES_PRESETS.map(preset => (
-                  <button key={preset.id} onClick={() => handleApplyPreset(preset)} className="p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-indigo-600 transition-all shadow-sm group">
-                    <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors"><BookOpen size={32} /></div>
-                    <h4 className="text-3xl font-black mb-3">{preset.title}</h4>
-                    <p className="text-slate-400 text-sm leading-relaxed">{preset.description}</p>
+          </div>
+        );
+
+      case 'cover-master':
+        return (
+          <div className="max-w-7xl mx-auto py-12 space-y-12 animate-in fade-in duration-500 pb-56 px-8">
+            <div className="flex flex-col md:flex-row gap-12 items-start">
+              <div className="flex-1 space-y-8 sticky top-36">
+                <div className="space-y-4">
+                  <h2 className="text-5xl font-black">Cover Designer</h2>
+                  <p className="text-slate-500 text-lg">Synthesize project context, marketing, and characters into a production-ready cover.</p>
+                </div>
+                <div className="bg-white border-2 border-slate-100 rounded-[4rem] p-10 shadow-2xl space-y-8">
+                   <div className="space-y-4">
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-2"><Megaphone size={16} /> Marketing & Project Context Brief</h3>
+                    <textarea 
+                      className="w-full h-80 bg-slate-50 border-none rounded-3xl p-8 text-sm font-medium outline-none resize-none shadow-inner leading-relaxed"
+                      placeholder="Paste your presentation brief here (Story events, marketing unique features, interactive apps, educational focus)..."
+                      value={projectContext}
+                      onChange={(e) => setProjectContext(e.target.value)}
+                    />
+                  </div>
+                  <button 
+                    disabled={isProcessing || !projectContext}
+                    onClick={handleGenerateCoverDesign}
+                    className="w-full py-7 bg-indigo-600 text-white rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-4 shadow-2xl hover:scale-105 transition-all disabled:opacity-30"
+                  >
+                    {isProcessing ? <Loader2 className="animate-spin" size={28} /> : <Sparkles size={28} />} 
+                    GENERATE MASTER COVER
                   </button>
-                ))}
+                </div>
+              </div>
+              <div className="w-full md:w-2/5 space-y-8">
+                <div className="bg-white p-8 rounded-[4rem] border-4 border-slate-50 shadow-sm space-y-6">
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Current Cover Result</h3>
+                  <div className="aspect-[3/4] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner relative flex items-center justify-center">
+                    {coverImage ? (
+                      <img src={coverImage} className="w-full h-full object-cover" alt="Book Cover" />
+                    ) : (
+                      <div className="text-center p-12 text-slate-300">
+                        <BookMarked size={64} className="mx-auto mb-4" />
+                        <p className="text-xs font-black uppercase tracking-widest">No Design Rendered</p>
+                      </div>
+                    )}
+                    {isProcessing && <div className="absolute inset-0 bg-indigo-600/20 backdrop-blur-md flex items-center justify-center"><Loader2 size={48} className="animate-spin text-white" /></div>}
+                  </div>
+                  {coverImage && (
+                    <button onClick={() => { const link = document.createElement('a'); link.href = coverImage; link.download = 'book_cover.png'; link.click(); }} className="w-full py-4 bg-emerald-50 text-emerald-600 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-600 hover:text-white transition-all">
+                      <Download size={16} /> DOWNLOAD MASTER 4K
+                    </button>
+                  )}
+                </div>
+                <div className="bg-white p-8 rounded-[4rem] border-2 border-slate-100 space-y-6">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Character References</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {settings.characterReferences.slice(0, 4).map(char => (
+                      <div key={char.id} className="aspect-square bg-slate-50 rounded-2xl overflow-hidden border-2 border-slate-100">
+                        {char.images[0] && <img src={char.images[0]} className="w-full h-full object-cover" alt={char.name} />}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -416,57 +443,30 @@ const App: React.FC = () => {
           <div className="max-w-7xl mx-auto py-12 space-y-12 animate-in fade-in duration-500 pb-56 px-8">
             <div className="flex flex-col md:flex-row gap-12 items-start">
               <div className="flex-1 space-y-8 sticky top-36">
-                <div className="space-y-4">
-                  <div className="flex justify-between items-end">
-                    <h2 className="text-5xl font-black">Feature Fixer</h2>
-                    <button 
-                      onClick={() => setIsReferencedMode(!isReferencedMode)}
-                      className={`px-8 py-3 rounded-2xl font-black text-xs uppercase flex items-center gap-3 transition-all ${isReferencedMode ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-200' : 'bg-slate-100 text-slate-400'}`}
-                    >
-                      {isReferencedMode ? <Layers size={18} /> : <Scissors size={18} />}
-                      {isReferencedMode ? 'Referenced Mode: ON' : 'Individual Mode'}
-                    </button>
-                  </div>
+                <div className="flex justify-between items-end">
+                  <h2 className="text-5xl font-black">Feature Fixer</h2>
+                  <button onClick={() => setIsReferencedMode(!isReferencedMode)} className={`px-8 py-3 rounded-2xl font-black text-xs uppercase flex items-center gap-3 transition-all ${isReferencedMode ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-200' : 'bg-slate-100 text-slate-400'}`}>
+                    {isReferencedMode ? <Layers size={18} /> : <Scissors size={18} />} {isReferencedMode ? 'Referenced Mode' : 'Individual Mode'}
+                  </button>
                 </div>
-
                 <div className="bg-white border-2 border-slate-100 rounded-[4rem] p-10 shadow-2xl space-y-8">
                   <div className="space-y-4">
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Step 1: Outpainting Format</h3>
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Step 1: Format</h3>
                     <div className="grid grid-cols-4 gap-4">
                       {(['1:1', '4:3', '16:9', '9:16'] as const).map(ratio => (
-                        <button key={ratio} onClick={() => setTargetAspectRatio(ratio)} className={`p-4 rounded-2xl border-2 font-black text-xs transition-all flex flex-col items-center gap-2 ${targetAspectRatio === ratio ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-slate-50 text-slate-400 hover:border-slate-200'}`}>
-                          <Frame size={20} />
-                          {ratio === '1:1' ? 'Square' : ratio === '16:9' ? 'Spread' : ratio === '4:3' ? 'Standard' : 'Portrait'}
-                        </button>
+                        <button key={ratio} onClick={() => setTargetAspectRatio(ratio)} className={`p-4 rounded-2xl border-2 font-black text-xs flex flex-col items-center gap-2 ${targetAspectRatio === ratio ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-slate-50 text-slate-400'}`}><Frame size={20} />{ratio}</button>
                       ))}
                     </div>
                   </div>
-
                   <div className="space-y-4">
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Step 2: Master Fix Prompt</h3>
-                    <textarea 
-                      className="w-full h-48 bg-slate-50 border-none rounded-3xl p-8 text-xl font-medium outline-none resize-none shadow-inner leading-relaxed"
-                      placeholder={isReferencedMode ? "Coordinate features between numbered images..." : "Individual overrides for specific images..."}
-                      value={isReferencedMode ? globalFixPrompt : ""}
-                      onChange={(e) => isReferencedMode && setGlobalFixPrompt(e.target.value)}
-                      disabled={!isReferencedMode}
-                    />
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Step 2: Master Fix</h3>
+                    <textarea className="w-full h-48 bg-slate-50 border-none rounded-3xl p-8 text-xl font-medium outline-none resize-none shadow-inner" placeholder="Coordinate consistency..." value={isReferencedMode ? globalFixPrompt : ""} onChange={(e) => isReferencedMode && setGlobalFixPrompt(e.target.value)} disabled={!isReferencedMode} />
                   </div>
-
-                  <div className="flex gap-4">
-                    <div className="flex-1 p-6 bg-slate-50 rounded-[2rem] border border-slate-100"><p className="text-xs font-bold text-slate-600">{selectedForProduction.size} images marked for render.</p></div>
-                    <button 
-                      disabled={selectedForProduction.size === 0 || isProcessing}
-                      onClick={processBulkRender} 
-                      className="bg-indigo-600 text-white px-12 py-7 rounded-[2.5rem] font-black text-xl flex items-center gap-4 shadow-2xl hover:scale-105 transition-all disabled:opacity-30"
-                    >
-                      {isProcessing ? <Loader2 className="animate-spin" size={28} /> : <Sparkles size={28} />} 
-                      START RENDER
-                    </button>
-                  </div>
+                  <button disabled={selectedForProduction.size === 0 || isProcessing} onClick={processBulkRender} className="bg-indigo-600 text-white px-12 py-7 rounded-[2.5rem] font-black text-xl flex items-center gap-4 shadow-2xl hover:scale-105 transition-all w-full justify-center disabled:opacity-30">
+                    {isProcessing ? <Loader2 className="animate-spin" size={28} /> : <Sparkles size={28} />} START RENDER
+                  </button>
                 </div>
               </div>
-
               <div className="w-full md:w-2/5 grid grid-cols-1 gap-8">
                 {pages.map((p, idx) => (
                   <div key={p.id} onClick={() => setSelectedForProduction(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} className={`bg-white p-6 rounded-[3.5rem] border-4 transition-all cursor-pointer group relative ${selectedForProduction.has(p.id) ? 'border-indigo-600 shadow-2xl scale-[1.02]' : 'border-slate-50 opacity-60 grayscale hover:opacity-100 hover:grayscale-0'}`}>
@@ -496,7 +496,6 @@ const App: React.FC = () => {
                   <div className="aspect-[4/3] bg-slate-100 relative overflow-hidden">
                     {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-xl' : 'opacity-100'}`} alt={`Scene ${idx+1}`} />}
                     {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/5"><div className="w-24 h-24 border-8 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div><span className="text-indigo-600 font-black text-xs uppercase tracking-widest">Rendering...</span></div>}
-                    {p.status === 'error' && <div className="absolute inset-0 bg-red-50/90 flex flex-col items-center justify-center text-red-600 p-8 text-center"><AlertCircle size={48} className="mb-4" /><h4 className="font-black text-xl mb-2">Error</h4><p className="text-xs font-bold leading-relaxed">Failed to generate. Image size or complexity too high.</p></div>}
                   </div>
                   <div className="p-12 space-y-6">
                     <div className="flex justify-between items-center"><span className="text-xs font-black text-slate-400 uppercase tracking-widest">Final Version {idx+1}</span><div className="flex gap-2"><button disabled={p.status === 'processing'} onClick={() => setActiveRefineId(p.id)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-[10px] font-black">QUICK TWEAK</button></div></div>
@@ -525,7 +524,7 @@ const App: React.FC = () => {
       case 'script':
         return (
           <div className="max-w-4xl mx-auto py-16 space-y-12 animate-in slide-in-from-bottom duration-500">
-            <div className="text-center space-y-4"><h2 className="text-4xl font-black">Story Script Lab</h2><p className="text-slate-500">The AI will plan your illustrations based on your full narrative.</p></div>
+            <div className="text-center space-y-4"><h2 className="text-4xl font-black">Story Script Lab</h2><p className="text-slate-500">AI Storyboarding based on your full narrative.</p></div>
             <textarea className="w-full h-96 bg-white border-2 border-slate-100 rounded-[3rem] p-10 font-medium text-lg outline-none shadow-inner leading-relaxed" placeholder="Write your story here..." value={fullScript} onChange={(e) => setFullScript(e.target.value)} />
             <button disabled={isParsing || !fullScript} onClick={handlePlanStory} className="w-full py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-2xl shadow-xl flex items-center justify-center gap-4 hover:scale-[1.02] transition-all disabled:opacity-50">{isParsing ? <Loader2 className="animate-spin" /> : <Rocket />} DEVELOP STORYBOARD</button>
           </div>
@@ -534,7 +533,7 @@ const App: React.FC = () => {
       case 'prompt-pack':
         return (
           <div className="max-w-4xl mx-auto py-16 space-y-12 animate-in slide-in-from-bottom duration-500">
-            <div className="text-center space-y-4"><h2 className="text-4xl font-black">Industrial Prompt Pack</h2><p className="text-slate-500">Paste your structured script. The AI will extract scenes and style locks.</p></div>
+            <div className="text-center space-y-4"><h2 className="text-4xl font-black">Industrial Prompt Pack</h2><p className="text-slate-500">Paste your structured script to extract scenes.</p></div>
             <textarea className="w-full h-96 bg-white border-2 border-slate-100 rounded-[3rem] p-10 font-mono text-sm outline-none shadow-inner" placeholder="PASTE SCRIPT HERE..." value={rawPackText} onChange={(e) => setRawPackText(e.target.value)} />
             <button disabled={isParsing || !rawPackText} onClick={handleParsePack} className="w-full py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-2xl shadow-xl flex items-center justify-center gap-4 hover:scale-[1.02] transition-all disabled:opacity-50">{isParsing ? <Loader2 className="animate-spin" /> : <ClipboardList />} PARSE AND BUILD</button>
           </div>
