@@ -1,3 +1,4 @@
+
 export interface CharacterRef {
   id: string;
   images: string[]; 
@@ -22,9 +23,9 @@ export interface BookPage {
   overrideStylePrompt?: string; 
 }
 
-export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'INGRAM_PREMIUM';
+export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'LULU_US_LETTER' | 'INGRAM_PREMIUM';
 export type SpreadExportMode = 'SPLIT_PAGES' | 'WIDE_SPREAD';
-export type AppMode = 'restyle' | 'create' | 'upscale' | 'prompt-pack';
+export type AppMode = 'restyle' | 'create' | 'upscale' | 'prompt-pack' | 'production-layout';
 
 export interface SeriesPreset {
   id: string;
@@ -65,39 +66,49 @@ export const PRINT_FORMATS = {
     width: 8.5, 
     height: 8.5, 
     bleed: 0.125, 
-    baseGutter: 0.75,
-    outside: 0.5, 
-    top: 0.5, 
-    bottom: 0.75 
+    baseGutter: 0.375,
+    outside: 0.25, 
+    top: 0.25, 
+    bottom: 0.25 
   },
   KDP_PORTRAIT: { 
     name: 'KDP Portrait (6" x 9")', 
     width: 6, 
     height: 9, 
     bleed: 0.125, 
-    baseGutter: 0.75, 
-    outside: 0.5, 
-    top: 0.5, 
-    bottom: 0.75 
+    baseGutter: 0.375, 
+    outside: 0.25, 
+    top: 0.25, 
+    bottom: 0.25 
   },
   LULU_A4: { 
-    name: 'Lulu A4 (210 x 297 mm)', 
+    name: 'Lulu A4 (8.27" x 11.69")', 
     width: 8.27, 
     height: 11.69, 
-    bleed: 0.118, 
-    baseGutter: 0.75, 
-    outside: 0.5, 
-    top: 0.5, 
-    bottom: 0.75 
+    bleed: 0.125, 
+    baseGutter: 0.5, 
+    outside: 0.375, 
+    top: 0.375, 
+    bottom: 0.375 
+  },
+  LULU_US_LETTER: { 
+    name: 'Lulu Letter (8.5" x 11")', 
+    width: 8.5, 
+    height: 11, 
+    bleed: 0.125, 
+    baseGutter: 0.5, 
+    outside: 0.375, 
+    top: 0.375, 
+    bottom: 0.375 
   },
   INGRAM_PREMIUM: { 
     name: 'IngramSpark Standard (7" x 10")', 
     width: 7, 
     height: 10, 
     bleed: 0.125, 
-    baseGutter: 0.75, 
+    baseGutter: 0.5, 
     outside: 0.5, 
     top: 0.5, 
-    bottom: 0.75 
+    bottom: 0.5 
   },
 };

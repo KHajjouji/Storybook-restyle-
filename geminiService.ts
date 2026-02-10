@@ -85,13 +85,11 @@ export const generateBookCover = async (
   1. Generate a SINGLE professional book cover illustration.
   2. NO TITLE TEXT. NO LOGOS. Pure illustration only.
   3. Include the consistent characters provided in the reference images.
-  4. The cover must visually reflect the unique selling points: The modern educational context, family togetherness, and interactive features (perhaps show a child interacting with a tablet or QR code elements in the scenery).
-  5. Use a cinematic, high-end children's book layout (3:4 aspect ratio).
-  6. Composition: Must feel like a series "Master Cover" that makes people eager to buy. Focus on the 'magic' of the learning experience.`;
+  4. Use a cinematic, high-end children's book layout (3:4 aspect ratio).
+  5. Composition: Must feel like a series "Master Cover" that makes people eager to buy.`;
 
   const parts: any[] = [{ text: instruction }];
   
-  // Add character references for likeness
   charRefs.forEach((ref) => {
     ref.images.forEach((img) => {
       if (img && img !== "LOADING") {
@@ -165,27 +163,32 @@ export const restyleIllustration = async (
   cleanBackground: boolean = false,
   isSpread: boolean = false,
   masterBible?: string,
-  imageSize: '1K' | '2K' | '4K' = '1K'
+  imageSize: '1K' | '2K' | '4K' = '1K',
+  projectContext: string = ""
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = usePro ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
   
   const instruction = `ILLUSTRATOR TASK:
-  BIBLE: ${masterBible}
+  SERIES BIBLE: ${masterBible}
+  PROJECT CONTEXT: ${projectContext}
   LAYOUT: ${isSpread ? "2-page spread" : "Single page"}
-  SCENE: ${stylePrompt}
-  Maintain character likeness exactly. No text.`;
+  SCENE SCRIPT: ${stylePrompt}
+  
+  CORE RULE: Maintain character facial likeness exactly as shown in refs. No readable text.`;
 
   const parts: any[] = [{ text: instruction }];
   
   if (originalImageBase64) {
     const data = originalImageBase64.includes(',') ? originalImageBase64.split(',')[1] : originalImageBase64;
+    parts.push({ text: "--- ORIGINAL LAYOUT REFERENCE ---" });
     parts.push({ inlineData: { data, mimeType: 'image/png' } });
   }
 
   charRefs.forEach((ref) => {
     ref.images.forEach((img) => {
       const data = img.includes(',') ? img.split(',')[1] : img;
+      parts.push({ text: `CHARACTER IDENTITY: ${ref.name}` });
       parts.push({ inlineData: { data, mimeType: 'image/png' } });
     });
   });
@@ -205,31 +208,45 @@ export const restyleIllustration = async (
 };
 
 /**
- * REFINE ILLUSTRATION: targeted corrective edits with multiple references.
+ * REFINE ILLUSTRATION: targeted corrective edits with multiple references and context.
  */
 export const refineIllustration = async (
   targetImageBase64: string,
   refinementPrompt: string,
   referenceImages: { base64: string, index: number }[] = [],
   isSpread: boolean = false,
-  imageSize: '1K' | '2K' | '4K' = '1K'
+  imageSize: '1K' | '2K' | '4K' = '1K',
+  masterBible: string = "",
+  projectContext: string = "",
+  charRefs: CharacterRef[] = []
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
   
-  const instruction = `TARGETED IMAGE CORRECTION TASK:
-  GOAL: Modify the "TARGET IMAGE" based on this prompt: "${refinementPrompt}"
-  CONTEXT: Transfer specific features from the numbered REFERENCE IMAGES if requested. Maintain style of TARGET.`;
+  const instruction = `SCENE FIXER TASK:
+  SERIES BIBLE: ${masterBible}
+  NARRATIVE CONTEXT: ${projectContext}
+  FIX REQUEST: "${refinementPrompt}"
+  
+  GOAL: Modify the TARGET IMAGE to align with the FIX REQUEST while maintaining exact style and character features.`;
 
   const parts: any[] = [
     { text: instruction },
-    { text: "--- TARGET IMAGE ---" },
+    { text: "--- TARGET IMAGE TO BE FIXED ---" },
     { inlineData: { data: targetData, mimeType: 'image/png' } }
   ];
 
+  charRefs.forEach((ref) => {
+    ref.images.forEach((img) => {
+      const data = img.includes(',') ? img.split(',')[1] : img;
+      parts.push({ text: `CHARACTER IDENTITY: ${ref.name}` });
+      parts.push({ inlineData: { data, mimeType: 'image/png' } });
+    });
+  });
+
   referenceImages.forEach((ref) => {
     const data = ref.base64.includes(',') ? ref.base64.split(',')[1] : ref.base64;
-    parts.push({ text: `--- REFERENCE IMAGE ${ref.index} ---` });
+    parts.push({ text: `--- SERIES REFERENCE ${ref.index} ---` });
     parts.push({ inlineData: { data, mimeType: 'image/png' } });
   });
 
@@ -264,7 +281,7 @@ export const upscaleIllustration = async (
     contents: {
       parts: [
         { inlineData: { data, mimeType: 'image/png' } },
-        { text: `UPSCALE enhancement. Increase quality and sharpness. Context: ${stylePrompt}` }
+        { text: `MASTER UPSCALE. Context: ${stylePrompt}` }
       ]
     },
     config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", imageSize } }
