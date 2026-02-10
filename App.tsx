@@ -26,7 +26,6 @@ const App: React.FC = () => {
   const [globalFixPrompt, setGlobalFixPrompt] = useState("Keep character facial features and clothing consistent with reference images.");
   const [targetAspectRatio, setTargetAspectRatio] = useState<'1:1' | '4:3' | '16:9' | '9:16'>('4:3');
   const [targetResolution, setTargetResolution] = useState<'1K' | '2K' | '4K'>('1K');
-  const [selectedForProduction, setSelectedForProduction] = useState<Set<string>>(new Set());
   const [showBibleEditor, setShowBibleEditor] = useState(false);
   
   // The Advanced Fixer State
@@ -170,7 +169,6 @@ const App: React.FC = () => {
       const p = pages.find(pg => pg.id === targetId)!;
       const targetImg = p.processedImage || p.originalImage!;
       
-      // Multi-Reference Injection: This handles "use clothes from image X"
       const selectedRefs = pages.filter(pg => selectedRefIds.has(pg.id) && (pg.processedImage || pg.originalImage))
                                 .map(pg => ({ base64: (pg.processedImage || pg.originalImage)!, index: pages.indexOf(pg) + 1 }));
 
@@ -178,7 +176,7 @@ const App: React.FC = () => {
       let finalRatio = targetAspectRatio;
       
       if (isTransformingRatio) {
-        finalRatio = p.isSpread ? "4:3" : "16:9"; // Swap logic
+        finalRatio = p.isSpread ? "4:3" : "16:9";
         finalPrompt = `OUTPAINTING TASK: Expand the canvas to ${finalRatio}. Intelligently fill new space to the left and right while keeping the original composition in the center. Request: ${fixInstruction || 'No specific fix, just outpaint.'}`;
       } else {
         finalPrompt = `FIX TASK: ${fixInstruction}. Narrative context: "${p.originalText || 'General Scene'}".`;
@@ -219,33 +217,120 @@ const App: React.FC = () => {
               <p className="text-slate-500 text-2xl max-w-2xl mx-auto font-medium">Professional Children's Book Production & Consistency Lab.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-              <button onClick={() => { setSettings({...settings, mode: 'create'}); setCurrentStep('script'); }} className="group p-12 bg-white border-2 border-slate-100 rounded-[4.5rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
-                <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center mb-10 text-indigo-600 group-hover:scale-110 transition-transform"><Rocket size={40} /></div>
-                <h4 className="text-3xl font-black mb-4 text-slate-900">Script Storyboarder</h4>
-                <p className="text-slate-400 font-medium text-lg leading-relaxed">Auto-generate full series frames from your narrative script.</p>
+              <button onClick={() => { setSettings({...settings, mode: 'create'}); setCurrentStep('script'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
+                <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform"><Rocket size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">Script Storyboarder</h4>
+                <p className="text-slate-400 font-medium">Auto-generate full series frames from your narrative script.</p>
               </button>
-              <button onClick={() => { setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); }} className="group p-12 bg-white border-2 border-slate-100 rounded-[4.5rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
-                <div className="w-20 h-20 bg-slate-50 rounded-[2rem] flex items-center justify-center mb-10 text-slate-400 group-hover:scale-110 transition-transform"><Palette size={40} /></div>
-                <h4 className="text-3xl font-black mb-4 text-slate-900">Advanced Fixer</h4>
-                <p className="text-slate-400 font-medium text-lg leading-relaxed">Outpaint, restyle, and fix details while referencing other images.</p>
+              <button onClick={() => { setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
+                <div className="w-16 h-16 bg-slate-50 rounded-3xl flex items-center justify-center mb-8 text-slate-400 group-hover:scale-110 transition-transform"><Palette size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">Advanced Fixer</h4>
+                <p className="text-slate-400 font-medium">Outpaint, restyle, and fix details while referencing other images.</p>
               </button>
-              <button onClick={() => setCurrentStep('production-layout')} className="group p-12 bg-white border-2 border-indigo-100 rounded-[4.5rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
-                <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center mb-10 text-indigo-600 group-hover:scale-110 transition-transform"><Ruler size={40} /></div>
-                <h4 className="text-3xl font-black mb-4 text-slate-900">Print Layout</h4>
-                <p className="text-slate-400 font-medium text-lg leading-relaxed">Automate Bleed and Gutter for KDP and Lulu publishing.</p>
+              <button onClick={() => setCurrentStep('production-layout')} className="group p-10 bg-white border-2 border-indigo-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
+                <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform"><Ruler size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">Print Layout</h4>
+                <p className="text-slate-400 font-medium">Automate Bleed and Gutter for KDP and Lulu publishing.</p>
               </button>
+              <button onClick={() => { setSettings({...settings, mode: 'upscale'}); setCurrentStep('direct-upscale'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-emerald-600 hover:shadow-2xl transition-all">
+                <div className="w-16 h-16 bg-emerald-50 rounded-3xl flex items-center justify-center mb-8 text-emerald-600 group-hover:scale-110 transition-transform"><Maximize2 size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">4K Master</h4>
+                <p className="text-slate-400 font-medium">Upscale and enhance your final frames for print quality.</p>
+              </button>
+              <button onClick={() => setCurrentStep('cover-master')} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-amber-600 hover:shadow-2xl transition-all">
+                <div className="w-16 h-16 bg-amber-50 rounded-3xl flex items-center justify-center mb-8 text-amber-600 group-hover:scale-110 transition-transform"><BookMarked size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">Cover Designer</h4>
+                <p className="text-slate-400 font-medium">Synthesize marketing context into a professional cover.</p>
+              </button>
+            </div>
+          </div>
+        );
+
+      case 'restyle-editor':
+        return (
+          <div className="max-w-7xl mx-auto py-16 px-8 space-y-16 pb-64">
+            <div className="flex flex-col lg:flex-row gap-16 items-start">
+              <div className="flex-1 space-y-10 sticky top-36">
+                <div className="bg-white border-2 border-slate-100 rounded-[4rem] p-12 shadow-2xl space-y-10">
+                  {/* COMPACT BIBLE */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center px-4">
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">Production Bible</h3>
+                      <button onClick={() => setShowBibleEditor(true)} className="text-[10px] font-black text-indigo-600 underline">Edit Full Bible</button>
+                    </div>
+                    <textarea 
+                      readOnly
+                      className="w-full h-20 bg-slate-50 border-none rounded-[2rem] p-6 text-[10px] font-bold outline-none resize-none shadow-inner leading-relaxed opacity-60 cursor-not-allowed" 
+                      value={settings.masterBible} 
+                    />
+                  </div>
+
+                  {/* MASTER PROMPT FIELD */}
+                  <div className="space-y-3">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Target Style / Scene Prompt</h3>
+                    <textarea 
+                      className="w-full h-40 bg-white border-2 border-indigo-100 rounded-[2.5rem] p-8 text-sm font-bold outline-none shadow-sm focus:border-indigo-600 transition-all leading-relaxed"
+                      value={settings.targetStyle}
+                      onChange={e => setSettings({...settings, targetStyle: e.target.value})}
+                      placeholder="Describe the target style precisely (e.g., 'vintage watercolor, heavy paper texture')..."
+                    />
+                  </div>
+
+                  {/* FORMAT CONTROL */}
+                  <div className="space-y-3">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Aspect Ratio</h3>
+                    <div className="grid grid-cols-4 gap-2 px-2">
+                      {(['1:1', '4:3', '16:9', '9:16'] as const).map(ratio => (
+                        <button 
+                          key={ratio} 
+                          onClick={() => setTargetAspectRatio(ratio)}
+                          className={`py-4 rounded-xl border-2 font-black text-[10px] transition-all flex flex-col items-center gap-1 ${targetAspectRatio === ratio ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-md' : 'border-slate-50 opacity-40 hover:opacity-100'}`}
+                        >
+                          {ratio}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* RESOLUTION CONTROL */}
+                  <div className="space-y-3">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Resolution</h3>
+                    <div className="grid grid-cols-3 gap-3">
+                      {(['1K', '2K', '4K'] as const).map(res => (
+                        <button key={res} onClick={() => setTargetResolution(res)} className={`py-4 rounded-[1.5rem] border-2 font-black text-lg transition-all ${targetResolution === res ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-lg' : 'border-slate-50 opacity-50'}`}>{res}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button disabled={isProcessing} onClick={processProductionBatch} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6">
+                    {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <Sparkles size={32} />} START PRODUCTION
+                  </button>
+                </div>
+              </div>
+
+              <div className="w-full lg:w-2/5 grid grid-cols-1 gap-12">
+                {pages.map((p, idx) => (
+                  <div key={p.id} className="bg-white p-8 rounded-[4rem] border-2 border-slate-100 shadow-xl space-y-6 relative overflow-hidden group">
+                    <div className="absolute top-8 left-8 z-10 w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-2xl shadow-2xl">#{idx + 1}</div>
+                    <div className="aspect-[4/3] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner border-8 border-white">
+                      {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
+                    </div>
+                    {p.originalText && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 italic leading-relaxed">"{p.originalText}"</p>}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         );
 
       case 'script':
         return (
-          <div className="max-w-5xl mx-auto py-20 px-8 space-y-12 animate-in slide-in-from-bottom duration-500">
+          <div className="max-w-4xl mx-auto py-20 px-8 space-y-12 animate-in slide-in-from-bottom duration-500">
             <div className="text-center space-y-4"><h2 className="text-6xl font-black">Narrative Analysis</h2><p className="text-slate-500 text-xl font-medium">Parse your script into production scenes.</p></div>
-            <textarea className="w-full h-[600px] bg-white border-2 border-slate-100 rounded-[4rem] p-16 text-2xl font-medium outline-none shadow-inner leading-relaxed" placeholder="Paste full script here..." value={fullScript} onChange={e => setFullScript(e.target.value)} />
+            <textarea className="w-full h-[500px] bg-white border-2 border-slate-100 rounded-[3rem] p-16 text-2xl font-medium outline-none shadow-inner leading-relaxed" placeholder="Paste full script here..." value={fullScript} onChange={e => setFullScript(e.target.value)} />
             <div className="flex gap-8">
-               <button onClick={() => setCurrentStep('landing')} className="flex-1 py-9 bg-slate-100 text-slate-500 rounded-[3rem] font-black text-2xl">CANCEL</button>
-               <button disabled={isParsing || !fullScript} onClick={handlePlanStory} className="flex-[2] py-9 bg-indigo-600 text-white rounded-[3rem] font-black text-3xl shadow-2xl flex items-center justify-center gap-6 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50">
+               <button onClick={() => setCurrentStep('landing')} className="flex-1 py-8 bg-slate-100 text-slate-500 rounded-[2.5rem] font-black text-2xl">CANCEL</button>
+               <button disabled={isParsing || !fullScript} onClick={handlePlanStory} className="flex-[2] py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-3xl shadow-2xl flex items-center justify-center gap-6 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50">
                 {isParsing ? <Loader2 className="animate-spin" size={40} /> : <Sparkles size={40} />} GENERATE STORYBOARD
               </button>
             </div>
@@ -282,88 +367,6 @@ const App: React.FC = () => {
             <input type="file" ref={charImageInputRef} className="hidden" accept="image/*" onChange={handleCharImageUpload} />
             <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-3xl p-16 z-50 flex justify-center border-t border-slate-100 shadow-2xl">
                <button onClick={() => setCurrentStep('restyle-editor')} className="bg-indigo-600 text-white px-40 py-10 rounded-[3.5rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-8">CONFIRM CAST <ChevronRight size={48} /></button>
-            </div>
-          </div>
-        );
-
-      case 'restyle-editor':
-        return (
-          <div className="max-w-7xl mx-auto py-16 px-8 space-y-16 pb-64">
-            <div className="flex flex-col lg:flex-row gap-16 items-start">
-              <div className="flex-1 space-y-10 sticky top-36">
-                <div className="bg-white border-2 border-slate-100 rounded-[5rem] p-14 shadow-2xl space-y-10">
-                  {/* Compact Production Bible */}
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center px-4">
-                      <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Style Lock / Bible</h3>
-                      <button onClick={() => setShowBibleEditor(true)} className="text-[10px] font-black text-indigo-600 underline uppercase tracking-tighter">Modify Full Bible</button>
-                    </div>
-                    <textarea 
-                      readOnly
-                      className="w-full h-24 bg-slate-50 border-none rounded-[2rem] p-8 text-xs font-bold outline-none resize-none shadow-inner leading-relaxed opacity-70 cursor-not-allowed" 
-                      value={settings.masterBible} 
-                      placeholder="Global style lock..." 
-                    />
-                  </div>
-
-                  {/* RESTYLE PROMPT FIELD */}
-                  <div className="space-y-4">
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Master Prompt / Restyle Target</h3>
-                    <textarea 
-                      className="w-full h-40 bg-white border-2 border-indigo-100 rounded-[2.5rem] p-10 text-sm font-bold outline-none shadow-sm focus:border-indigo-600 transition-all leading-relaxed"
-                      value={settings.targetStyle}
-                      onChange={e => setSettings({...settings, targetStyle: e.target.value})}
-                      placeholder="Describe the target style or general scene instruction..."
-                    />
-                  </div>
-
-                  {/* FORMAT / ASPECT RATIO CONTROL */}
-                  <div className="space-y-4">
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Canvas Format</h3>
-                    <div className="grid grid-cols-4 gap-3 px-2">
-                      {(['1:1', '4:3', '16:9', '9:16'] as const).map(ratio => (
-                        <button 
-                          key={ratio} 
-                          onClick={() => setTargetAspectRatio(ratio)}
-                          className={`py-4 rounded-2xl border-2 font-black text-xs transition-all flex flex-col items-center gap-1 ${targetAspectRatio === ratio ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-md' : 'border-slate-50 opacity-50 hover:opacity-100'}`}
-                        >
-                          {ratio === '1:1' && <div className="w-3 h-3 bg-current opacity-20" />}
-                          {ratio === '4:3' && <div className="w-4 h-3 bg-current opacity-20" />}
-                          {ratio === '16:9' && <div className="w-5 h-3 bg-current opacity-20" />}
-                          {ratio === '9:16' && <div className="w-3 h-5 bg-current opacity-20" />}
-                          {ratio}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* RESOLUTION CONTROL */}
-                  <div className="space-y-4">
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Resolution</h3>
-                    <div className="grid grid-cols-3 gap-4">
-                      {(['1K', '2K', '4K'] as const).map(res => (
-                        <button key={res} onClick={() => setTargetResolution(res)} className={`py-6 rounded-3xl border-2 font-black text-xl transition-all ${targetResolution === res ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-lg' : 'border-slate-50 opacity-50'}`}>{res}</button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <button disabled={isProcessing} onClick={processProductionBatch} className="w-full py-10 bg-indigo-600 text-white rounded-[3rem] font-black text-3xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8">
-                    {isProcessing ? <Loader2 className="animate-spin" size={40} /> : <Sparkles size={40} />} START PRODUCTION
-                  </button>
-                </div>
-              </div>
-
-              <div className="w-full lg:w-2/5 grid grid-cols-1 gap-12">
-                {pages.map((p, idx) => (
-                  <div key={p.id} className="bg-white p-10 rounded-[4.5rem] border-2 border-slate-100 shadow-xl space-y-8 relative overflow-hidden group">
-                    <div className="absolute top-10 left-10 z-10 w-16 h-16 bg-slate-900 text-white rounded-3xl flex items-center justify-center font-black text-3xl shadow-2xl">#{idx + 1}</div>
-                    <div className="aspect-[4/3] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner border-8 border-white">
-                      {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
-                    </div>
-                    {p.originalText && <p className="text-sm font-bold text-slate-400 uppercase tracking-widest leading-relaxed">"{p.originalText}"</p>}
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
         );
@@ -482,6 +485,39 @@ const App: React.FC = () => {
           </div>
         );
 
+      case 'cover-master':
+        return (
+          <div className="max-w-7xl mx-auto py-20 px-8 space-y-16 animate-in fade-in duration-500">
+            <div className="flex flex-col lg:flex-row gap-16 items-start">
+               <div className="flex-1 space-y-8">
+                  <h2 className="text-6xl font-black">Cover Synthesis</h2>
+                  <div className="bg-white border-2 border-slate-100 rounded-[4rem] p-12 shadow-2xl space-y-8">
+                     <textarea className="w-full h-80 bg-slate-50 border-none rounded-3xl p-8 text-lg font-medium outline-none resize-none shadow-inner" placeholder="Paste marketing brief..." value={projectContext} onChange={e => setProjectContext(e.target.value)} />
+                     <button onClick={() => { setIsProcessing(true); generateBookCover(projectContext, settings.characterReferences, settings.targetStyle).then(res => setCoverImage(res)).finally(() => setIsProcessing(false)); }} className="w-full py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-2xl shadow-xl flex items-center justify-center gap-4 hover:scale-105 transition-all">
+                        {isProcessing ? <Loader2 className="animate-spin" /> : <Sparkles />} RENDER PRODUCTION COVER
+                     </button>
+                  </div>
+               </div>
+               <div className="w-full lg:w-2/5 aspect-[3/4] bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative flex items-center justify-center">
+                  {coverImage ? <img src={coverImage} className="w-full h-full object-cover" /> : <div className="text-slate-200"><Book size={160} /></div>}
+               </div>
+            </div>
+          </div>
+        );
+
+      case 'direct-upscale':
+        return (
+          <div className="max-w-4xl mx-auto py-20 px-8 space-y-12 text-center">
+             <h2 className="text-6xl font-black">4K Master Enhancement</h2>
+             <div onClick={() => restyleInputRef.current?.click()} className="aspect-video bg-white border-4 border-dashed border-slate-200 rounded-[5rem] flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-all group shadow-inner">
+                <Upload size={80} className="text-slate-200 group-hover:text-emerald-500 mb-8" />
+                <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-xl group-hover:text-emerald-500">Select Frames to Master</p>
+                <input type="file" multiple hidden ref={restyleInputRef} accept="image/*" onChange={handleRestyleUpload} />
+             </div>
+             <button onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600 underline">Back to Main Suit</button>
+          </div>
+        );
+
       case 'upload':
         return (
           <div className="max-w-5xl mx-auto py-24 px-8 space-y-12 text-center">
@@ -495,7 +531,7 @@ const App: React.FC = () => {
           </div>
         );
 
-      default: return <div className="p-20 text-center font-black">404 - Module Not Found</div>;
+      default: return <div className="p-20 text-center font-black text-4xl">Module Not Found</div>;
     }
   };
 
