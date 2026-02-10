@@ -24,7 +24,7 @@ const App: React.FC = () => {
   
   // Production Config
   const [globalFixPrompt, setGlobalFixPrompt] = useState("Keep character facial features and clothing consistent with reference images.");
-  const [targetAspectRatio, setTargetAspectRatio] = useState<'4:3' | '16:9' | '1:1' | '9:16'>('4:3');
+  const [targetAspectRatio, setTargetAspectRatio] = useState<'1:1' | '4:3' | '16:9' | '9:16'>('4:3');
   const [targetResolution, setTargetResolution] = useState<'1K' | '2K' | '4K'>('1K');
   const [selectedForProduction, setSelectedForProduction] = useState<Set<string>>(new Set());
   const [showBibleEditor, setShowBibleEditor] = useState(false);
@@ -149,9 +149,9 @@ const App: React.FC = () => {
       let result;
       if (p.originalImage) {
         const others = pages.filter(pg => pg.id !== pageId && pg.processedImage).slice(0, 3).map(pg => ({ base64: pg.processedImage!, index: pages.indexOf(pg) + 1 }));
-        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences);
+        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, targetAspectRatio);
       } else {
-        result = await restyleIllustration(undefined, narrativeContext, undefined, undefined, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext);
+        result = await restyleIllustration(undefined, narrativeContext, undefined, undefined, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, targetAspectRatio);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
     } catch (e) { setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg)); }
@@ -175,14 +175,16 @@ const App: React.FC = () => {
                                 .map(pg => ({ base64: (pg.processedImage || pg.originalImage)!, index: pages.indexOf(pg) + 1 }));
 
       let finalPrompt = fixInstruction;
+      let finalRatio = targetAspectRatio;
+      
       if (isTransformingRatio) {
-        const newRatio = p.isSpread ? "4:3 (Single Page)" : "16:9 (Wide Spread)";
-        finalPrompt = `OUTPAINTING TASK: Expand the canvas to ${newRatio}. Intelligently fill new space to the left and right while keeping the original composition in the center. Request: ${fixInstruction || 'No specific fix, just outpaint.'}`;
+        finalRatio = p.isSpread ? "4:3" : "16:9"; // Swap logic
+        finalPrompt = `OUTPAINTING TASK: Expand the canvas to ${finalRatio}. Intelligently fill new space to the left and right while keeping the original composition in the center. Request: ${fixInstruction || 'No specific fix, just outpaint.'}`;
       } else {
         finalPrompt = `FIX TASK: ${fixInstruction}. Narrative context: "${p.originalText || 'General Scene'}".`;
       }
 
-      const res = await refineIllustration(targetImg, finalPrompt, selectedRefs, isTransformingRatio ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences);
+      const res = await refineIllustration(targetImg, finalPrompt, selectedRefs, isTransformingRatio ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio);
       
       setPages(curr => curr.map(pg => pg.id === targetId ? { 
         ...pg, 
@@ -289,16 +291,62 @@ const App: React.FC = () => {
           <div className="max-w-7xl mx-auto py-16 px-8 space-y-16 pb-64">
             <div className="flex flex-col lg:flex-row gap-16 items-start">
               <div className="flex-1 space-y-10 sticky top-36">
-                <div className="bg-white border-2 border-slate-100 rounded-[5rem] p-14 shadow-2xl space-y-12">
+                <div className="bg-white border-2 border-slate-100 rounded-[5rem] p-14 shadow-2xl space-y-10">
+                  {/* Compact Production Bible */}
                   <div className="space-y-4">
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Production Bible</h3>
-                    <textarea className="w-full h-40 bg-slate-50 border-none rounded-[2.5rem] p-10 text-sm font-medium outline-none resize-none shadow-inner leading-relaxed" value={settings.masterBible} onChange={e => setSettings({...settings, masterBible: e.target.value})} placeholder="Global style lock..." />
+                    <div className="flex justify-between items-center px-4">
+                      <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">Style Lock / Bible</h3>
+                      <button onClick={() => setShowBibleEditor(true)} className="text-[10px] font-black text-indigo-600 underline uppercase tracking-tighter">Modify Full Bible</button>
+                    </div>
+                    <textarea 
+                      readOnly
+                      className="w-full h-24 bg-slate-50 border-none rounded-[2rem] p-8 text-xs font-bold outline-none resize-none shadow-inner leading-relaxed opacity-70 cursor-not-allowed" 
+                      value={settings.masterBible} 
+                      placeholder="Global style lock..." 
+                    />
                   </div>
-                  <div className="grid grid-cols-3 gap-6">
-                    {(['1K', '2K', '4K'] as const).map(res => (
-                      <button key={res} onClick={() => setTargetResolution(res)} className={`py-8 rounded-[2rem] border-2 font-black text-2xl transition-all ${targetResolution === res ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-xl' : 'border-slate-50 opacity-50'}`}>{res}</button>
-                    ))}
+
+                  {/* RESTYLE PROMPT FIELD */}
+                  <div className="space-y-4">
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Master Prompt / Restyle Target</h3>
+                    <textarea 
+                      className="w-full h-40 bg-white border-2 border-indigo-100 rounded-[2.5rem] p-10 text-sm font-bold outline-none shadow-sm focus:border-indigo-600 transition-all leading-relaxed"
+                      value={settings.targetStyle}
+                      onChange={e => setSettings({...settings, targetStyle: e.target.value})}
+                      placeholder="Describe the target style or general scene instruction..."
+                    />
                   </div>
+
+                  {/* FORMAT / ASPECT RATIO CONTROL */}
+                  <div className="space-y-4">
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Canvas Format</h3>
+                    <div className="grid grid-cols-4 gap-3 px-2">
+                      {(['1:1', '4:3', '16:9', '9:16'] as const).map(ratio => (
+                        <button 
+                          key={ratio} 
+                          onClick={() => setTargetAspectRatio(ratio)}
+                          className={`py-4 rounded-2xl border-2 font-black text-xs transition-all flex flex-col items-center gap-1 ${targetAspectRatio === ratio ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-md' : 'border-slate-50 opacity-50 hover:opacity-100'}`}
+                        >
+                          {ratio === '1:1' && <div className="w-3 h-3 bg-current opacity-20" />}
+                          {ratio === '4:3' && <div className="w-4 h-3 bg-current opacity-20" />}
+                          {ratio === '16:9' && <div className="w-5 h-3 bg-current opacity-20" />}
+                          {ratio === '9:16' && <div className="w-3 h-5 bg-current opacity-20" />}
+                          {ratio}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* RESOLUTION CONTROL */}
+                  <div className="space-y-4">
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Resolution</h3>
+                    <div className="grid grid-cols-3 gap-4">
+                      {(['1K', '2K', '4K'] as const).map(res => (
+                        <button key={res} onClick={() => setTargetResolution(res)} className={`py-6 rounded-3xl border-2 font-black text-xl transition-all ${targetResolution === res ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-lg' : 'border-slate-50 opacity-50'}`}>{res}</button>
+                      ))}
+                    </div>
+                  </div>
+
                   <button disabled={isProcessing} onClick={processProductionBatch} className="w-full py-10 bg-indigo-600 text-white rounded-[3rem] font-black text-3xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8">
                     {isProcessing ? <Loader2 className="animate-spin" size={40} /> : <Sparkles size={40} />} START PRODUCTION
                   </button>

@@ -164,7 +164,8 @@ export const restyleIllustration = async (
   isSpread: boolean = false,
   masterBible?: string,
   imageSize: '1K' | '2K' | '4K' = '1K',
-  projectContext: string = ""
+  projectContext: string = "",
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = usePro ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
@@ -172,7 +173,7 @@ export const restyleIllustration = async (
   const instruction = `ILLUSTRATOR TASK:
   SERIES BIBLE: ${masterBible}
   PROJECT CONTEXT: ${projectContext}
-  LAYOUT: ${isSpread ? "2-page spread" : "Single page"}
+  LAYOUT: ${aspectRatio}
   SCENE SCRIPT: ${stylePrompt}
   
   CORE RULE: Maintain character facial likeness exactly as shown in refs. No readable text.`;
@@ -196,7 +197,7 @@ export const restyleIllustration = async (
   const response: GenerateContentResponse = await ai.models.generateContent({
     model,
     contents: { parts },
-    config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", ...(usePro ? { imageSize } : {}) } }
+    config: { imageConfig: { aspectRatio, ...(usePro ? { imageSize } : {}) } }
   });
 
   if (response.candidates?.[0]?.content?.parts) {
@@ -218,7 +219,8 @@ export const refineIllustration = async (
   imageSize: '1K' | '2K' | '4K' = '1K',
   masterBible: string = "",
   projectContext: string = "",
-  charRefs: CharacterRef[] = []
+  charRefs: CharacterRef[] = [],
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
@@ -253,7 +255,7 @@ export const refineIllustration = async (
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
     contents: { parts },
-    config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", imageSize } }
+    config: { imageConfig: { aspectRatio, imageSize } }
   });
 
   if (response.candidates?.[0]?.content?.parts) {
@@ -271,7 +273,8 @@ export const upscaleIllustration = async (
   currentImageBase64: string,
   stylePrompt: string,
   isSpread: boolean = false,
-  imageSize: '1K' | '2K' | '4K' = '4K'
+  imageSize: '1K' | '2K' | '4K' = '4K',
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const data = currentImageBase64.includes(',') ? currentImageBase64.split(',')[1] : currentImageBase64;
@@ -284,7 +287,7 @@ export const upscaleIllustration = async (
         { text: `MASTER UPSCALE. Context: ${stylePrompt}` }
       ]
     },
-    config: { imageConfig: { aspectRatio: isSpread ? "16:9" : "4:3", imageSize } }
+    config: { imageConfig: { aspectRatio, imageSize } }
   });
   
   if (response.candidates?.[0]?.content?.parts) {
