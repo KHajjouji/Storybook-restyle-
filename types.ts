@@ -25,7 +25,7 @@ export interface BookPage {
 
 export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'LULU_US_LETTER' | 'INGRAM_PREMIUM';
 export type SpreadExportMode = 'SPLIT_PAGES' | 'WIDE_SPREAD';
-export type AppMode = 'restyle' | 'create' | 'upscale' | 'prompt-pack' | 'production-layout';
+export type AppMode = 'restyle' | 'create' | 'upscale' | 'prompt-pack' | 'production-layout' | 'activity-builder';
 
 export interface SeriesPreset {
   id: string;

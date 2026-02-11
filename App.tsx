@@ -3,15 +3,15 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, Grid
 } from 'lucide-react';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat } from './types';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover } from './geminiService';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 
-type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout';
+type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder';
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<Step>('landing');
@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [projectName, setProjectName] = useState<string>("Untitled Project");
   const [pages, setPages] = useState<BookPage[]>([]);
   const [fullScript, setFullScript] = useState("");
+  const [activityScript, setActivityScript] = useState("");
   const [projectContext, setProjectContext] = useState("");
   const [coverImage, setCoverImage] = useState<string | null>(null);
   
@@ -94,6 +95,26 @@ const App: React.FC = () => {
     finally { setIsParsing(false); }
   };
 
+  const handlePlanActivities = async () => {
+    if (!activityScript) return;
+    setIsParsing(true);
+    try {
+      const result = await parseActivityPack(activityScript);
+      setSettings(prev => ({ ...prev, masterBible: `${result.globalInstructions}\n\n${prev.masterBible}` }));
+      setPages(result.spreads.map(s => ({
+        id: Math.random().toString(36).substring(7),
+        originalText: s.title,
+        status: 'idle',
+        assignments: [],
+        isSpread: true,
+        overrideStylePrompt: s.fullPrompt
+      })));
+      setTargetAspectRatio('16:9'); // Activities are typically spreads
+      setCurrentStep('characters');
+    } catch (e) { alert("Activity analysis failed."); }
+    finally { setIsParsing(false); }
+  }
+
   const handleRestyleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as unknown as Blob[];
     const newPages: BookPage[] = [];
@@ -150,7 +171,9 @@ const App: React.FC = () => {
         const others = pages.filter(pg => pg.id !== pageId && pg.processedImage).slice(0, 3).map(pg => ({ base64: pg.processedImage!, index: pages.indexOf(pg) + 1 }));
         result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, targetAspectRatio);
       } else {
-        result = await restyleIllustration(undefined, narrativeContext, undefined, undefined, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, targetAspectRatio);
+        // For activities, use the specific spread prompt as the primary instruction
+        const promptToUse = p.overrideStylePrompt || narrativeContext;
+        result = await restyleIllustration(undefined, promptToUse, undefined, undefined, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, targetAspectRatio);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
     } catch (e) { setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg)); }
@@ -222,15 +245,15 @@ const App: React.FC = () => {
                 <h4 className="text-2xl font-black mb-3 text-slate-900">Script Storyboarder</h4>
                 <p className="text-slate-400 font-medium">Auto-generate full series frames from your narrative script.</p>
               </button>
+              <button onClick={() => { setSettings({...settings, mode: 'activity-builder'}); setCurrentStep('activity-builder'); }} className="group p-10 bg-white border-2 border-indigo-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
+                <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform"><Grid size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">Activity Designer</h4>
+                <p className="text-slate-400 font-medium">Flashcards, spreads, and dictionaries with strict logic and layout.</p>
+              </button>
               <button onClick={() => { setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
                 <div className="w-16 h-16 bg-slate-50 rounded-3xl flex items-center justify-center mb-8 text-slate-400 group-hover:scale-110 transition-transform"><Palette size={32} /></div>
                 <h4 className="text-2xl font-black mb-3 text-slate-900">Advanced Fixer</h4>
                 <p className="text-slate-400 font-medium">Outpaint, restyle, and fix details while referencing other images.</p>
-              </button>
-              <button onClick={() => setCurrentStep('production-layout')} className="group p-10 bg-white border-2 border-indigo-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
-                <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform"><Ruler size={32} /></div>
-                <h4 className="text-2xl font-black mb-3 text-slate-900">Print Layout</h4>
-                <p className="text-slate-400 font-medium">Automate Bleed and Gutter for KDP and Lulu publishing.</p>
               </button>
               <button onClick={() => { setSettings({...settings, mode: 'upscale'}); setCurrentStep('direct-upscale'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-emerald-600 hover:shadow-2xl transition-all">
                 <div className="w-16 h-16 bg-emerald-50 rounded-3xl flex items-center justify-center mb-8 text-emerald-600 group-hover:scale-110 transition-transform"><Maximize2 size={32} /></div>
@@ -241,6 +264,33 @@ const App: React.FC = () => {
                 <div className="w-16 h-16 bg-amber-50 rounded-3xl flex items-center justify-center mb-8 text-amber-600 group-hover:scale-110 transition-transform"><BookMarked size={32} /></div>
                 <h4 className="text-2xl font-black mb-3 text-slate-900">Cover Designer</h4>
                 <p className="text-slate-400 font-medium">Synthesize marketing context into a professional cover.</p>
+              </button>
+              <button onClick={() => setCurrentStep('production-layout')} className="group p-10 bg-white border-2 border-indigo-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
+                <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform"><Ruler size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">Print Layout</h4>
+                <p className="text-slate-400 font-medium">Automate Bleed and Gutter for KDP and Lulu publishing.</p>
+              </button>
+            </div>
+          </div>
+        );
+
+      case 'activity-builder':
+        return (
+          <div className="max-w-5xl mx-auto py-20 px-8 space-y-12 animate-in slide-in-from-bottom duration-500">
+            <div className="text-center space-y-4">
+              <h2 className="text-6xl font-black">Activity Mastermind</h2>
+              <p className="text-slate-500 text-xl font-medium">Paste your high-logic Activity spreads here (Flashcards, Grids, Dictionaries).</p>
+            </div>
+            <textarea 
+              className="w-full h-[500px] bg-white border-2 border-slate-100 rounded-[3rem] p-12 text-xl font-medium outline-none shadow-inner leading-relaxed focus:border-indigo-600 transition-colors" 
+              placeholder="Paste Master Prompt — Activity Spreads here (e.g., GLOBAL STYLE LOCK... SPREAD 1... SPREAD 2...)" 
+              value={activityScript} 
+              onChange={e => setActivityScript(e.target.value)} 
+            />
+            <div className="flex gap-8">
+               <button onClick={() => setCurrentStep('landing')} className="flex-1 py-8 bg-slate-100 text-slate-500 rounded-[2.5rem] font-black text-2xl hover:bg-slate-200 transition-all">CANCEL</button>
+               <button disabled={isParsing || !activityScript} onClick={handlePlanActivities} className="flex-[2] py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-3xl shadow-2xl flex items-center justify-center gap-6 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50">
+                {isParsing ? <Loader2 className="animate-spin" size={40} /> : <Wand2 size={40} />} ANALYZE ACTIVITIES
               </button>
             </div>
           </div>
@@ -366,7 +416,7 @@ const App: React.FC = () => {
             </div>
             <input type="file" ref={charImageInputRef} className="hidden" accept="image/*" onChange={handleCharImageUpload} />
             <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-3xl p-16 z-50 flex justify-center border-t border-slate-100 shadow-2xl">
-               <button onClick={() => setCurrentStep('restyle-editor')} className="bg-indigo-600 text-white px-40 py-10 rounded-[3.5rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-8">CONFIRM CAST <ChevronRight size={48} /></button>
+               <button onClick={() => setCurrentStep(settings.mode === 'activity-builder' ? 'generate' : 'restyle-editor')} className="bg-indigo-600 text-white px-40 py-10 rounded-[3.5rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-8">CONFIRM CAST <ChevronRight size={48} /></button>
             </div>
           </div>
         );
@@ -374,11 +424,14 @@ const App: React.FC = () => {
       case 'generate':
         return (
           <div className="max-w-7xl mx-auto py-16 px-8 space-y-20 pb-64">
-            <div className="text-center space-y-4"><h2 className="text-6xl font-black">Production Dashboard</h2><p className="text-slate-500 text-2xl font-medium">Refining series frames at {targetResolution}.</p></div>
+            <div className="text-center space-y-4">
+              <h2 className="text-6xl font-black">Production Dashboard</h2>
+              <p className="text-slate-500 text-2xl font-medium">Refining {settings.mode === 'activity-builder' ? 'Activity Spreads' : 'Series Frames'} at {targetResolution}.</p>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
               {pages.map((p, idx) => (
                 <div key={p.id} className="bg-white rounded-[6rem] border-4 border-slate-50 shadow-2xl overflow-hidden group transition-all">
-                  <div className="aspect-[4/3] bg-slate-100 relative group overflow-hidden">
+                  <div className="aspect-[16/9] bg-slate-100 relative group overflow-hidden">
                      {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-2xl scale-110' : 'opacity-100'}`} />}
                      {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/10"><Loader2 size={80} className="animate-spin text-indigo-600" /></div>}
                      <div className="absolute top-12 left-12 z-10 w-20 h-20 bg-slate-900 text-white rounded-[2rem] flex items-center justify-center font-black text-4xl shadow-2xl">#{idx + 1}</div>
@@ -386,7 +439,7 @@ const App: React.FC = () => {
                   </div>
                   <div className="p-16 space-y-10">
                     <div className="space-y-4">
-                       <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><PenTool size={20} /> Narrative Context</h4>
+                       <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><PenTool size={20} /> Scene Instructions</h4>
                        <p className="text-lg text-slate-500 font-bold leading-relaxed italic bg-slate-50 p-10 rounded-[2.5rem]">"{p.originalText || 'General Scene'}"</p>
                     </div>
                     

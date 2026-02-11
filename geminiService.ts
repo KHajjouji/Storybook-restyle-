@@ -64,6 +64,53 @@ export const parsePromptPack = async (rawText: string): Promise<{
 };
 
 /**
+ * Specifically parses Activity Master Prompts into discrete spreads.
+ */
+export const parseActivityPack = async (rawText: string): Promise<{ 
+  globalInstructions: string,
+  spreads: { title: string, fullPrompt: string }[] 
+}> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: `Break down this Activity Master Prompt into individual spreads.
+    Extract the "GLOBAL" section separately.
+    For each "SPREAD X", extract the specific scene/logic/text requirements.
+
+    Text:
+    ${rawText}`,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          globalInstructions: { type: Type.STRING },
+          spreads: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                fullPrompt: { type: Type.STRING }
+              },
+              required: ['title', 'fullPrompt']
+            }
+          }
+        },
+        required: ['globalInstructions', 'spreads']
+      }
+    }
+  });
+  
+  const jsonStr = response.text?.trim() || '{"globalInstructions":"", "spreads":[]}';
+  try {
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    return { globalInstructions: "", spreads: [] };
+  }
+};
+
+/**
  * Designs professional children's book cover.
  */
 export const generateBookCover = async (
@@ -176,7 +223,7 @@ export const restyleIllustration = async (
   LAYOUT: ${aspectRatio}
   SCENE SCRIPT: ${stylePrompt}
   
-  CORE RULE: Maintain character facial likeness exactly as shown in refs. No readable text.`;
+  CORE RULE: Maintain character facial likeness exactly as shown in refs. No readable text unless specifically requested in the script for an activity layout.`;
 
   const parts: any[] = [{ text: instruction }];
   
