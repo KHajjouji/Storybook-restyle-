@@ -404,3 +404,60 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string>
   });
   return response.text?.trim() || "";
 };
+
+/**
+ * RETARGET CHARACTERS: Maps characters from a source reference image to a target image using hotspots.
+ */
+export const retargetCharacters = async (
+  sourceImageBase64: string,
+  targetImageBase64: string,
+  retargeting: { sourceHotspots: {x: number, y: number, label: number}[], targetHotspots: {x: number, y: number, label: number}[], instruction?: string },
+  imageSize: '1K' | '2K' | '4K' = '1K',
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
+): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const sourceData = sourceImageBase64.includes(',') ? sourceImageBase64.split(',')[1] : sourceImageBase64;
+  const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
+
+  const mappingDescription = retargeting.sourceHotspots.map(sh => {
+    const th = retargeting.targetHotspots.find(h => h.label === sh.label);
+    if (!th) return "";
+    return `Character at Source Hotspot ${sh.label} (x:${sh.x}%, y:${sh.y}%) should be mapped to Target Hotspot ${th.label} (x:${th.x}%, y:${th.y}%).`;
+  }).filter(Boolean).join("\n");
+
+  const instruction = `CHARACTER RETARGETING TASK:
+  
+  GOAL: Transfer character identities (faces, clothing, style) from the SOURCE REFERENCE to the TARGET IMAGE.
+  
+  MAPPING LOGIC:
+  ${mappingDescription}
+  
+  ADDITIONAL INSTRUCTIONS:
+  ${retargeting.instruction || "Maintain the exact pose and composition of the target image, but replace the characters with the ones from the source image as mapped by the hotspots."}
+  
+  RULES:
+  1. Keep the background and environment of the TARGET IMAGE.
+  2. Ensure character likeness from the SOURCE REFERENCE is preserved.
+  3. Seamlessly blend the new character features into the target scene.`;
+
+  const parts: any[] = [
+    { text: instruction },
+    { text: "--- SOURCE REFERENCE IMAGE ---" },
+    { inlineData: { data: sourceData, mimeType: 'image/png' } },
+    { text: "--- TARGET IMAGE (TO BE MODIFIED) ---" },
+    { inlineData: { data: targetData, mimeType: 'image/png' } }
+  ];
+
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model: 'gemini-3-pro-image-preview',
+    contents: { parts },
+    config: { imageConfig: { aspectRatio, imageSize } }
+  });
+
+  if (response.candidates?.[0]?.content?.parts) {
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+  }
+  throw new Error("Retargeting failed.");
+};

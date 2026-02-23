@@ -5,13 +5,13 @@ import {
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
   ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, Grid
 } from 'lucide-react';
-import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat } from './types';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack } from './geminiService';
+import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot } from './types';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 
-type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder';
+type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor';
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<Step>('landing');
@@ -34,6 +34,13 @@ const App: React.FC = () => {
   const [fixInstruction, setFixInstruction] = useState("");
   const [selectedRefIds, setSelectedRefIds] = useState<Set<string>>(new Set());
   const [isTransformingRatio, setIsTransformingRatio] = useState(false);
+
+  // Character Retargeting State
+  const [activeRetargetId, setActiveRetargetId] = useState<string | null>(null);
+  const [retargetSourceImage, setRetargetSourceImage] = useState<string | null>(null);
+  const [retargetInstruction, setRetargetInstruction] = useState("");
+  const [isSourceHotspotMode, setIsSourceHotspotMode] = useState(true);
+  const retargetSourceInputRef = useRef<HTMLInputElement>(null);
 
   const [settings, setSettings] = useState<AppSettings>({
     mode: 'restyle',
@@ -220,6 +227,86 @@ const App: React.FC = () => {
     } catch (e) {
       setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'error' } : pg));
     }
+  };
+
+  const handleRetargetSourceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setRetargetSourceImage(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleApplyRetargeting = async () => {
+    if (!activeRetargetId || !retargetSourceImage) return;
+    const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+    if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+
+    const targetId = activeRetargetId;
+    setPages(curr => curr.map(p => p.id === targetId ? { ...p, status: 'processing' } : p));
+    setCurrentStep('generate');
+    setActiveRetargetId(null);
+
+    try {
+      const p = pages.find(pg => pg.id === targetId)!;
+      const targetImg = p.processedImage || p.originalImage!;
+      const retargeting = p.retargeting!;
+
+      const res = await retargetCharacters(
+        retargetSourceImage,
+        targetImg,
+        { 
+          sourceHotspots: retargeting.sourceHotspots, 
+          targetHotspots: retargeting.targetHotspots, 
+          instruction: retargetInstruction 
+        },
+        targetResolution,
+        targetAspectRatio
+      );
+
+      setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'completed', processedImage: res } : pg));
+      setRetargetSourceImage(null);
+      setRetargetInstruction("");
+    } catch (e) {
+      setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'error' } : pg));
+    }
+  };
+
+  const HotspotOverlay: React.FC<{ 
+    image: string, 
+    hotspots: Hotspot[], 
+    onAddHotspot: (x: number, y: number) => void,
+    onRemoveHotspot: (label: number) => void,
+    labelPrefix?: string
+  }> = ({ image, hotspots, onAddHotspot, onRemoveHotspot, labelPrefix = "" }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    const handleClick = (e: React.MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+      onAddHotspot(x, y);
+    };
+
+    return (
+      <div ref={containerRef} className="relative cursor-crosshair group overflow-hidden rounded-[3rem] border-4 border-white shadow-2xl" onClick={handleClick}>
+        <img src={image} className="w-full h-full object-cover select-none" />
+        {hotspots.map(h => (
+          <div 
+            key={h.label} 
+            className="absolute w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black text-sm shadow-2xl border-2 border-white transform -translate-x-1/2 -translate-y-1/2 hover:scale-125 transition-transform"
+            style={{ left: `${h.x}%`, top: `${h.y}%` }}
+            onClick={(e) => { e.stopPropagation(); onRemoveHotspot(h.label); }}
+          >
+            {labelPrefix}{h.label}
+          </div>
+        ))}
+        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex items-center justify-center">
+          <p className="text-white font-black uppercase tracking-widest text-xs bg-black/40 px-4 py-2 rounded-full">Click to place hotspot</p>
+        </div>
+      </div>
+    );
   };
 
   const processProductionBatch = async () => {
@@ -447,6 +534,14 @@ const App: React.FC = () => {
                        <button onClick={() => { setActiveFixId(p.id); setFixInstruction(""); setSelectedRefIds(new Set()); setIsTransformingRatio(false); }} className="flex-[2] py-7 bg-indigo-50 text-indigo-600 rounded-[2rem] font-black text-xl uppercase tracking-widest flex items-center justify-center gap-4 hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
                           <Edit3 size={28} /> ADVANCED FIX
                        </button>
+                       <button onClick={() => {
+                          setActiveRetargetId(p.id);
+                          setPages(curr => curr.map(pg => pg.id === p.id ? { 
+                            ...pg, 
+                            retargeting: pg.retargeting || { sourceHotspots: [], targetHotspots: [], instruction: "" } 
+                          } : pg));
+                          setCurrentStep('retarget-editor');
+                       }} className="p-7 bg-indigo-50 text-indigo-600 rounded-[2rem] hover:bg-indigo-600 hover:text-white transition-all"><UserCheck size={32} /></button>
                        <button onClick={() => renderScene(p.id)} className="p-7 bg-slate-100 text-slate-400 rounded-[2rem] hover:text-indigo-600 transition-all"><RefreshCw size={32} /></button>
                        {p.processedImage && <button onClick={() => { const a = document.createElement('a'); a.href = p.processedImage!; a.download = `page_${idx+1}.png`; a.click(); }} className="p-7 bg-emerald-50 text-emerald-600 rounded-[2rem]"><Download size={32} /></button>}
                     </div>
@@ -568,6 +663,94 @@ const App: React.FC = () => {
                 <input type="file" multiple hidden ref={restyleInputRef} accept="image/*" onChange={handleRestyleUpload} />
              </div>
              <button onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600 underline">Back to Main Suit</button>
+          </div>
+        );
+
+      case 'retarget-editor':
+        const retargetPage = pages.find(p => p.id === activeRetargetId);
+        if (!retargetPage) return null;
+        return (
+          <div className="max-w-7xl mx-auto py-16 px-8 space-y-16 animate-in fade-in duration-500 pb-64">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-6xl font-black tracking-tighter">Character Retargeting</h2>
+                <p className="text-slate-500 text-xl font-medium">Map characters from a reference photo to this frame using numerical hotspots.</p>
+              </div>
+              <div className="flex gap-4">
+                <button onClick={() => setCurrentStep('generate')} className="px-8 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest">Cancel</button>
+                <button disabled={!retargetSourceImage || retargetPage.retargeting?.sourceHotspots.length === 0} onClick={handleApplyRetargeting} className="px-12 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-2xl hover:scale-105 transition-all">Apply Retargeting</button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
+              {/* SOURCE IMAGE */}
+              <div className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">1. Source Reference (Identity)</h3>
+                  <button onClick={() => retargetSourceInputRef.current?.click()} className="text-xs font-black text-indigo-600 underline">Upload New Source</button>
+                  <input type="file" ref={retargetSourceInputRef} className="hidden" accept="image/*" onChange={handleRetargetSourceUpload} />
+                </div>
+                {retargetSourceImage ? (
+                  <HotspotOverlay 
+                    image={retargetSourceImage} 
+                    hotspots={retargetPage.retargeting?.sourceHotspots || []} 
+                    onAddHotspot={(x, y) => {
+                      const label = (retargetPage.retargeting?.sourceHotspots.length || 0) + 1;
+                      setPages(curr => curr.map(p => p.id === activeRetargetId ? {
+                        ...p,
+                        retargeting: { ...p.retargeting!, sourceHotspots: [...p.retargeting!.sourceHotspots, { x, y, label }] }
+                      } : p));
+                    }}
+                    onRemoveHotspot={(label) => {
+                      setPages(curr => curr.map(p => p.id === activeRetargetId ? {
+                        ...p,
+                        retargeting: { ...p.retargeting!, sourceHotspots: p.retargeting!.sourceHotspots.filter(h => h.label !== label) }
+                      } : p));
+                    }}
+                    labelPrefix="S"
+                  />
+                ) : (
+                  <div onClick={() => retargetSourceInputRef.current?.click()} className="aspect-square bg-white border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-600 transition-all group">
+                    <Upload size={64} className="text-slate-200 group-hover:text-indigo-600 mb-6" />
+                    <p className="text-slate-400 font-black uppercase tracking-widest text-sm">Upload Source Reference</p>
+                  </div>
+                )}
+              </div>
+
+              {/* TARGET IMAGE */}
+              <div className="space-y-8">
+                <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">2. Target Frame (Layout)</h3>
+                <HotspotOverlay 
+                  image={retargetPage.processedImage || retargetPage.originalImage!} 
+                  hotspots={retargetPage.retargeting?.targetHotspots || []} 
+                  onAddHotspot={(x, y) => {
+                    const label = (retargetPage.retargeting?.targetHotspots.length || 0) + 1;
+                    setPages(curr => curr.map(p => p.id === activeRetargetId ? {
+                      ...p,
+                      retargeting: { ...p.retargeting!, targetHotspots: [...p.retargeting!.targetHotspots, { x, y, label }] }
+                    } : p));
+                  }}
+                  onRemoveHotspot={(label) => {
+                    setPages(curr => curr.map(p => p.id === activeRetargetId ? {
+                      ...p,
+                      retargeting: { ...p.retargeting!, targetHotspots: p.retargeting!.targetHotspots.filter(h => h.label !== label) }
+                    } : p));
+                  }}
+                  labelPrefix="T"
+                />
+              </div>
+            </div>
+
+            <div className="bg-white border-2 border-slate-100 rounded-[3rem] p-12 shadow-2xl space-y-6">
+              <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">3. Retargeting Instructions</h3>
+              <textarea 
+                className="w-full h-32 bg-slate-50 border-none rounded-2xl p-8 text-lg font-medium outline-none resize-none shadow-inner" 
+                placeholder="E.g., 'Transfer the boy's blue hoodie and facial features from Source S1 to Target T1'..." 
+                value={retargetInstruction} 
+                onChange={e => setRetargetInstruction(e.target.value)} 
+              />
+              <p className="text-slate-400 text-sm font-medium italic">Hotspots help the AI understand which character from the source maps to which position in the target frame.</p>
+            </div>
           </div>
         );
 

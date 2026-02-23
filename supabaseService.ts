@@ -43,7 +43,8 @@ export const supabaseService = {
       const { error } = await tempClient.from('projects').select('id').limit(1);
       
       if (error) {
-        if (error.code === 'PGRST116' || error.status === 404) {
+        // Use code instead of status as PostgrestError doesn't have status
+        if (error.code === 'PGRST116' || error.code === '42P01') {
           return { success: true, message: "Connected! Warning: 'projects' table not found, but DB is reachable." };
         }
         return { success: false, message: error.message };
