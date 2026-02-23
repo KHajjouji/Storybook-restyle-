@@ -11,6 +11,19 @@ export interface CharacterAssignment {
   description: string;
 }
 
+export interface Hotspot {
+  x: number;
+  y: number;
+  label: number;
+}
+
+export interface CharacterRetargeting {
+  sourceImage?: string;
+  sourceHotspots: Hotspot[];
+  targetHotspots: Hotspot[];
+  instruction?: string;
+}
+
 export interface BookPage {
   id: string;
   originalImage?: string; 
@@ -21,11 +34,12 @@ export interface BookPage {
   assignments: CharacterAssignment[];
   isSpread: boolean; 
   overrideStylePrompt?: string; 
+  retargeting?: CharacterRetargeting;
 }
 
 export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'LULU_US_LETTER' | 'INGRAM_PREMIUM';
 export type SpreadExportMode = 'SPLIT_PAGES' | 'WIDE_SPREAD';
-export type AppMode = 'restyle' | 'create' | 'upscale' | 'prompt-pack' | 'production-layout' | 'activity-builder';
+export type AppMode = 'restyle' | 'create' | 'upscale' | 'prompt-pack' | 'production-layout' | 'activity-builder' | 'retarget';
 
 export interface SeriesPreset {
   id: string;
