@@ -342,6 +342,11 @@ const App: React.FC = () => {
                 <h4 className="text-2xl font-black mb-3 text-slate-900">Advanced Fixer</h4>
                 <p className="text-slate-400 font-medium">Outpaint, restyle, and fix details while referencing other images.</p>
               </button>
+              <button onClick={() => { setSettings({...settings, mode: 'restyle'}); setCurrentStep('upload'); }} className="group p-10 bg-white border-2 border-indigo-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
+                <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform"><UserCheck size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">Character Retarget</h4>
+                <p className="text-slate-400 font-medium">Map faces and outfits from any reference photo using numerical hotspots.</p>
+              </button>
               <button onClick={() => { setSettings({...settings, mode: 'upscale'}); setCurrentStep('direct-upscale'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-emerald-600 hover:shadow-2xl transition-all">
                 <div className="w-16 h-16 bg-emerald-50 rounded-3xl flex items-center justify-center mb-8 text-emerald-600 group-hover:scale-110 transition-transform"><Maximize2 size={32} /></div>
                 <h4 className="text-2xl font-black mb-3 text-slate-900">4K Master</h4>
