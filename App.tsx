@@ -173,6 +173,7 @@ const App: React.FC = () => {
     const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
     setPages(curr => curr.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
+    setIsProcessing(true);
     try {
       const p = pages.find(pg => pg.id === pageId)!;
       const narrativeContext = p.originalText ? `SCENE SCRIPT: "${p.originalText}". ${globalFixPrompt}` : (p.overrideStylePrompt || settings.targetStyle);
@@ -187,7 +188,12 @@ const App: React.FC = () => {
         result = await restyleIllustration(undefined, promptToUse, undefined, undefined, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, targetAspectRatio);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
-    } catch (e) { setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg)); }
+    } catch (e) { 
+      console.error("Render error:", e);
+      setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg)); 
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleApplyAdvancedFix = async () => {
@@ -196,6 +202,7 @@ const App: React.FC = () => {
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
     
     setPages(curr => curr.map(p => p.id === activeFixId ? { ...p, status: 'processing' } : p));
+    setIsProcessing(true);
     const targetId = activeFixId;
     setActiveFixId(null);
 
@@ -229,7 +236,10 @@ const App: React.FC = () => {
       setSelectedRefIds(new Set());
       setIsTransformingRatio(false);
     } catch (e) {
+      console.error("Advanced fix error:", e);
       setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'error' } : pg));
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -252,19 +262,25 @@ const App: React.FC = () => {
 
   const handleApplyRetargeting = async () => {
     if (!activeRetargetId || !retargetSourceImage) return;
-    const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-    if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
-
-    const targetId = activeRetargetId;
-    setIsProcessing(true);
-    setPages(curr => curr.map(p => p.id === targetId ? { ...p, status: 'processing' } : p));
-    setCurrentStep('generate');
-    setActiveRetargetId(null);
-
+    
     try {
+      const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+      if (!hasKey) { 
+        await (window as any).aistudio?.openSelectKey(); 
+        // Re-check after opening
+        const stillNoKey = !await (window as any).aistudio?.hasSelectedApiKey();
+        if (stillNoKey) return;
+      }
+
+      const targetId = activeRetargetId;
+      setIsProcessing(true);
+      setPages(curr => curr.map(p => p.id === targetId ? { ...p, status: 'processing' } : p));
+      setCurrentStep('generate');
+      setActiveRetargetId(null);
+
       const p = pages.find(pg => pg.id === targetId)!;
       const targetImg = p.processedImage || p.originalImage!;
-      const retargeting = p.retargeting!;
+      const retargeting = p.retargeting || { sourceHotspots: [], targetHotspots: [], instruction: "" };
 
       const res = await retargetCharacters(
         retargetSourceImage,
@@ -283,7 +299,10 @@ const App: React.FC = () => {
       setRetargetInstruction("");
     } catch (e) {
       console.error("Retargeting error:", e);
-      setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'error' } : pg));
+      const targetId = activeRetargetId;
+      if (targetId) {
+        setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'error' } : pg));
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -549,6 +568,13 @@ const App: React.FC = () => {
                   <div className="aspect-[16/9] bg-slate-100 relative group overflow-hidden">
                      {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-2xl scale-110' : 'opacity-100'}`} />}
                      {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/10"><Loader2 size={80} className="animate-spin text-indigo-600" /></div>}
+                     {p.status === 'error' && (
+                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50/90 backdrop-blur-sm p-8 text-center">
+                         <AlertCircle size={64} className="text-red-500 mb-4" />
+                         <p className="text-red-600 font-black uppercase tracking-widest text-sm">Render Failed</p>
+                         <p className="text-red-400 text-xs font-medium mt-2">Check your API key or try a simpler prompt.</p>
+                       </div>
+                     )}
                      <div className="absolute top-12 left-12 z-10 w-20 h-20 bg-slate-900 text-white rounded-[2rem] flex items-center justify-center font-black text-4xl shadow-2xl">#{idx + 1}</div>
                      <div className="absolute top-12 right-12 z-10 bg-emerald-500 text-white px-8 py-3 rounded-full font-black text-sm shadow-2xl">{targetResolution} {p.isSpread ? '(SPREAD)' : '(SINGLE)'}</div>
                   </div>
@@ -563,6 +589,9 @@ const App: React.FC = () => {
                          <>
                            <button onClick={() => {
                               setActiveRetargetId(p.id);
+                              if (p.retargeting?.sourceImage) {
+                                setRetargetSourceImage(p.retargeting.sourceImage);
+                              }
                               setPages(curr => curr.map(pg => pg.id === p.id ? { 
                                 ...pg, 
                                 retargeting: pg.retargeting || { sourceHotspots: [], targetHotspots: [], instruction: "" } 
@@ -730,20 +759,29 @@ const App: React.FC = () => {
 
         const updateHotspot = (type: 'source' | 'target', x: number, y: number) => {
           const key = type === 'source' ? 'sourceHotspots' : 'targetHotspots';
-          const existing = retargetPage.retargeting![key];
+          const retargeting = retargetPage.retargeting || { sourceHotspots: [], targetHotspots: [], instruction: "" };
+          const existing = retargeting[key] || [];
           const filtered = existing.filter(h => h.label !== activeHotspotLabel);
           setRetargetData({ [key]: [...filtered, { x, y, label: activeHotspotLabel }] });
         };
+
+        const isReady = !isProcessing && 
+                        retargetSourceImage && 
+                        (retargetPage.retargeting?.sourceHotspots?.length || 0) > 0 && 
+                        (retargetPage.retargeting?.targetHotspots?.length || 0) > 0;
 
         return (
           <div className="max-w-7xl mx-auto py-16 px-8 space-y-12 animate-in fade-in duration-500 pb-64">
             <div className="flex justify-between items-end">
               <div className="space-y-4">
-                <h2 className="text-6xl font-black tracking-tighter">Character Retargeting</h2>
+                <div className="flex items-center gap-4">
+                  <div className="px-4 py-1 bg-indigo-600 text-white text-[10px] font-black rounded-full uppercase tracking-widest">Character Identity Lab</div>
+                  <h2 className="text-6xl font-black tracking-tighter">Retargeting</h2>
+                </div>
                 <div className="flex items-center gap-6">
                   <div className="flex items-center gap-3 bg-white border-2 border-slate-100 rounded-2xl p-2 shadow-sm">
                     <span className="text-[10px] font-black uppercase text-slate-400 px-3">Active Character:</span>
-                    {[1, 2, 3, 4].map(num => (
+                    {[1, 2, 3, 4, 5].map(num => (
                       <button 
                         key={num} 
                         onClick={() => setActiveHotspotLabel(num)}
@@ -759,7 +797,7 @@ const App: React.FC = () => {
               <div className="flex gap-4">
                 <button onClick={() => setCurrentStep('generate')} className="px-8 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest">Cancel</button>
                 <button 
-                  disabled={isProcessing || !retargetSourceImage || (retargetPage.retargeting?.sourceHotspots.length === 0) || (retargetPage.retargeting?.targetHotspots.length === 0)} 
+                  disabled={!isReady} 
                   onClick={handleApplyRetargeting} 
                   className="px-12 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-2xl hover:scale-105 transition-all disabled:opacity-50 disabled:hover:scale-100 flex items-center gap-3"
                 >

@@ -415,6 +415,7 @@ export const retargetCharacters = async (
   imageSize: '1K' | '2K' | '4K' = '1K',
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
 ): Promise<string> => {
+  console.log("Starting retargetCharacters with:", { sourceHotspots: retargeting.sourceHotspots, targetHotspots: retargeting.targetHotspots });
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const sourceData = sourceImageBase64.includes(',') ? sourceImageBase64.split(',')[1] : sourceImageBase64;
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
