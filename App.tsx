@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [activityScript, setActivityScript] = useState("");
   const [projectContext, setProjectContext] = useState("");
   const [coverImage, setCoverImage] = useState<string | null>(null);
+  const [selectedCoverCharIds, setSelectedCoverCharIds] = useState<Set<string>>(new Set());
   
   // Production Config
   const [globalFixPrompt, setGlobalFixPrompt] = useState("Keep character facial features and clothing consistent with reference images.");
@@ -715,19 +716,113 @@ const App: React.FC = () => {
 
       case 'cover-master':
         return (
-          <div className="max-w-7xl mx-auto py-20 px-8 space-y-16 animate-in fade-in duration-500">
+          <div className="max-w-7xl mx-auto py-20 px-8 space-y-16 animate-in fade-in duration-500 pb-64">
             <div className="flex flex-col lg:flex-row gap-16 items-start">
-               <div className="flex-1 space-y-8">
-                  <h2 className="text-6xl font-black">Cover Synthesis</h2>
+               <div className="flex-1 space-y-12">
+                  <div className="space-y-4">
+                    <h2 className="text-6xl font-black">Cover Synthesis</h2>
+                    <p className="text-slate-500 text-xl font-medium">Design a high-end production cover using your series cast.</p>
+                  </div>
+
+                  <div className="space-y-6">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600 flex items-center gap-3">
+                      <UserCheck size={20} /> Featured Cast on Cover
+                    </h3>
+                    <div className="flex gap-6 overflow-x-auto py-4 px-2 custom-scrollbar">
+                      {settings.characterReferences.map(char => (
+                        <div 
+                          key={char.id} 
+                          className={`flex-shrink-0 w-32 h-32 rounded-[2rem] border-4 transition-all relative group overflow-hidden ${selectedCoverCharIds.has(char.id) ? 'border-indigo-600 scale-110 shadow-xl' : 'border-slate-100 opacity-50 hover:opacity-100'}`}
+                        >
+                          <div 
+                            className="w-full h-full cursor-pointer"
+                            onClick={() => {
+                              const next = new Set(selectedCoverCharIds);
+                              if (next.has(char.id)) next.delete(char.id);
+                              else next.add(char.id);
+                              setSelectedCoverCharIds(next);
+                            }}
+                          >
+                            {char.images[0] ? (
+                              <img src={char.images[0]} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full bg-slate-50 flex items-center justify-center text-slate-300">
+                                <ImageIcon size={32} />
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                             <button 
+                               onClick={(e) => { e.stopPropagation(); setActiveCharId(char.id); charImageInputRef.current?.click(); }} 
+                               className="p-2 bg-white rounded-lg text-indigo-600 shadow-xl pointer-events-auto hover:scale-110 transition-transform"
+                             >
+                               <Upload size={16} />
+                             </button>
+                          </div>
+
+                          {selectedCoverCharIds.has(char.id) && (
+                            <div className="absolute top-2 right-2 bg-indigo-600 text-white rounded-full p-1 pointer-events-none">
+                              <Check size={12} />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      <button 
+                        onClick={() => setCurrentStep('characters')}
+                        className="flex-shrink-0 w-32 h-32 rounded-[2rem] border-4 border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 text-slate-300 hover:border-indigo-600 hover:text-indigo-600 transition-all"
+                      >
+                        <Plus size={32} />
+                        <span className="text-[10px] font-black uppercase">Add Hero</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="bg-white border-2 border-slate-100 rounded-[4rem] p-12 shadow-2xl space-y-8">
-                     <textarea className="w-full h-80 bg-slate-50 border-none rounded-3xl p-8 text-lg font-medium outline-none resize-none shadow-inner" placeholder="Paste marketing brief..." value={projectContext} onChange={e => setProjectContext(e.target.value)} />
-                     <button onClick={() => { setIsProcessing(true); generateBookCover(projectContext, settings.characterReferences, settings.targetStyle).then(res => setCoverImage(res)).finally(() => setIsProcessing(false)); }} className="w-full py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-2xl shadow-xl flex items-center justify-center gap-4 hover:scale-105 transition-all">
-                        {isProcessing ? <Loader2 className="animate-spin" /> : <Sparkles />} RENDER PRODUCTION COVER
+                     <div className="space-y-4">
+                        <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">Marketing Brief / Scene Description</h3>
+                        <textarea className="w-full h-64 bg-slate-50 border-none rounded-3xl p-8 text-lg font-medium outline-none resize-none shadow-inner focus:ring-2 ring-indigo-600 transition-all" placeholder="Describe the cover scene, mood, and composition..." value={projectContext} onChange={e => setProjectContext(e.target.value)} />
+                     </div>
+                     <button 
+                       disabled={isProcessing}
+                       onClick={async () => { 
+                         const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+                         if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+                         
+                         setIsProcessing(true); 
+                         const selectedChars = settings.characterReferences.filter(c => selectedCoverCharIds.has(c.id));
+                         generateBookCover(projectContext, selectedChars, settings.targetStyle)
+                           .then(res => setCoverImage(res))
+                           .catch(err => console.error(err))
+                           .finally(() => setIsProcessing(false)); 
+                       }} 
+                       className="w-full py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-2xl shadow-xl flex items-center justify-center gap-4 hover:scale-105 transition-all disabled:opacity-50"
+                     >
+                        {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <Sparkles size={32} />} RENDER PRODUCTION COVER
                      </button>
                   </div>
                </div>
-               <div className="w-full lg:w-2/5 aspect-[3/4] bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative flex items-center justify-center">
-                  {coverImage ? <img src={coverImage} className="w-full h-full object-cover" /> : <div className="text-slate-200"><Book size={160} /></div>}
+               <div className="w-full lg:w-2/5 aspect-[3/4] bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative flex items-center justify-center group">
+                  {coverImage ? (
+                    <>
+                      <img src={coverImage} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-6">
+                        <button onClick={() => { const a = document.createElement('a'); a.href = coverImage; a.download = 'cover.png'; a.click(); }} className="p-6 bg-white rounded-3xl text-indigo-600 shadow-2xl hover:scale-110 transition-transform"><Download size={32} /></button>
+                        <button onClick={() => setCoverImage(null)} className="p-6 bg-white rounded-3xl text-red-500 shadow-2xl hover:scale-110 transition-transform"><Trash2 size={32} /></button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center gap-6 text-slate-200">
+                      <Book size={160} />
+                      <p className="font-black uppercase tracking-widest text-xl">Preview Area</p>
+                    </div>
+                  )}
+                  {isProcessing && (
+                    <div className="absolute inset-0 bg-indigo-600/10 backdrop-blur-sm flex flex-col items-center justify-center gap-6">
+                      <Loader2 size={80} className="animate-spin text-indigo-600" />
+                      <p className="text-indigo-600 font-black uppercase tracking-widest animate-pulse">Synthesizing Cover...</p>
+                    </div>
+                  )}
                </div>
             </div>
           </div>
