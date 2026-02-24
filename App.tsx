@@ -140,7 +140,11 @@ const App: React.FC = () => {
         });
         loaded++;
         if (loaded === files.length) {
-          setPages(prev => [...prev, ...newPages]);
+          const initializedPages = newPages.map(p => ({
+            ...p,
+            retargeting: { sourceHotspots: [], targetHotspots: [], instruction: "" }
+          }));
+          setPages(prev => [...prev, ...initializedPages]);
           setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
         }
       };
@@ -233,7 +237,16 @@ const App: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setRetargetSourceImage(reader.result as string);
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setRetargetSourceImage(base64);
+      if (activeRetargetId) {
+        setPages(curr => curr.map(p => p.id === activeRetargetId ? {
+          ...p,
+          retargeting: { ...p.retargeting!, sourceImage: base64 }
+        } : p));
+      }
+    };
     reader.readAsDataURL(file);
   };
 
@@ -243,6 +256,7 @@ const App: React.FC = () => {
     if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
 
     const targetId = activeRetargetId;
+    setIsProcessing(true);
     setPages(curr => curr.map(p => p.id === targetId ? { ...p, status: 'processing' } : p));
     setCurrentStep('generate');
     setActiveRetargetId(null);
@@ -268,7 +282,10 @@ const App: React.FC = () => {
       setRetargetSourceImage(null);
       setRetargetInstruction("");
     } catch (e) {
+      console.error("Retargeting error:", e);
       setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'error' } : pg));
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -742,11 +759,12 @@ const App: React.FC = () => {
               <div className="flex gap-4">
                 <button onClick={() => setCurrentStep('generate')} className="px-8 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase tracking-widest">Cancel</button>
                 <button 
-                  disabled={!retargetSourceImage || (retargetPage.retargeting?.sourceHotspots.length === 0)} 
+                  disabled={isProcessing || !retargetSourceImage || (retargetPage.retargeting?.sourceHotspots.length === 0) || (retargetPage.retargeting?.targetHotspots.length === 0)} 
                   onClick={handleApplyRetargeting} 
-                  className="px-12 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-2xl hover:scale-105 transition-all"
+                  className="px-12 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-2xl hover:scale-105 transition-all disabled:opacity-50 disabled:hover:scale-100 flex items-center gap-3"
                 >
-                  Run Retargeting
+                  {isProcessing ? <Loader2 className="animate-spin" size={20} /> : <UserCheck size={20} />}
+                  {isProcessing ? 'Processing...' : 'Run Retargeting'}
                 </button>
               </div>
             </div>
