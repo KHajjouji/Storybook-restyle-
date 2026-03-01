@@ -217,13 +217,28 @@ export const restyleIllustration = async (
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = usePro ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
   
+  const layoutRules = isSpread ? `
+  LAYOUT RULES FOR 2-PAGE SPREAD:
+  - This is a WIDE SPREAD that will be folded in the middle (GUTTER).
+  - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold).
+  - SAFE MARGINS: Keep all text and critical details at least 10% away from the top, bottom, and outer edges.
+  - BALANCE: Ensure the composition works as two distinct halves while remaining a cohesive single image.` : "";
+
+  const textInstruction = targetText ? `
+  TEXT EMBEDDING TASK:
+  - Include the following text in the illustration: "${targetText}"
+  - Ensure the text is readable and fits the artistic style.
+  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : "";
+
   const instruction = `ILLUSTRATOR TASK:
   SERIES BIBLE: ${masterBible}
   PROJECT CONTEXT: ${projectContext}
   LAYOUT: ${aspectRatio}
   SCENE SCRIPT: ${stylePrompt}
+  ${layoutRules}
+  ${textInstruction}
   
-  CORE RULE: Maintain character facial likeness exactly as shown in refs. No readable text unless specifically requested in the script for an activity layout.`;
+  CORE RULE: Maintain character facial likeness exactly as shown in refs. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.`;
 
   const parts: any[] = [{ text: instruction }];
   
@@ -267,15 +282,29 @@ export const refineIllustration = async (
   masterBible: string = "",
   projectContext: string = "",
   charRefs: CharacterRef[] = [],
-  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  targetText?: string
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
   
+  const layoutRules = isSpread ? `
+  LAYOUT RULES FOR 2-PAGE SPREAD:
+  - This is a WIDE SPREAD that will be folded in the middle (GUTTER).
+  - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold).
+  - SAFE MARGINS: Keep all text and critical details at least 10% away from the top, bottom, and outer edges.` : "";
+
+  const textInstruction = targetText ? `
+  TEXT EMBEDDING TASK:
+  - Include/Update the following text in the illustration: "${targetText}"
+  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : "";
+
   const instruction = `SCENE FIXER TASK:
   SERIES BIBLE: ${masterBible}
   NARRATIVE CONTEXT: ${projectContext}
   FIX REQUEST: "${refinementPrompt}"
+  ${layoutRules}
+  ${textInstruction}
   
   GOAL: Modify the TARGET IMAGE to align with the FIX REQUEST while maintaining exact style and character features.`;
 

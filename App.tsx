@@ -13,6 +13,21 @@ import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 
 type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor';
 
+const SpreadGuide = ({ isSpread }: { isSpread: boolean }) => {
+  if (!isSpread) return null;
+  return (
+    <div className="absolute inset-0 pointer-events-none z-20">
+      {/* Gutter Guide */}
+      <div className="absolute inset-y-0 left-1/2 w-[2px] bg-red-500/40 border-l border-dashed border-white/50" />
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-widest shadow-lg whitespace-nowrap">Gutter / Fold</div>
+      
+      {/* Safe Margins Guide */}
+      <div className="absolute inset-10 border-2 border-dashed border-indigo-500/30 rounded-lg" />
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-widest shadow-lg whitespace-nowrap">Safe Text Area</div>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<Step>('landing');
   const [projectId, setProjectId] = useState<string>(Math.random().toString(36).substring(7));
@@ -180,13 +195,15 @@ const App: React.FC = () => {
       const narrativeContext = p.originalText ? `SCENE SCRIPT: "${p.originalText}". ${globalFixPrompt}` : (p.overrideStylePrompt || settings.targetStyle);
       
       let result;
+      const targetText = settings.embedTextInImage ? p.originalText : undefined;
+
       if (p.originalImage) {
         const others = pages.filter(pg => pg.id !== pageId && pg.processedImage).slice(0, 3).map(pg => ({ base64: pg.processedImage!, index: pages.indexOf(pg) + 1 }));
-        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, targetAspectRatio);
+        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, targetAspectRatio, targetText);
       } else {
         // For activities, use the specific spread prompt as the primary instruction
         const promptToUse = p.overrideStylePrompt || narrativeContext;
-        result = await restyleIllustration(undefined, promptToUse, undefined, undefined, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, targetAspectRatio);
+        result = await restyleIllustration(undefined, promptToUse, undefined, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, targetAspectRatio);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
     } catch (e) { 
@@ -224,7 +241,8 @@ const App: React.FC = () => {
         finalPrompt = `FIX TASK: ${fixInstruction}. Narrative context: "${p.originalText || 'General Scene'}".`;
       }
 
-      const res = await refineIllustration(targetImg, finalPrompt, selectedRefs, isTransformingRatio ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio);
+      const targetText = settings.embedTextInImage ? p.originalText : undefined;
+      const res = await refineIllustration(targetImg, finalPrompt, selectedRefs, isTransformingRatio ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
       
       setPages(curr => curr.map(pg => pg.id === targetId ? { 
         ...pg, 
@@ -482,6 +500,23 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* TEXT EMBEDDING CONTROL */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center px-4">
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">Text Rendering</h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400">{settings.embedTextInImage ? 'ON' : 'OFF'}</span>
+                        <button 
+                          onClick={() => setSettings({...settings, embedTextInImage: !settings.embedTextInImage})}
+                          className={`w-12 h-6 rounded-full transition-all relative ${settings.embedTextInImage ? 'bg-indigo-600' : 'bg-slate-200'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.embedTextInImage ? 'left-7' : 'left-1'}`} />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, AI will attempt to render the scene text directly into the illustration while respecting safe margins.</p>
+                  </div>
+
                   <button disabled={isProcessing} onClick={processProductionBatch} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6">
                     {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <Sparkles size={32} />} START PRODUCTION
                   </button>
@@ -492,8 +527,9 @@ const App: React.FC = () => {
                 {pages.map((p, idx) => (
                   <div key={p.id} className="bg-white p-8 rounded-[4rem] border-2 border-slate-100 shadow-xl space-y-6 relative overflow-hidden group">
                     <div className="absolute top-8 left-8 z-10 w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-2xl shadow-2xl">#{idx + 1}</div>
-                    <div className="aspect-[4/3] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner border-8 border-white">
+                    <div className="aspect-[4/3] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner border-8 border-white relative">
                       {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
+                      <SpreadGuide isSpread={p.isSpread} />
                     </div>
                     {p.originalText && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 italic leading-relaxed">"{p.originalText}"</p>}
                   </div>
@@ -568,6 +604,7 @@ const App: React.FC = () => {
                 <div key={p.id} className="bg-white rounded-[6rem] border-4 border-slate-50 shadow-2xl overflow-hidden group transition-all">
                   <div className="aspect-[16/9] bg-slate-100 relative group overflow-hidden">
                      {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-2xl scale-110' : 'opacity-100'}`} />}
+                     <SpreadGuide isSpread={p.isSpread} />
                      {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/10"><Loader2 size={80} className="animate-spin text-indigo-600" /></div>}
                      {p.status === 'error' && (
                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50/90 backdrop-blur-sm p-8 text-center">
