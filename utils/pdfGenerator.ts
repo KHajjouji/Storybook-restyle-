@@ -73,10 +73,15 @@ export const generateBookPDF = async (
         if (page.originalText) {
           pdf.setFontSize(18);
           pdf.setTextColor(0, 0, 0);
-          // Place in safe area (approximate)
-          const textX = spreadWidth / 2;
-          const textY = fullHeight - 1.5;
-          pdf.text(page.originalText, textX, textY, { align: 'center', maxWidth: spreadWidth - 2 });
+          
+          // Calculate safe area based on config
+          const safeBottom = fullHeight - config.bottom - config.bleed;
+          const safeLeft = config.outside + config.bleed;
+          const safeRight = spreadWidth - config.outside - config.bleed;
+          const maxWidth = safeRight - safeLeft;
+          
+          // Center text in the safe area
+          pdf.text(page.originalText, spreadWidth / 2, safeBottom, { align: 'center', maxWidth: maxWidth });
         }
       } else {
         pdf.addImage(image, 'PNG', 0, 0, spreadWidth, fullHeight);
@@ -96,9 +101,15 @@ export const generateBookPDF = async (
         if (page.originalText) {
           pdf.setFontSize(16);
           pdf.setTextColor(0, 0, 0);
-          const textX = singleFullWidth / 2;
-          const textY = fullHeight - 1.2;
-          pdf.text(page.originalText, textX, textY, { align: 'center', maxWidth: singleFullWidth - 1 });
+          
+          const safeBottom = fullHeight - config.bottom - config.bleed;
+          // Gutter is on the left for right pages (odd), on the right for left pages (even)
+          const safeLeft = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);
+          const safeRight = isRightPage ? (singleFullWidth - config.outside - config.bleed) : (singleFullWidth - gutter - config.bleed);
+          const maxWidth = safeRight - safeLeft;
+          const centerX = safeLeft + (maxWidth / 2);
+
+          pdf.text(page.originalText, centerX, safeBottom, { align: 'center', maxWidth: maxWidth });
         }
       } else {
         pdf.addImage(image, 'PNG', 0, 0, singleFullWidth, fullHeight);

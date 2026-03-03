@@ -72,6 +72,7 @@ export interface AppSettings {
   useProModel: boolean;
   embedTextInImage: boolean;
   layeredMode: boolean;
+  showSafeGuides: boolean;
   estimatedPageCount: number;
 }
 

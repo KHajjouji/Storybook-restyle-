@@ -6,24 +6,34 @@ import {
   ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid
 } from 'lucide-react';
 import JSZip from 'jszip';
-import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting } from './types';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration } from './geminiService';
+import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer } from './types';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 
 type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor';
 
-const SpreadGuide = ({ isSpread }: { isSpread: boolean }) => {
-  if (!isSpread) return null;
+const SpreadGuide = ({ isSpread, show, format }: { isSpread: boolean, show: boolean, format: ExportFormat }) => {
+  if (!show) return null;
+  const config = PRINT_FORMATS[format];
+  
   return (
     <div className="absolute inset-0 pointer-events-none z-20">
-      {/* Gutter Guide */}
-      <div className="absolute inset-y-0 left-1/2 w-[2px] bg-red-500/40 border-l border-dashed border-white/50" />
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-widest shadow-lg whitespace-nowrap">Gutter / Fold</div>
+      {/* Bleed Area Overlay */}
+      <div className="absolute inset-0 border-[8px] border-red-500/10" />
+      <div className="absolute top-2 right-2 text-red-500/40 font-black text-[6px] uppercase tracking-widest">Bleed Zone</div>
+
+      {/* Gutter / Fold */}
+      {isSpread && (
+        <>
+          <div className="absolute inset-y-0 left-1/2 w-[2px] bg-red-500/40 border-l border-dashed border-white/50" />
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-widest shadow-lg whitespace-nowrap">Gutter / Fold</div>
+        </>
+      )}
       
       {/* Safe Margins Guide */}
-      <div className="absolute inset-10 border-2 border-dashed border-indigo-500/30 rounded-lg" />
+      <div className="absolute inset-12 border-2 border-dashed border-indigo-500/30 rounded-lg" />
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-widest shadow-lg whitespace-nowrap">Safe Text Area</div>
     </div>
   );
@@ -59,6 +69,7 @@ const App: React.FC = () => {
   const [activityScript, setActivityScript] = useState("");
   const [projectContext, setProjectContext] = useState("");
   const [coverImage, setCoverImage] = useState<string | null>(null);
+  const [coverLayers, setCoverLayers] = useState<BookLayer[]>([]);
   const [selectedCoverCharIds, setSelectedCoverCharIds] = useState<Set<string>>(new Set());
   
   // Production Config
@@ -89,6 +100,7 @@ const App: React.FC = () => {
     useProModel: true,
     embedTextInImage: false,
     layeredMode: false,
+    showSafeGuides: true,
     characterReferences: [],
     estimatedPageCount: 32,
     masterBible: GLOBAL_STYLE_LOCK
@@ -292,12 +304,23 @@ const App: React.FC = () => {
       }
 
       const targetText = settings.embedTextInImage ? p.originalText : undefined;
-      const res = await refineIllustration(targetImg, finalPrompt, selectedRefs, isTransformingRatio ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
+      
+      let res;
+      let layers;
+
+      if (settings.layeredMode) {
+        const layeredRes = await refineLayeredIllustration(targetImg, finalPrompt, selectedRefs, isTransformingRatio ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
+        res = layeredRes.composite;
+        layers = layeredRes.layers;
+      } else {
+        res = await refineIllustration(targetImg, finalPrompt, selectedRefs, isTransformingRatio ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
+      }
       
       setPages(curr => curr.map(pg => pg.id === targetId ? { 
         ...pg, 
         status: 'completed', 
         processedImage: res,
+        layers: layers || pg.layers,
         isSpread: isTransformingRatio ? !pg.isSpread : pg.isSpread 
       } : pg));
       
@@ -584,6 +607,23 @@ const App: React.FC = () => {
                     <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, AI generates separate layers for BG, Characters, and Text for professional compositing.</p>
                   </div>
 
+                  {/* SAFE GUIDES CONTROL */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center px-4">
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">Print Safe Guides</h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400">{settings.showSafeGuides ? 'ON' : 'OFF'}</span>
+                        <button 
+                          onClick={() => setSettings({...settings, showSafeGuides: !settings.showSafeGuides})}
+                          className={`w-12 h-6 rounded-full transition-all relative ${settings.showSafeGuides ? 'bg-indigo-600' : 'bg-slate-200'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.showSafeGuides ? 'left-7' : 'left-1'}`} />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-slate-400 px-4 font-medium italic">Show bleed, gutter, and safe text margins for print-ready layouts.</p>
+                  </div>
+
                   <button disabled={isProcessing} onClick={processProductionBatch} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6">
                     {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <Sparkles size={32} />} START PRODUCTION
                   </button>
@@ -596,9 +636,46 @@ const App: React.FC = () => {
                     <div className="absolute top-8 left-8 z-10 w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-2xl shadow-2xl">#{idx + 1}</div>
                     <div className="aspect-[4/3] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner border-8 border-white relative">
                       {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
-                      <SpreadGuide isSpread={p.isSpread} />
+                      <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} />
                     </div>
                     {p.originalText && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 italic leading-relaxed">"{p.originalText}"</p>}
+                    {settings.layeredMode && p.layers && p.layers.length > 0 && (
+                      <LayerManager 
+                        layers={p.layers} 
+                        onToggle={(layerId) => {
+                          const newLayers = p.layers!.map(l => l.id === layerId ? { ...l, isVisible: !l.isVisible } : l);
+                          
+                          // Re-composite
+                          const canvas = document.createElement('canvas');
+                          const ratio = p.isSpread ? (16/9) : (4/3);
+                          canvas.width = 1024 * ratio;
+                          canvas.height = 1024;
+                          const ctx = canvas.getContext('2d')!;
+                          
+                          const visibleLayers = newLayers.filter(l => l.isVisible);
+                          let loaded = 0;
+                          const imgs = visibleLayers.map(l => {
+                            const img = new Image();
+                            img.onload = () => {
+                              loaded++;
+                              if (loaded === visibleLayers.length) {
+                                const order = ['background', 'character', 'foreground', 'text'];
+                                order.forEach(type => {
+                                  const layer = visibleLayers.find(l => l.type === type);
+                                  if (layer) {
+                                    const idx = visibleLayers.indexOf(layer);
+                                    ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+                                  }
+                                });
+                                setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, processedImage: canvas.toDataURL('image/png'), layers: newLayers } : pg));
+                              }
+                            };
+                            img.src = l.image;
+                            return img;
+                          });
+                        }}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -671,7 +748,7 @@ const App: React.FC = () => {
                 <div key={p.id} className="bg-white rounded-[6rem] border-4 border-slate-50 shadow-2xl overflow-hidden group transition-all">
                   <div className="aspect-[16/9] bg-slate-100 relative group overflow-hidden">
                      {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-2xl scale-110' : 'opacity-100'}`} />}
-                     <SpreadGuide isSpread={p.isSpread} />
+                     <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} />
                      {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/10"><Loader2 size={80} className="animate-spin text-indigo-600" /></div>}
                      {p.status === 'error' && (
                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50/90 backdrop-blur-sm p-8 text-center">
@@ -945,10 +1022,21 @@ const App: React.FC = () => {
                          
                          setIsProcessing(true); 
                          const selectedChars = settings.characterReferences.filter(c => selectedCoverCharIds.has(c.id));
-                         generateBookCover(projectContext, selectedChars, settings.targetStyle)
-                           .then(res => setCoverImage(res))
-                           .catch(err => console.error(err))
-                           .finally(() => setIsProcessing(false)); 
+                         
+                         if (settings.layeredMode) {
+                           generateLayeredCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, projectName, targetAspectRatio)
+                             .then(res => {
+                               setCoverImage(res.composite);
+                               setCoverLayers(res.layers);
+                             })
+                             .catch(err => console.error(err))
+                             .finally(() => setIsProcessing(false));
+                         } else {
+                           generateBookCover(projectContext, selectedChars, settings.targetStyle)
+                             .then(res => setCoverImage(res))
+                             .catch(err => console.error(err))
+                             .finally(() => setIsProcessing(false)); 
+                         }
                        }} 
                        className="w-full py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-2xl shadow-xl flex items-center justify-center gap-4 hover:scale-105 transition-all disabled:opacity-50"
                      >
@@ -956,15 +1044,57 @@ const App: React.FC = () => {
                      </button>
                   </div>
                </div>
-               <div className="w-full lg:w-2/5 aspect-[3/4] bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative flex items-center justify-center group">
+               <div className="w-full lg:w-2/5 aspect-[3/4] bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative flex flex-col items-center justify-center group">
                   {coverImage ? (
-                    <>
-                      <img src={coverImage} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-6">
-                        <button onClick={() => { const a = document.createElement('a'); a.href = coverImage; a.download = 'cover.png'; a.click(); }} className="p-6 bg-white rounded-3xl text-indigo-600 shadow-2xl hover:scale-110 transition-transform"><Download size={32} /></button>
-                        <button onClick={() => setCoverImage(null)} className="p-6 bg-white rounded-3xl text-red-500 shadow-2xl hover:scale-110 transition-transform"><Trash2 size={32} /></button>
-                      </div>
-                    </>
+                    <div className="relative w-full h-full">
+                       <img src={coverImage} className="w-full h-full object-cover" />
+                       <SpreadGuide isSpread={false} show={settings.showSafeGuides} format={settings.exportFormat} />
+                       {settings.layeredMode && (
+                         <div className="absolute bottom-0 inset-x-0 bg-white/90 backdrop-blur-xl p-6 border-t border-slate-100">
+                            <LayerManager 
+                              layers={coverLayers} 
+                              onToggle={(layerId) => {
+                                const newLayers = coverLayers.map(l => l.id === layerId ? { ...l, isVisible: !l.isVisible } : l);
+                                setCoverLayers(newLayers);
+                                
+                                // Re-composite
+                                const canvas = document.createElement('canvas');
+                                const [w, h] = targetAspectRatio.split(':').map(Number);
+                                const ratio = w / h;
+                                canvas.width = 1024 * ratio;
+                                canvas.height = 1024;
+                                const ctx = canvas.getContext('2d')!;
+                                
+                                const visibleLayers = newLayers.filter(l => l.isVisible);
+                                let loaded = 0;
+                                const imgs = visibleLayers.map(l => {
+                                  const img = new Image();
+                                  img.onload = () => {
+                                    loaded++;
+                                    if (loaded === visibleLayers.length) {
+                                      const order = ['background', 'character', 'text'];
+                                      order.forEach(type => {
+                                        const layer = visibleLayers.find(l => l.type === type);
+                                        if (layer) {
+                                          const idx = visibleLayers.indexOf(layer);
+                                          ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+                                        }
+                                      });
+                                      setCoverImage(canvas.toDataURL('image/png'));
+                                    }
+                                  };
+                                  img.src = l.image;
+                                  return img;
+                                });
+                              }}
+                            />
+                         </div>
+                       )}
+                       <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-6">
+                         <button onClick={() => { const a = document.createElement('a'); a.href = coverImage; a.download = 'cover.png'; a.click(); }} className="p-6 bg-white rounded-3xl text-indigo-600 shadow-2xl hover:scale-110 transition-transform"><Download size={32} /></button>
+                         <button onClick={() => setCoverImage(null)} className="p-6 bg-white rounded-3xl text-red-500 shadow-2xl hover:scale-110 transition-transform"><Trash2 size={32} /></button>
+                       </div>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center gap-6 text-slate-200">
                       <Book size={160} />

@@ -435,6 +435,92 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string>
 };
 
 /**
+ * Refines a layered illustration by making separate calls for BG, Characters, and Props.
+ */
+export const refineLayeredIllustration = async (
+  targetImageBase64: string,
+  refinementPrompt: string,
+  referenceImages: { base64: string, index: number }[] = [],
+  isSpread: boolean = false,
+  imageSize: '1K' | '2K' | '4K' = '1K',
+  masterBible: string = "",
+  projectContext: string = "",
+  charRefs: CharacterRef[] = [],
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  targetText?: string
+): Promise<{layers: any[], composite: string}> => {
+  console.log("Starting precision layered refinement...");
+  
+  // 1. BACKGROUND LAYER REFINEMENT
+  const bgPrompt = `ENVIRONMENT/BACKGROUND FIX: ${refinementPrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment.`;
+  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+
+  // 2. CHARACTER LAYER REFINEMENT
+  const charPrompt = `CHARACTER LAYER FIX: ${refinementPrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND.`;
+  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio);
+  const charImage = await removeWhiteBackground(charRaw);
+
+  // 3. FOREGROUND PROPS LAYER REFINEMENT
+  const propsPrompt = `FOREGROUND PROPS FIX: ${refinementPrompt}. Render only the interactive objects, toys, or foreground elements. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND.`;
+  const propsRaw = await refineIllustration(targetImageBase64, propsPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+  const propsImage = await removeWhiteBackground(propsRaw);
+
+  // 4. TEXT LAYER (If applicable)
+  let textLayer = null;
+  if (targetText) {
+    const textPrompt = `TEXT LAYER FIX: Render/Update the text "${targetText}" in a professional book font style. 
+    IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
+    Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
+    const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+    textLayer = await removeWhiteBackground(textRaw);
+  }
+
+  const layers: any[] = [
+    { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
+    { id: 'props-' + Math.random(), name: 'Foreground Props', image: propsImage, isVisible: true, type: 'foreground' },
+    { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' }
+  ];
+
+  if (textLayer) {
+    layers.push({ id: 'text-' + Math.random(), name: 'Text', image: textLayer, isVisible: true, type: 'text' });
+  }
+
+  // Create a composite for the main preview
+  const composite = await new Promise<string>((resolve) => {
+    const canvas = document.createElement('canvas');
+    const [wStr, hStr] = aspectRatio.split(':');
+    const w = parseInt(wStr);
+    const h = parseInt(hStr);
+    canvas.width = 1024 * (w/h);
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d')!;
+    
+    let loaded = 0;
+    const imgs = layers.map(l => {
+      const img = new Image();
+      img.onload = () => {
+        loaded++;
+        if (loaded === layers.length) {
+          const order = ['background', 'foreground', 'character', 'text'];
+          order.forEach(type => {
+            const layer = layers.find(l => l.type === type);
+            if (layer && layer.isVisible) {
+              const idx = layers.indexOf(layer);
+              ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+            }
+          });
+          resolve(canvas.toDataURL('image/png'));
+        }
+      };
+      img.src = l.image;
+      return img;
+    });
+  });
+
+  return { layers, composite };
+};
+
+/**
  * Removes white background from a base64 image using canvas with edge softening.
  */
 export const removeWhiteBackground = (base64: string): Promise<string> => {
@@ -511,7 +597,9 @@ export const generateLayeredIllustration = async (
   // 4. TEXT LAYER (If applicable)
   let textLayer = null;
   if (targetText) {
-    const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
+    const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. 
+    IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
+    Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
     const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
     textLayer = await removeWhiteBackground(textRaw);
   }
@@ -544,6 +632,82 @@ export const generateLayeredIllustration = async (
         if (loaded === layers.length) {
           // Draw in order: BG -> Props -> Chars -> Text
           const order = ['background', 'foreground', 'character', 'text'];
+          order.forEach(type => {
+            const layer = layers.find(l => l.type === type);
+            if (layer && layer.isVisible) {
+              const idx = layers.indexOf(layer);
+              ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+            }
+          });
+          resolve(canvas.toDataURL('image/png'));
+        }
+      };
+      img.src = l.image;
+      return img;
+    });
+  });
+
+  return { layers, composite };
+};
+
+/**
+ * Generates a multi-layered book cover.
+ */
+export const generateLayeredCover = async (
+  context: string,
+  characters: CharacterRef[],
+  stylePrompt: string,
+  masterBible: string = "",
+  targetResolution: '1K' | '2K' | '4K' = '1K',
+  title?: string,
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16"
+): Promise<{layers: any[], composite: string}> => {
+  console.log("Starting precision layered cover generation...");
+  
+  // 1. BACKGROUND LAYER
+  const bgPrompt = `BOOK COVER BACKGROUND ONLY: ${context}. Style: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO TEXT. Just the environment and atmosphere.`;
+  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio);
+
+  // 2. CHARACTER LAYER
+  const charPrompt = `BOOK COVER CHARACTER LAYER: ${context}. Style: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO TEXT. Place them on a SOLID PURE WHITE BACKGROUND.`;
+  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, characters, [], true, false, false, masterBible, targetResolution, "", aspectRatio);
+  const charImage = await removeWhiteBackground(charRaw);
+
+  // 3. TEXT LAYER (If applicable)
+  let textLayer = null;
+  if (title) {
+    const textPrompt = `BOOK COVER TITLE LAYER: Render the title "${title}" in a bold, cinematic book cover font style. 
+    IMPORTANT: Place the title in the UPPER THIRD of the frame, leaving at least 15% margin from all edges. 
+    Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
+    const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio);
+    textLayer = await removeWhiteBackground(textRaw);
+  }
+
+  const layers: any[] = [
+    { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
+    { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' }
+  ];
+
+  if (textLayer) {
+    layers.push({ id: 'text-' + Math.random(), name: 'Title', image: textLayer, isVisible: true, type: 'text' });
+  }
+
+  // Create a composite
+  const composite = await new Promise<string>((resolve) => {
+    const canvas = document.createElement('canvas');
+    const [w, h] = aspectRatio.split(':').map(Number);
+    const ratio = w / h;
+    canvas.width = 1024 * ratio;
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d')!;
+    
+    let loaded = 0;
+    const imgs = layers.map(l => {
+      const img = new Image();
+      img.onload = () => {
+        loaded++;
+        if (loaded === layers.length) {
+          const order = ['background', 'character', 'text'];
           order.forEach(type => {
             const layer = layers.find(l => l.type === type);
             if (layer && layer.isVisible) {
