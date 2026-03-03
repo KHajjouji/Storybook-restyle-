@@ -435,6 +435,107 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string>
 };
 
 /**
+ * Removes white background from a base64 image using canvas.
+ */
+export const removeWhiteBackground = (base64: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        // If it's very close to white, make it transparent
+        if (r > 245 && g > 245 && b > 245) {
+          data[i + 3] = 0;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.src = base64;
+  });
+};
+
+/**
+ * Generates a multi-layered illustration by making separate calls for BG and Characters.
+ */
+export const generateLayeredIllustration = async (
+  stylePrompt: string,
+  charRefs: CharacterRef[] = [],
+  masterBible: string = "",
+  projectContext: string = "",
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  targetResolution: '1K' | '2K' | '4K' = '1K',
+  targetText?: string
+): Promise<{layers: any[], composite: string}> => {
+  console.log("Starting layered generation...");
+  
+  // 1. BACKGROUND LAYER
+  const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, PEOPLE, OR ANIMALS. Just the empty scene.`;
+  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
+
+  // 2. CHARACTER LAYER
+  const charPrompt = `CHARACTER LAYER: ${stylePrompt}. Render the characters ONLY. Place them on a SOLID PURE WHITE BACKGROUND. No environment details.`;
+  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, charRefs, [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
+  const charImage = await removeWhiteBackground(charRaw);
+
+  // 3. TEXT LAYER (If applicable)
+  let textLayer = null;
+  if (targetText) {
+    const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
+    const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
+    textLayer = await removeWhiteBackground(textRaw);
+  }
+
+  const layers: any[] = [
+    { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
+    { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' }
+  ];
+
+  if (textLayer) {
+    layers.push({ id: 'text-' + Math.random(), name: 'Text', image: textLayer, isVisible: true, type: 'text' });
+  }
+
+  // Create a composite for the main preview
+  const composite = await new Promise<string>((resolve) => {
+    const canvas = document.createElement('canvas');
+    const [wStr, hStr] = aspectRatio.split(':');
+    const w = parseInt(wStr);
+    const h = parseInt(hStr);
+    canvas.width = 1024 * (w/h);
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d')!;
+    
+    let loaded = 0;
+    const imgs = layers.map(l => {
+      const img = new Image();
+      img.onload = () => {
+        loaded++;
+        if (loaded === layers.length) {
+          layers.forEach((layer, idx) => {
+            ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+          });
+          resolve(canvas.toDataURL('image/png'));
+        }
+      };
+      img.src = l.image;
+      return img;
+    });
+  });
+
+  return { layers, composite };
+};
+
+/**
  * RETARGET CHARACTERS: Maps characters from a source reference image to a target image using hotspots.
  */
 export const retargetCharacters = async (

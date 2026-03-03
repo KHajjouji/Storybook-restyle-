@@ -24,6 +24,14 @@ export interface CharacterRetargeting {
   instruction?: string;
 }
 
+export interface BookLayer {
+  id: string;
+  name: string;
+  image: string; // base64
+  isVisible: boolean;
+  type: 'background' | 'character' | 'foreground' | 'text';
+}
+
 export interface BookPage {
   id: string;
   originalImage?: string; 
@@ -35,6 +43,7 @@ export interface BookPage {
   isSpread: boolean; 
   overrideStylePrompt?: string; 
   retargeting?: CharacterRetargeting;
+  layers?: BookLayer[];
 }
 
 export type ExportFormat = 'KDP_SQUARE' | 'KDP_PORTRAIT' | 'LULU_A4' | 'LULU_US_LETTER' | 'INGRAM_PREMIUM';
@@ -62,6 +71,7 @@ export interface AppSettings {
   spreadExportMode: SpreadExportMode;
   useProModel: boolean;
   embedTextInImage: boolean;
+  layeredMode: boolean;
   estimatedPageCount: number;
 }
 

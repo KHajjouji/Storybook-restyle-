@@ -3,10 +3,11 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, Grid
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid
 } from 'lucide-react';
+import JSZip from 'jszip';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting } from './types';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters } from './geminiService';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
@@ -24,6 +25,27 @@ const SpreadGuide = ({ isSpread }: { isSpread: boolean }) => {
       {/* Safe Margins Guide */}
       <div className="absolute inset-10 border-2 border-dashed border-indigo-500/30 rounded-lg" />
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-widest shadow-lg whitespace-nowrap">Safe Text Area</div>
+    </div>
+  );
+};
+
+const LayerManager = ({ layers, onToggle }: { layers?: any[], onToggle: (id: string) => void }) => {
+  if (!layers || layers.length === 0) return null;
+  return (
+    <div className="mt-6 space-y-3">
+      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-4">Production Layers</h4>
+      <div className="flex flex-wrap gap-2 px-2">
+        {layers.map(layer => (
+          <button 
+            key={layer.id} 
+            onClick={() => onToggle(layer.id)}
+            className={`px-4 py-2 rounded-xl border-2 font-black text-[10px] transition-all flex items-center gap-2 ${layer.isVisible ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-slate-100 text-slate-300 opacity-50'}`}
+          >
+            {layer.isVisible ? <Eye size={12} /> : <EyeOff size={12} />}
+            {layer.name}
+          </button>
+        ))}
+      </div>
     </div>
   );
 };
@@ -66,6 +88,7 @@ const App: React.FC = () => {
     spreadExportMode: 'WIDE_SPREAD',
     useProModel: true,
     embedTextInImage: false,
+    layeredMode: false,
     characterReferences: [],
     estimatedPageCount: 32,
     masterBible: GLOBAL_STYLE_LOCK
@@ -96,6 +119,20 @@ const App: React.FC = () => {
     const a = document.createElement('a');
     a.href = url;
     a.download = `${projectName.replace(/\s+/g, '_')}.storyflow`;
+    a.click();
+  };
+
+  const handleDownloadLayers = async (page: BookPage, index: number) => {
+    if (!page.layers || page.layers.length === 0) return;
+    const zip = new JSZip();
+    page.layers.forEach((layer, i) => {
+      const base64Data = layer.image.split(',')[1];
+      zip.file(`${i + 1}_${layer.name.replace(/\s+/g, '_')}.png`, base64Data, { base64: true });
+    });
+    const content = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(content);
+    a.download = `page_${index + 1}_layers.zip`;
     a.click();
   };
 
@@ -195,9 +232,22 @@ const App: React.FC = () => {
       const narrativeContext = p.originalText ? `SCENE SCRIPT: "${p.originalText}". ${globalFixPrompt}` : (p.overrideStylePrompt || settings.targetStyle);
       
       let result;
+      let layers;
       const targetText = settings.embedTextInImage ? p.originalText : undefined;
 
-      if (p.originalImage) {
+      if (settings.layeredMode && !p.originalImage) {
+        const layeredResult = await generateLayeredIllustration(
+          p.overrideStylePrompt || narrativeContext,
+          settings.characterReferences,
+          settings.masterBible,
+          projectContext,
+          targetAspectRatio,
+          targetResolution,
+          targetText
+        );
+        result = layeredResult.composite;
+        layers = layeredResult.layers;
+      } else if (p.originalImage) {
         const others = pages.filter(pg => pg.id !== pageId && pg.processedImage).slice(0, 3).map(pg => ({ base64: pg.processedImage!, index: pages.indexOf(pg) + 1 }));
         result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, targetAspectRatio, targetText);
       } else {
@@ -205,7 +255,7 @@ const App: React.FC = () => {
         const promptToUse = p.overrideStylePrompt || narrativeContext;
         result = await restyleIllustration(undefined, promptToUse, undefined, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, targetAspectRatio);
       }
-      setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result } : pg));
+      setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
     } catch (e) { 
       console.error("Render error:", e);
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'error' } : pg)); 
@@ -517,6 +567,23 @@ const App: React.FC = () => {
                     <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, AI will attempt to render the scene text directly into the illustration while respecting safe margins.</p>
                   </div>
 
+                  {/* LAYERED MODE CONTROL */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center px-4">
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">Layered Production</h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400">{settings.layeredMode ? 'ON' : 'OFF'}</span>
+                        <button 
+                          onClick={() => setSettings({...settings, layeredMode: !settings.layeredMode})}
+                          className={`w-12 h-6 rounded-full transition-all relative ${settings.layeredMode ? 'bg-indigo-600' : 'bg-slate-200'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.layeredMode ? 'left-7' : 'left-1'}`} />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, AI generates separate layers for BG, Characters, and Text for professional compositing.</p>
+                  </div>
+
                   <button disabled={isProcessing} onClick={processProductionBatch} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6">
                     {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <Sparkles size={32} />} START PRODUCTION
                   </button>
@@ -621,6 +688,44 @@ const App: React.FC = () => {
                        <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><PenTool size={20} /> Scene Instructions</h4>
                        <p className="text-lg text-slate-500 font-bold leading-relaxed italic bg-slate-50 p-10 rounded-[2.5rem]">"{p.originalText || 'General Scene'}"</p>
                     </div>
+
+                    <LayerManager 
+                      layers={p.layers} 
+                      onToggle={(layerId) => {
+                        setPages(curr => curr.map(pg => {
+                          if (pg.id === p.id && pg.layers) {
+                            const newLayers = pg.layers.map(l => l.id === layerId ? { ...l, isVisible: !l.isVisible } : l);
+                            // Re-composite
+                            const canvas = document.createElement('canvas');
+                            const [wStr, hStr] = targetAspectRatio.split(':');
+                            const w = parseInt(wStr);
+                            const h = parseInt(hStr);
+                            canvas.width = 1024 * (w/h);
+                            canvas.height = 1024;
+                            const ctx = canvas.getContext('2d')!;
+                            
+                            const visibleLayers = newLayers.filter(l => l.isVisible);
+                            let loaded = 0;
+                            const imgs = visibleLayers.map(l => {
+                              const img = new Image();
+                              img.onload = () => {
+                                loaded++;
+                                if (loaded === visibleLayers.length) {
+                                  visibleLayers.forEach((layer, idx) => {
+                                    ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+                                  });
+                                  setPages(prev => prev.map(p2 => p2.id === pg.id ? { ...p2, processedImage: canvas.toDataURL('image/png'), layers: newLayers } : p2));
+                                }
+                              };
+                              img.src = l.image;
+                              return img;
+                            });
+                            return { ...pg, layers: newLayers };
+                          }
+                          return pg;
+                        }));
+                      }}
+                    />
                     
                     <div className="flex items-center justify-between gap-6 pt-10 border-t border-slate-50">
                        {settings.mode === 'retarget' ? (
@@ -662,6 +767,12 @@ const App: React.FC = () => {
                        )}
                        <button onClick={() => renderScene(p.id)} className="p-7 bg-slate-100 text-slate-400 rounded-[2rem] hover:text-indigo-600 transition-all"><RefreshCw size={32} /></button>
                        {p.processedImage && <button onClick={() => { const a = document.createElement('a'); a.href = p.processedImage!; a.download = `page_${idx+1}.png`; a.click(); }} className="p-7 bg-emerald-50 text-emerald-600 rounded-[2rem]"><Download size={32} /></button>}
+                       {p.layers && p.layers.length > 0 && (
+                         <button onClick={() => handleDownloadLayers(p, idx)} className="p-7 bg-indigo-50 text-indigo-600 rounded-[2rem] flex flex-col items-center gap-1">
+                           <Layers size={32} />
+                           <span className="text-[8px] font-black uppercase tracking-widest">ZIP</span>
+                         </button>
+                       )}
                     </div>
                   </div>
                 </div>
@@ -744,7 +855,7 @@ const App: React.FC = () => {
                         </button>
                       ))}
                   </div>
-                  <button onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode)} className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8"><Download size={48} /> DOWNLOAD INTERIOR PDF</button>
+                  <button onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode)} className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8"><Download size={48} /> DOWNLOAD INTERIOR PDF</button>
                 </div>
               </div>
             </div>
