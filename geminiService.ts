@@ -435,7 +435,7 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string>
 };
 
 /**
- * Removes white background from a base64 image using canvas.
+ * Removes white background from a base64 image using canvas with edge softening.
  */
 export const removeWhiteBackground = (base64: string): Promise<string> => {
   return new Promise((resolve) => {
@@ -449,15 +449,30 @@ export const removeWhiteBackground = (base64: string): Promise<string> => {
       ctx.drawImage(img, 0, 0);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
+      
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
-        // If it's very close to white, make it transparent
-        if (r > 245 && g > 245 && b > 245) {
-          data[i + 3] = 0;
+        
+        // Calculate "whiteness"
+        const min = Math.min(r, g, b);
+        const max = Math.max(r, g, b);
+        const isWhiteish = min > 220 && (max - min) < 30; // High brightness, low saturation
+        
+        if (isWhiteish) {
+          // Linear alpha based on brightness for smoother edges
+          const brightness = (r + g + b) / 3;
+          if (brightness > 250) {
+            data[i + 3] = 0;
+          } else if (brightness > 220) {
+            // Smooth transition
+            const alpha = Math.floor((255 * (255 - brightness)) / 35);
+            data[i + 3] = Math.min(data[i + 3], alpha);
+          }
         }
       }
+      
       ctx.putImageData(imageData, 0, 0);
       resolve(canvas.toDataURL('image/png'));
     };
@@ -466,7 +481,7 @@ export const removeWhiteBackground = (base64: string): Promise<string> => {
 };
 
 /**
- * Generates a multi-layered illustration by making separate calls for BG and Characters.
+ * Generates a multi-layered illustration by making separate calls for BG, Characters, and Props.
  */
 export const generateLayeredIllustration = async (
   stylePrompt: string,
@@ -477,18 +492,23 @@ export const generateLayeredIllustration = async (
   targetResolution: '1K' | '2K' | '4K' = '1K',
   targetText?: string
 ): Promise<{layers: any[], composite: string}> => {
-  console.log("Starting layered generation...");
+  console.log("Starting precision layered generation...");
   
   // 1. BACKGROUND LAYER
-  const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, PEOPLE, OR ANIMALS. Just the empty scene.`;
+  const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment.`;
   const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
 
   // 2. CHARACTER LAYER
-  const charPrompt = `CHARACTER LAYER: ${stylePrompt}. Render the characters ONLY. Place them on a SOLID PURE WHITE BACKGROUND. No environment details.`;
+  const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND.`;
   const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, charRefs, [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
   const charImage = await removeWhiteBackground(charRaw);
 
-  // 3. TEXT LAYER (If applicable)
+  // 3. FOREGROUND PROPS LAYER
+  const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND.`;
+  const propsRaw = await restyleIllustration(undefined, propsPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
+  const propsImage = await removeWhiteBackground(propsRaw);
+
+  // 4. TEXT LAYER (If applicable)
   let textLayer = null;
   if (targetText) {
     const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
@@ -498,6 +518,7 @@ export const generateLayeredIllustration = async (
 
   const layers: any[] = [
     { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
+    { id: 'props-' + Math.random(), name: 'Foreground Props', image: propsImage, isVisible: true, type: 'foreground' },
     { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' }
   ];
 
@@ -521,8 +542,14 @@ export const generateLayeredIllustration = async (
       img.onload = () => {
         loaded++;
         if (loaded === layers.length) {
-          layers.forEach((layer, idx) => {
-            ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+          // Draw in order: BG -> Props -> Chars -> Text
+          const order = ['background', 'foreground', 'character', 'text'];
+          order.forEach(type => {
+            const layer = layers.find(l => l.type === type);
+            if (layer && layer.isVisible) {
+              const idx = layers.indexOf(layer);
+              ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+            }
           });
           resolve(canvas.toDataURL('image/png'));
         }

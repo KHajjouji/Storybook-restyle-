@@ -711,8 +711,14 @@ const App: React.FC = () => {
                               img.onload = () => {
                                 loaded++;
                                 if (loaded === visibleLayers.length) {
-                                  visibleLayers.forEach((layer, idx) => {
-                                    ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+                                  // Draw in order: BG -> Props -> Chars -> Text
+                                  const order = ['background', 'foreground', 'character', 'text'];
+                                  order.forEach(type => {
+                                    const layer = visibleLayers.find(l => l.type === type);
+                                    if (layer) {
+                                      const idx = visibleLayers.indexOf(layer);
+                                      ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+                                    }
                                   });
                                   setPages(prev => prev.map(p2 => p2.id === pg.id ? { ...p2, processedImage: canvas.toDataURL('image/png'), layers: newLayers } : p2));
                                 }
