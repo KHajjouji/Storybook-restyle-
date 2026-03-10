@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer } from './types';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover } from './geminiService';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
@@ -82,7 +82,7 @@ const App: React.FC = () => {
   const [activeFixId, setActiveFixId] = useState<string | null>(null);
   const [fixInstruction, setFixInstruction] = useState("");
   const [selectedRefIds, setSelectedRefIds] = useState<Set<string>>(new Set());
-  const [isTransformingRatio, setIsTransformingRatio] = useState(false);
+  const [fixMode, setFixMode] = useState<'targeted' | 'outpaint' | 'separate-layers'>('targeted');
 
   // Character Retargeting State
   const [activeRetargetId, setActiveRetargetId] = useState<string | null>(null);
@@ -296,9 +296,11 @@ const App: React.FC = () => {
       let finalPrompt = fixInstruction;
       let finalRatio = targetAspectRatio;
       
-      if (isTransformingRatio) {
+      if (fixMode === 'outpaint') {
         finalRatio = p.isSpread ? "4:3" : "16:9";
         finalPrompt = `OUTPAINTING TASK: Expand the canvas to ${finalRatio}. Intelligently fill new space to the left and right while keeping the original composition in the center. Request: ${fixInstruction || 'No specific fix, just outpaint.'}`;
+      } else if (fixMode === 'separate-layers') {
+        finalPrompt = `LAYER SEPARATION TASK: Separate the illustration into distinct layers. ${fixInstruction}`;
       } else {
         finalPrompt = `FIX TASK: ${fixInstruction}. Narrative context: "${p.originalText || 'General Scene'}".`;
       }
@@ -308,12 +310,16 @@ const App: React.FC = () => {
       let res;
       let layers;
 
-      if (settings.layeredMode) {
-        const layeredRes = await refineLayeredIllustration(targetImg, finalPrompt, selectedRefs, isTransformingRatio ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
+      if (fixMode === 'separate-layers') {
+        const layeredRes = await separateIllustrationIntoLayers(targetImg, finalPrompt, selectedRefs, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
+        res = layeredRes.composite;
+        layers = layeredRes.layers;
+      } else if (settings.layeredMode) {
+        const layeredRes = await refineLayeredIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else {
-        res = await refineIllustration(targetImg, finalPrompt, selectedRefs, isTransformingRatio ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
+        res = await refineIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
       }
       
       setPages(curr => curr.map(pg => pg.id === targetId ? { 
@@ -321,12 +327,12 @@ const App: React.FC = () => {
         status: 'completed', 
         processedImage: res,
         layers: layers || pg.layers,
-        isSpread: isTransformingRatio ? !pg.isSpread : pg.isSpread 
+        isSpread: fixMode === 'outpaint' ? !pg.isSpread : pg.isSpread 
       } : pg));
       
       setFixInstruction("");
       setSelectedRefIds(new Set());
-      setIsTransformingRatio(false);
+      setFixMode('targeted');
     } catch (e) {
       console.error("Advanced fix error:", e);
       setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'error' } : pg));
@@ -826,13 +832,13 @@ const App: React.FC = () => {
                            }} className="flex-[3] py-7 bg-indigo-600 text-white rounded-[2rem] font-black text-xl uppercase tracking-widest flex items-center justify-center gap-4 hover:scale-105 transition-all shadow-2xl">
                               <UserCheck size={28} /> OPEN RETARGETER
                            </button>
-                           <button onClick={() => { setActiveFixId(p.id); setFixInstruction(""); setSelectedRefIds(new Set()); setIsTransformingRatio(false); }} className="flex-1 py-7 bg-slate-100 text-slate-400 rounded-[2rem] font-black text-xs uppercase tracking-widest flex items-center justify-center hover:bg-slate-200 transition-all">
+                           <button onClick={() => { setActiveFixId(p.id); setFixInstruction(""); setSelectedRefIds(new Set()); setFixMode('targeted'); }} className="flex-1 py-7 bg-slate-100 text-slate-400 rounded-[2rem] font-black text-xs uppercase tracking-widest flex items-center justify-center hover:bg-slate-200 transition-all">
                               FIX
                            </button>
                          </>
                        ) : (
                          <>
-                           <button onClick={() => { setActiveFixId(p.id); setFixInstruction(""); setSelectedRefIds(new Set()); setIsTransformingRatio(false); }} className="flex-[2] py-7 bg-indigo-50 text-indigo-600 rounded-[2rem] font-black text-xl uppercase tracking-widest flex items-center justify-center gap-4 hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
+                           <button onClick={() => { setActiveFixId(p.id); setFixInstruction(""); setSelectedRefIds(new Set()); setFixMode('targeted'); }} className="flex-[2] py-7 bg-indigo-50 text-indigo-600 rounded-[2rem] font-black text-xl uppercase tracking-widest flex items-center justify-center gap-4 hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
                               <Edit3 size={28} /> ADVANCED FIX
                            </button>
                            <button onClick={() => {
@@ -884,10 +890,22 @@ const App: React.FC = () => {
 
                           <div className="space-y-6">
                              <h4 className="text-xs font-black uppercase text-indigo-600 tracking-widest">2. Canvas Transformation</h4>
-                             <button onClick={() => setIsTransformingRatio(!isTransformingRatio)} className={`w-full py-8 rounded-[2rem] font-black text-2xl flex items-center justify-center gap-6 transition-all ${isTransformingRatio ? 'bg-indigo-600 text-white shadow-2xl' : 'bg-slate-100 text-slate-400'}`}>
-                                <Maximize size={32} /> {isTransformingRatio ? 'MODE: OUTPAINT TO SPREAD' : 'MODE: TARGETED DETAIL FIX'}
-                             </button>
-                             <p className="text-sm text-slate-400 font-medium px-4 text-center italic">Transform will expand the canvas ratio intelligently while keeping the core characters consistent.</p>
+                             <div className="flex flex-col gap-3">
+                               <button onClick={() => setFixMode('targeted')} className={`w-full py-4 rounded-[2rem] font-black text-xl flex items-center justify-center gap-4 transition-all ${fixMode === 'targeted' ? 'bg-indigo-600 text-white shadow-2xl' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                                  <Sparkles size={24} /> TARGETED DETAIL FIX
+                               </button>
+                               <button onClick={() => setFixMode('outpaint')} className={`w-full py-4 rounded-[2rem] font-black text-xl flex items-center justify-center gap-4 transition-all ${fixMode === 'outpaint' ? 'bg-indigo-600 text-white shadow-2xl' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                                  <Maximize size={24} /> OUTPAINT TO SPREAD
+                               </button>
+                               <button onClick={() => setFixMode('separate-layers')} className={`w-full py-4 rounded-[2rem] font-black text-xl flex items-center justify-center gap-4 transition-all ${fixMode === 'separate-layers' ? 'bg-indigo-600 text-white shadow-2xl' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                                  <Layers size={24} /> SEPARATE INTO LAYERS
+                               </button>
+                             </div>
+                             <p className="text-sm text-slate-400 font-medium px-4 text-center italic">
+                               {fixMode === 'outpaint' && "Transform will expand the canvas ratio intelligently while keeping the core characters consistent."}
+                               {fixMode === 'targeted' && "Fix specific details, characters, or styles in the current frame."}
+                               {fixMode === 'separate-layers' && "Extracts the image into distinct layers (Background, Characters, Text Bubbles, Text) for professional compositing."}
+                             </p>
                           </div>
 
                           <button onClick={handleApplyAdvancedFix} className="w-full py-10 bg-indigo-600 text-white rounded-[3rem] font-black text-3xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6">

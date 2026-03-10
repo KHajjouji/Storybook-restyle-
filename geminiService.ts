@@ -437,6 +437,80 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string>
 /**
  * Refines a layered illustration by making separate calls for BG, Characters, and Props.
  */
+export const separateIllustrationIntoLayers = async (
+  targetImageBase64: string,
+  refinementPrompt: string,
+  referenceImages: { base64: string, index: number }[] = [],
+  isSpread: boolean = false,
+  imageSize: '1K' | '2K' | '4K' = '1K',
+  masterBible: string = "",
+  projectContext: string = "",
+  charRefs: CharacterRef[] = [],
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  targetText?: string
+): Promise<{layers: any[], composite: string}> => {
+  console.log("Starting layer separation...");
+  
+  // 1. BACKGROUND LAYER
+  const bgPrompt = `LAYER SEPARATION: Extract the BACKGROUND ONLY from the provided image. Remove all characters, text bubbles, and text. Fill in the missing background details seamlessly. ${refinementPrompt}`;
+  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+
+  // 2. CHARACTER LAYER
+  const charPrompt = `LAYER SEPARATION: Extract the CHARACTERS ONLY from the provided image. Remove the background, text bubbles, and text. Place the characters on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
+  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio);
+  const charImage = await removeWhiteBackground(charRaw);
+
+  // 3. TEXT BUBBLE LAYER
+  const bubblePrompt = `LAYER SEPARATION: Extract the TEXT BUBBLES or SPEECH BALLOONS ONLY from the provided image. Remove the background, characters, and the text inside the bubbles (leave the bubbles blank). Place the empty bubbles on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
+  const bubbleRaw = await refineIllustration(targetImageBase64, bubblePrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+  const bubbleImage = await removeWhiteBackground(bubbleRaw);
+
+  // 4. TEXT LAYER
+  const textPrompt = `LAYER SEPARATION: Extract the TEXT ONLY from the provided image. Remove the background, characters, and text bubbles. Place the text on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
+  const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+  const textImage = await removeWhiteBackground(textRaw);
+
+  const layers: any[] = [
+    { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
+    { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' },
+    { id: 'bubble-' + Math.random(), name: 'Text Bubbles', image: bubbleImage, isVisible: true, type: 'foreground' },
+    { id: 'text-' + Math.random(), name: 'Text', image: textImage, isVisible: true, type: 'text' }
+  ];
+
+  // Create a composite for the main preview
+  const composite = await new Promise<string>((resolve) => {
+    const canvas = document.createElement('canvas');
+    const [w, h] = aspectRatio.split(':').map(Number);
+    const ratio = w / h;
+    canvas.width = 1024 * ratio;
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d')!;
+    
+    let loaded = 0;
+    const imgs = layers.map(l => {
+      const img = new Image();
+      img.onload = () => {
+        loaded++;
+        if (loaded === layers.length) {
+          const order = ['background', 'character', 'foreground', 'text'];
+          order.forEach(type => {
+            const layer = layers.find(l => l.type === type);
+            if (layer && layer.isVisible) {
+              const idx = layers.indexOf(layer);
+              ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+            }
+          });
+          resolve(canvas.toDataURL('image/png'));
+        }
+      };
+      img.src = l.image;
+      return img;
+    });
+  });
+
+  return { layers, composite };
+};
+
 export const refineLayeredIllustration = async (
   targetImageBase64: string,
   refinementPrompt: string,
