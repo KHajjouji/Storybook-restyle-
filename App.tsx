@@ -645,7 +645,7 @@ const App: React.FC = () => {
                       <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} />
                     </div>
                     {p.originalText && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 italic leading-relaxed">"{p.originalText}"</p>}
-                    {settings.layeredMode && p.layers && p.layers.length > 0 && (
+                    {p.layers && p.layers.length > 0 && (
                       <LayerManager 
                         layers={p.layers} 
                         onToggle={(layerId) => {
@@ -1050,7 +1050,7 @@ const App: React.FC = () => {
                              .catch(err => console.error(err))
                              .finally(() => setIsProcessing(false));
                          } else {
-                           generateBookCover(projectContext, selectedChars, settings.targetStyle)
+                           generateBookCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, targetAspectRatio)
                              .then(res => setCoverImage(res))
                              .catch(err => console.error(err))
                              .finally(() => setIsProcessing(false)); 
@@ -1062,12 +1062,12 @@ const App: React.FC = () => {
                      </button>
                   </div>
                </div>
-               <div className="w-full lg:w-2/5 aspect-[3/4] bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative flex flex-col items-center justify-center group">
+               <div className={`w-full lg:w-2/5 bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative flex flex-col items-center justify-center group ${targetAspectRatio === '16:9' ? 'aspect-video' : targetAspectRatio === '1:1' ? 'aspect-square' : targetAspectRatio === '9:16' ? 'aspect-[9/16]' : 'aspect-[4/3]'}`}>
                   {coverImage ? (
                     <div className="relative w-full h-full">
                        <img src={coverImage} className="w-full h-full object-cover" />
                        <SpreadGuide isSpread={false} show={settings.showSafeGuides} format={settings.exportFormat} />
-                       {settings.layeredMode && (
+                       {coverLayers && coverLayers.length > 0 && (
                          <div className="absolute bottom-0 inset-x-0 bg-white/90 backdrop-blur-xl p-6 border-t border-slate-100">
                             <LayerManager 
                               layers={coverLayers} 

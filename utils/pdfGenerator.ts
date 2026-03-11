@@ -60,17 +60,20 @@ export const generateBookPDF = async (
         pdf.addPage([spreadWidth, fullHeight], 'landscape');
       }
       
-      if (layeredMode && page.layers) {
+      if ((layeredMode || (page.layers && page.layers.length > 0)) && page.layers) {
         // Draw layers separately
         const bg = page.layers.find(l => l.type === 'background' && l.isVisible);
         const chars = page.layers.find(l => l.type === 'character' && l.isVisible);
         const textLayer = page.layers.find(l => l.type === 'text' && l.isVisible);
+        const foreground = page.layers.find(l => l.type === 'foreground' && l.isVisible);
 
         if (bg) pdf.addImage(bg.image, 'PNG', 0, 0, spreadWidth, fullHeight);
         if (chars) pdf.addImage(chars.image, 'PNG', 0, 0, spreadWidth, fullHeight);
+        if (foreground) pdf.addImage(foreground.image, 'PNG', 0, 0, spreadWidth, fullHeight);
+        if (textLayer) pdf.addImage(textLayer.image, 'PNG', 0, 0, spreadWidth, fullHeight);
         
         // Active Text (Dynamic)
-        if (page.originalText) {
+        if (page.originalText && !textLayer) {
           pdf.setFontSize(18);
           pdf.setTextColor(0, 0, 0);
           
@@ -90,15 +93,19 @@ export const generateBookPDF = async (
     } else {
       if (currentPageNum > 1) pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? 'landscape' : 'portrait');
       
-      if (layeredMode && page.layers) {
+      if ((layeredMode || (page.layers && page.layers.length > 0)) && page.layers) {
         const bg = page.layers.find(l => l.type === 'background' && l.isVisible);
         const chars = page.layers.find(l => l.type === 'character' && l.isVisible);
+        const textLayer = page.layers.find(l => l.type === 'text' && l.isVisible);
+        const foreground = page.layers.find(l => l.type === 'foreground' && l.isVisible);
         
         if (bg) pdf.addImage(bg.image, 'PNG', 0, 0, singleFullWidth, fullHeight);
         if (chars) pdf.addImage(chars.image, 'PNG', 0, 0, singleFullWidth, fullHeight);
+        if (foreground) pdf.addImage(foreground.image, 'PNG', 0, 0, singleFullWidth, fullHeight);
+        if (textLayer) pdf.addImage(textLayer.image, 'PNG', 0, 0, singleFullWidth, fullHeight);
 
         // Active Text (Dynamic)
-        if (page.originalText) {
+        if (page.originalText && !textLayer) {
           pdf.setFontSize(16);
           pdf.setTextColor(0, 0, 0);
           

@@ -116,7 +116,10 @@ export const parseActivityPack = async (rawText: string): Promise<{
 export const generateBookCover = async (
   projectContext: string,
   charRefs: CharacterRef[] = [],
-  stylePrompt: string
+  stylePrompt: string,
+  masterBible: string = "",
+  targetResolution: '1K' | '2K' | '4K' = '1K',
+  targetAspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16"
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
@@ -128,11 +131,14 @@ export const generateBookCover = async (
   ARTISTIC STYLE:
   ${stylePrompt}
   
+  MASTER BIBLE / GLOBAL RULES:
+  ${masterBible}
+  
   RULES:
   1. Generate a SINGLE professional book cover illustration.
   2. NO TITLE TEXT. NO LOGOS. Pure illustration only.
   3. Include the consistent characters provided in the reference images.
-  4. Use a cinematic, high-end children's book layout (3:4 aspect ratio).
+  4. Use a cinematic, high-end children's book layout.
   5. Composition: Must feel like a series "Master Cover" that makes people eager to buy.`;
 
   const parts: any[] = [{ text: instruction }];
@@ -148,9 +154,9 @@ export const generateBookCover = async (
   });
 
   const response: GenerateContentResponse = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-3.1-flash-image-preview',
     contents: { parts },
-    config: { imageConfig: { aspectRatio: "3:4", imageSize: "2K" } }
+    config: { imageConfig: { aspectRatio: targetAspectRatio, imageSize: targetResolution } }
   });
 
   if (response.candidates?.[0]?.content?.parts) {
@@ -174,7 +180,7 @@ export const identifyAndDesignCharacters = async (charDescription: string, style
   - Solid white background.`;
 
   const imgResponse: GenerateContentResponse = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-3.1-flash-image-preview',
     contents: { parts: [{ text: instruction }] },
     config: { imageConfig: { aspectRatio: '1:1', imageSize: '1K' } }
   });
@@ -215,7 +221,7 @@ export const restyleIllustration = async (
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const model = usePro ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+  const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-2.5-flash-image';
   
   const layoutRules = isSpread ? `
   LAYOUT RULES FOR 2-PAGE SPREAD:
@@ -329,7 +335,7 @@ export const refineIllustration = async (
   });
 
   const response: GenerateContentResponse = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-3.1-flash-image-preview',
     contents: { parts },
     config: { imageConfig: { aspectRatio, imageSize } }
   });
@@ -356,7 +362,7 @@ export const upscaleIllustration = async (
   const data = currentImageBase64.includes(',') ? currentImageBase64.split(',')[1] : currentImageBase64;
   
   const response: GenerateContentResponse = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-3.1-flash-image-preview',
     contents: {
       parts: [
         { inlineData: { data, mimeType: 'image/png' } },
@@ -845,7 +851,7 @@ export const retargetCharacters = async (
   ];
 
   const response: GenerateContentResponse = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-3.1-flash-image-preview',
     contents: { parts },
     config: { imageConfig: { aspectRatio, imageSize } }
   });
