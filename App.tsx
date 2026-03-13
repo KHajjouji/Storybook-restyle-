@@ -389,7 +389,7 @@ const App: React.FC = () => {
           instruction: retargetInstruction 
         },
         targetResolution,
-        targetAspectRatio
+        p.isSpread ? (targetAspectRatio === '9:16' ? '16:9' : targetAspectRatio === '4:3' ? '16:9' : targetAspectRatio) : targetAspectRatio
       );
 
       setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'completed', processedImage: res } : pg));

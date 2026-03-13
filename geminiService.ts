@@ -824,7 +824,7 @@ export const retargetCharacters = async (
   const mappingDescription = retargeting.sourceHotspots.map(sh => {
     const th = retargeting.targetHotspots.find(h => h.label === sh.label);
     if (!th) return "";
-    return `Character at Source Hotspot ${sh.label} (x:${sh.x}%, y:${sh.y}%) should be mapped to Target Hotspot ${th.label} (x:${th.x}%, y:${th.y}%).`;
+    return `Character at Source Hotspot ${sh.label} (x:${Math.round(sh.x)}%, y:${Math.round(sh.y)}%) should be mapped to Target Hotspot ${th.label} (x:${Math.round(th.x)}%, y:${Math.round(th.y)}%).`;
   }).filter(Boolean).join("\n");
 
   const instruction = `CHARACTER RETARGETING TASK:
@@ -843,11 +843,10 @@ export const retargetCharacters = async (
   3. Seamlessly blend the new character features into the target scene.`;
 
   const parts: any[] = [
+    { inlineData: { data: targetData, mimeType: 'image/png' } },
     { text: instruction },
     { text: "--- SOURCE REFERENCE IMAGE ---" },
-    { inlineData: { data: sourceData, mimeType: 'image/png' } },
-    { text: "--- TARGET IMAGE (TO BE MODIFIED) ---" },
-    { inlineData: { data: targetData, mimeType: 'image/png' } }
+    { inlineData: { data: sourceData, mimeType: 'image/png' } }
   ];
 
   const response: GenerateContentResponse = await ai.models.generateContent({
