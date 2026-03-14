@@ -656,22 +656,23 @@ export const generateLayeredIllustration = async (
   projectContext: string = "",
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   targetResolution: '1K' | '2K' | '4K' = '1K',
-  targetText?: string
+  targetText?: string,
+  isSpread: boolean = false
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
   
   // 1. BACKGROUND LAYER
   const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment.`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio);
 
   // 2. CHARACTER LAYER
   const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND.`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, charRefs, [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
+  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
   const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND.`;
-  const propsRaw = await restyleIllustration(undefined, propsPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
+  const propsRaw = await restyleIllustration(undefined, propsPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER (If applicable)

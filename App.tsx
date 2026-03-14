@@ -246,6 +246,7 @@ const App: React.FC = () => {
       let result;
       let layers;
       const targetText = settings.embedTextInImage ? p.originalText : undefined;
+      const finalAspectRatio = p.isSpread ? (targetAspectRatio === '9:16' ? '16:9' : targetAspectRatio === '4:3' ? '16:9' : targetAspectRatio) : targetAspectRatio;
 
       if (settings.layeredMode && !p.originalImage) {
         const layeredResult = await generateLayeredIllustration(
@@ -253,19 +254,22 @@ const App: React.FC = () => {
           settings.characterReferences,
           settings.masterBible,
           projectContext,
-          targetAspectRatio,
+          finalAspectRatio,
           targetResolution,
-          targetText
+          targetText,
+          p.isSpread
         );
         result = layeredResult.composite;
         layers = layeredResult.layers;
+      } else if (settings.mode === 'upscale' && p.originalImage) {
+        result = await upscaleIllustration(p.originalImage, narrativeContext, p.isSpread, targetResolution, finalAspectRatio);
       } else if (p.originalImage) {
         const others = pages.filter(pg => pg.id !== pageId && pg.processedImage).slice(0, 3).map(pg => ({ base64: pg.processedImage!, index: pages.indexOf(pg) + 1 }));
-        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, targetAspectRatio, targetText);
+        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText);
       } else {
         // For activities, use the specific spread prompt as the primary instruction
         const promptToUse = p.overrideStylePrompt || narrativeContext;
-        result = await restyleIllustration(undefined, promptToUse, undefined, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, targetAspectRatio);
+        result = await restyleIllustration(undefined, promptToUse, undefined, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
     } catch (e) { 
@@ -544,7 +548,18 @@ const App: React.FC = () => {
 
                   {/* MASTER PROMPT FIELD */}
                   <div className="space-y-3">
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Target Style / Scene Prompt</h3>
+                    <div className="flex justify-between items-center px-4">
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">Target Style / Scene Prompt</h3>
+                      <div className="flex gap-2">
+                        <button onClick={() => setSettings({...settings, targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines'})} className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">Soft Painterly</button>
+                        <button onClick={() => {
+                          setSettings({...settings, targetStyle: 'Flat vector illustration, SVG style, solid colors, clean crisp edges, no gradients, no shading, minimalist, 2D flat design, perfect for auto-tracing'});
+                          setTargetResolution('4K'); // Ensure high resolution for vector tracing
+                        }} className="text-[10px] font-black text-white bg-emerald-500 px-3 py-1.5 rounded-lg hover:bg-emerald-600 transition-colors shadow-sm flex items-center gap-1">
+                          <Sparkles size={12} /> Flat Vector (Auto-Trace Ready)
+                        </button>
+                      </div>
+                    </div>
                     <textarea 
                       className="w-full h-40 bg-white border-2 border-indigo-100 rounded-[2.5rem] p-8 text-sm font-bold outline-none shadow-sm focus:border-indigo-600 transition-all leading-relaxed"
                       value={settings.targetStyle}
