@@ -120,6 +120,35 @@ const App: React.FC = () => {
     setCurrentStep('restyle-editor');
   };
 
+  const retargetSourceInputRef = useRef<HTMLInputElement>(null);
+
+  const [settings, setSettings] = useState<AppSettings>({
+    mode: 'restyle',
+    targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines',
+    targetLanguage: 'NONE_CLEAN_BG',
+    exportFormat: 'KDP_SQUARE',
+    spreadExportMode: 'WIDE_SPREAD',
+    useProModel: true,
+    embedTextInImage: false,
+    layeredMode: false,
+    showSafeGuides: true,
+    characterReferences: [],
+    estimatedPageCount: 32,
+    masterBible: GLOBAL_STYLE_LOCK
+  });
+  
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
+  const restyleInputRef = useRef<HTMLInputElement>(null);
+  const charImageInputRef = useRef<HTMLInputElement>(null);
+  const [activeCharId, setActiveCharId] = useState<string | null>(null);
+
+  const stats = useMemo(() => {
+    const total = pages.length;
+    const completed = pages.filter(p => p.status === 'completed').length;
+    return { total, completed, progress: total === 0 ? 0 : Math.round((completed / total) * 100) };
+  }, [pages]);
+
   if (!isAuthReady) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -149,34 +178,6 @@ const App: React.FC = () => {
       </div>
     );
   }
-  const retargetSourceInputRef = useRef<HTMLInputElement>(null);
-
-  const [settings, setSettings] = useState<AppSettings>({
-    mode: 'restyle',
-    targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines',
-    targetLanguage: 'NONE_CLEAN_BG',
-    exportFormat: 'KDP_SQUARE',
-    spreadExportMode: 'WIDE_SPREAD',
-    useProModel: true,
-    embedTextInImage: false,
-    layeredMode: false,
-    showSafeGuides: true,
-    characterReferences: [],
-    estimatedPageCount: 32,
-    masterBible: GLOBAL_STYLE_LOCK
-  });
-  
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isParsing, setIsParsing] = useState(false);
-  const restyleInputRef = useRef<HTMLInputElement>(null);
-  const charImageInputRef = useRef<HTMLInputElement>(null);
-  const [activeCharId, setActiveCharId] = useState<string | null>(null);
-
-  const stats = useMemo(() => {
-    const total = pages.length;
-    const completed = pages.filter(p => p.status === 'completed').length;
-    return { total, completed, progress: total === 0 ? 0 : Math.round((completed / total) * 100) };
-  }, [pages]);
 
   // Persistence
   const handleSaveProject = async () => {
