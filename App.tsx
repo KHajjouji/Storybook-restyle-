@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer } from './types';
+import { auth, signInWithGoogle, logout } from './firebase';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers } from './geminiService';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
@@ -61,6 +63,8 @@ const LayerManager = ({ layers, onToggle }: { layers?: any[], onToggle: (id: str
 };
 
 const App: React.FC = () => {
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [currentStep, setCurrentStep] = useState<Step>('landing');
   const [projectId, setProjectId] = useState<string>(Math.random().toString(36).substring(7));
   const [projectName, setProjectName] = useState<string>("Untitled Project");
@@ -89,6 +93,62 @@ const App: React.FC = () => {
   const [retargetSourceImage, setRetargetSourceImage] = useState<string | null>(null);
   const [retargetInstruction, setRetargetInstruction] = useState("");
   const [activeHotspotLabel, setActiveHotspotLabel] = useState(1);
+
+  const [showProjectsModal, setShowProjectsModal] = useState(false);
+  const [savedProjects, setSavedProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleOpenProjects = async () => {
+    const projs = await persistenceService.getAllProjects();
+    setSavedProjects(projs);
+    setShowProjectsModal(true);
+  };
+
+  const handleLoadProject = (proj: Project) => {
+    setProjectId(proj.id);
+    setProjectName(proj.name);
+    setSettings(proj.settings);
+    setPages(proj.pages);
+    setShowProjectsModal(false);
+    setCurrentStep('restyle-editor');
+  };
+
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="animate-spin text-indigo-600" size={48} />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-md w-full text-center space-y-8">
+          <div className="w-24 h-24 bg-indigo-600 rounded-full mx-auto flex items-center justify-center text-white shadow-xl">
+            <Lock size={40} />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black text-slate-900 mb-4">StoryFlow Pro</h1>
+            <p className="text-slate-500 font-medium">Please sign in to access your projects and generate illustrations.</p>
+          </div>
+          <button 
+            onClick={signInWithGoogle}
+            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-3 shadow-lg"
+          >
+            <LogIn size={24} /> Sign in with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
   const retargetSourceInputRef = useRef<HTMLInputElement>(null);
 
   const [settings, setSettings] = useState<AppSettings>({
@@ -1318,14 +1378,56 @@ const App: React.FC = () => {
            <div className="bg-slate-50 border border-slate-100 rounded-[2rem] px-12 py-5 flex items-center gap-12 shadow-inner">
               <input className="bg-transparent border-none outline-none font-black text-slate-800 text-2xl w-96" value={projectName} onChange={e => setProjectName(e.target.value)} />
               <div className="flex gap-4">
-                 <button onClick={handleSaveProject} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform"><Save size={28} /></button>
-                 <button onClick={handleExportProjectFile} className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform"><FileDown size={28} /></button>
+                 <button onClick={handleSaveProject} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Save Project"><Save size={28} /></button>
+                 <button onClick={handleOpenProjects} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Load Project"><FolderOpen size={28} /></button>
+                 <button onClick={handleExportProjectFile} className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Export Project"><FileDown size={28} /></button>
               </div>
            </div>
            <button onClick={() => setCurrentStep('characters')} className="px-10 py-5 bg-indigo-50 text-indigo-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"><UserCheck size={24} /> SERIES CAST</button>
            <button onClick={() => setShowBibleEditor(!showBibleEditor)} className="p-5 bg-slate-900 text-white rounded-[2rem] shadow-2xl hover:scale-110 transition-all"><Book size={32} /></button>
+           <button onClick={logout} className="p-5 bg-rose-50 text-rose-600 rounded-[2rem] shadow-sm hover:bg-rose-600 hover:text-white transition-all" title="Sign Out"><LogOut size={32} /></button>
         </div>
       </header>
+      
+      {showProjectsModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-16">
+           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setShowProjectsModal(false)} />
+           <div className="bg-white w-full max-w-4xl rounded-[5rem] p-20 shadow-2xl relative z-10 space-y-12 animate-in zoom-in duration-300 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center">
+                 <h3 className="text-5xl font-black tracking-tighter">Your Projects</h3>
+                 <button onClick={() => setShowProjectsModal(false)} className="text-slate-300 hover:text-slate-900 transition-colors"><X size={40} /></button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {savedProjects.length === 0 ? (
+                  <p className="text-slate-500 text-xl font-medium col-span-full text-center py-12">No saved projects found.</p>
+                ) : (
+                  savedProjects.map(proj => (
+                    <div key={proj.id} className="bg-slate-50 rounded-[3rem] p-8 flex flex-col gap-6 shadow-sm border border-slate-100 hover:border-indigo-200 transition-colors group">
+                      {proj.thumbnail ? (
+                        <img src={proj.thumbnail} className="w-full h-48 object-cover rounded-[2rem] shadow-inner" />
+                      ) : (
+                        <div className="w-full h-48 bg-slate-200 rounded-[2rem] flex items-center justify-center text-slate-400 shadow-inner">
+                          <ImageIcon size={48} />
+                        </div>
+                      )}
+                      <div>
+                        <h4 className="text-2xl font-black text-slate-900 truncate">{proj.name}</h4>
+                        <p className="text-slate-500 font-medium text-sm mt-2">Last modified: {new Date(proj.lastModified).toLocaleDateString()}</p>
+                      </div>
+                      <div className="flex gap-4 mt-auto">
+                        <button onClick={() => handleLoadProject(proj)} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm hover:bg-indigo-700 transition-colors">LOAD</button>
+                        <button onClick={async () => {
+                          await persistenceService.deleteProject(proj.id);
+                          setSavedProjects(savedProjects.filter(p => p.id !== proj.id));
+                        }} className="p-4 bg-rose-100 text-rose-600 rounded-2xl hover:bg-rose-600 hover:text-white transition-colors"><X size={24} /></button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+           </div>
+        </div>
+      )}
       
       {showBibleEditor && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-16">

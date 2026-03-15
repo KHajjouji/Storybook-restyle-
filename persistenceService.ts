@@ -1,108 +1,98 @@
 import { Project } from "./types";
-import { supabaseService, supabase, isSupabaseConfigured } from "./supabaseService";
+import { db, auth } from "./firebase";
+import { collection, doc, setDoc, getDocs, deleteDoc, query, where } from "firebase/firestore";
 
-const DB_NAME = 'StoryFlowDB';
-const STORE_NAME = 'projects';
-const DB_VERSION = 1;
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
 
-const getDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: any;
+}
 
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-      }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-};
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 export const persistenceService = {
   async saveProject(project: Project): Promise<void> {
-    // 1. Save to Local IndexedDB (Always)
-    const db = await getDB();
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
-      const projectToSave = { ...project, lastModified: Date.now() };
-      const request = store.put(projectToSave);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-
-    // 2. Save to Cloud if user is logged in and Supabase is configured
-    if (isSupabaseConfigured && supabase) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        try {
-          await supabaseService.saveProject(project, user.id);
-        } catch (e) {
-          console.warn("Cloud sync failed, project saved locally only:", e);
-        }
-      }
+    if (!auth.currentUser) return;
+    const path = `projects/${project.id}`;
+    try {
+      const projectToSave = {
+        id: project.id,
+        uid: auth.currentUser.uid,
+        name: project.name,
+        lastModified: Date.now(),
+        settings: JSON.stringify(project.settings),
+        pages: JSON.stringify(project.pages),
+        thumbnail: project.thumbnail || null
+      };
+      await setDoc(doc(db, 'projects', project.id), projectToSave);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
     }
   },
 
   async getAllProjects(): Promise<Project[]> {
-    // 1. Get from Local IndexedDB
-    const db = await getDB();
-    const localProjects = await new Promise<Project[]>((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.getAll();
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
-    });
-
-    // 2. Get from Cloud if user is logged in and Supabase is configured
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const cloudProjects = await supabaseService.getProjects(user.id);
-          // Merge - cloud projects take precedence for same ID if newer
-          const merged = [...localProjects];
-          cloudProjects.forEach(cp => {
-            const index = merged.findIndex(lp => lp.id === cp.id);
-            if (index !== -1) {
-              if (cp.lastModified > merged[index].lastModified) {
-                merged[index] = cp;
-              }
-            } else {
-              merged.push(cp);
-            }
-          });
-          return merged.sort((a, b) => b.lastModified - a.lastModified);
-        }
-      } catch (e) {
-        console.warn("Could not fetch cloud projects, showing local only:", e);
-      }
+    if (!auth.currentUser) return [];
+    const path = 'projects';
+    try {
+      const q = query(collection(db, path), where("uid", "==", auth.currentUser.uid));
+      const querySnapshot = await getDocs(q);
+      const projects: Project[] = [];
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        projects.push({
+          id: data.id,
+          name: data.name,
+          lastModified: data.lastModified,
+          settings: JSON.parse(data.settings),
+          pages: JSON.parse(data.pages),
+          thumbnail: data.thumbnail
+        });
+      });
+      return projects.sort((a, b) => b.lastModified - a.lastModified);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, path);
+      return [];
     }
-
-    return localProjects.sort((a, b) => b.lastModified - a.lastModified);
   },
 
   async deleteProject(id: string): Promise<void> {
-    // Delete local
-    const db = await getDB();
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.delete(id);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-
-    // Delete cloud if configured
-    if (isSupabaseConfigured && supabase) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabaseService.deleteProject(id);
-      }
+    if (!auth.currentUser) return;
+    const path = `projects/${id}`;
+    try {
+      await deleteDoc(doc(db, 'projects', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
     }
   }
 };
