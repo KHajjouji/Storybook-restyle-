@@ -400,16 +400,31 @@ export const analyzeStyleFromImage = async (imageBase64: string): Promise<string
   return response.text?.trim() || "";
 };
 
-export const planStoryScenes = async (fullScript: string, characters: CharacterRef[]): Promise<{pages: {text: string, isSpread: boolean, mappedCharacterNames: string[]}[]}> => {
+export const planStoryScenes = async (fullScript: string, characters: CharacterRef[], enableActivityDesigner: boolean = false): Promise<{
+  globalInstructions?: string,
+  pages: {text: string, isSpread: boolean, mappedCharacterNames: string[], fullPrompt?: string}[]
+}> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const prompt = enableActivityDesigner 
+    ? `Break this script into distinct pages/spreads. The script may contain both narrative story scenes and design activities (like flashcards, coloring pages, etc.). 
+    Extract any "GLOBAL" style or layout instructions into 'globalInstructions'. 
+    For each page or spread:
+    - Provide a visual description in 'text'.
+    - Set 'isSpread' to true if it spans 2 pages, false if 1 page.
+    - List character names present in 'mappedCharacterNames'.
+    - If it's an activity or requires specific layout logic, provide a 'fullPrompt' with the detailed layout and style instructions.
+    Script: ${fullScript}`
+    : `Break this script into distinct pages/spreads. For each, provide a visual description (text), whether it's a 2-page spread (isSpread), and an array of character names present (mappedCharacterNames). Script: ${fullScript}`;
+
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Plan storyboards. Script: ${fullScript}`,
+    contents: prompt,
     config: {
       responseMimeType: 'application/json',
       responseSchema: {
         type: Type.OBJECT,
         properties: {
+          globalInstructions: { type: Type.STRING },
           pages: {
             type: Type.ARRAY,
             items: {
@@ -417,7 +432,8 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
               properties: {
                 text: { type: Type.STRING },
                 isSpread: { type: Type.BOOLEAN },
-                mappedCharacterNames: { type: Type.ARRAY, items: { type: Type.STRING } }
+                mappedCharacterNames: { type: Type.ARRAY, items: { type: Type.STRING } },
+                fullPrompt: { type: Type.STRING }
               },
               required: ['text', 'isSpread', 'mappedCharacterNames']
             }

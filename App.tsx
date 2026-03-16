@@ -65,11 +65,13 @@ const LayerManager = ({ layers, onToggle }: { layers?: any[], onToggle: (id: str
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<Step>('landing');
   const [projectId, setProjectId] = useState<string>(Math.random().toString(36).substring(7));
   const [projectName, setProjectName] = useState<string>("Untitled Project");
   const [pages, setPages] = useState<BookPage[]>([]);
   const [fullScript, setFullScript] = useState("");
+  const [enableActivityDesigner, setEnableActivityDesigner] = useState(false);
   const [activityScript, setActivityScript] = useState("");
   const [projectContext, setProjectContext] = useState("");
   const [coverImage, setCoverImage] = useState<string | null>(null);
@@ -98,8 +100,14 @@ const App: React.FC = () => {
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser && currentUser.email !== 'hypocritic2002@gmail.com') {
+        await logout();
+        setUser(null);
+        setAuthError("Access denied. Only hypocritic2002@gmail.com is authorized to use this application.");
+      } else {
+        setUser(currentUser);
+      }
       setIsAuthReady(true);
     });
     return () => unsubscribe();
@@ -157,6 +165,20 @@ const App: React.FC = () => {
     );
   }
 
+  const handleSignIn = async () => {
+    try {
+      setAuthError(null);
+      const loggedInUser = await signInWithGoogle();
+      if (loggedInUser && loggedInUser.email !== 'hypocritic2002@gmail.com') {
+        await logout();
+        setAuthError("Access denied. Only hypocritic2002@gmail.com is authorized to use this application.");
+      }
+    } catch (error: any) {
+      console.error("Sign in error:", error);
+      setAuthError(error.message || "Failed to sign in. Please try again.");
+    }
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
@@ -168,8 +190,13 @@ const App: React.FC = () => {
             <h1 className="text-3xl font-black text-slate-900 mb-4">StoryFlow Pro</h1>
             <p className="text-slate-500 font-medium">Please sign in to access your projects and generate illustrations.</p>
           </div>
+          {authError && (
+            <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm font-medium border border-red-100">
+              {authError}
+            </div>
+          )}
           <button 
-            onClick={signInWithGoogle}
+            onClick={handleSignIn}
             className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-3 shadow-lg"
           >
             <LogIn size={24} /> Sign in with Google
@@ -214,14 +241,20 @@ const App: React.FC = () => {
     if (!fullScript) return;
     setIsParsing(true);
     try {
-      const result = await planStoryScenes(fullScript, settings.characterReferences);
+      const result = await planStoryScenes(fullScript, settings.characterReferences, enableActivityDesigner);
+      if (result.globalInstructions) {
+        setSettings(prev => ({ 
+          ...prev, 
+          masterBible: `${result.globalInstructions}\n\n${prev.masterBible}`
+        }));
+      }
       setPages(result.pages.map(p => ({
         id: Math.random().toString(36).substring(7),
         originalText: p.text,
         status: 'idle',
         assignments: p.mappedCharacterNames.map(name => ({ refId: name, description: "" })),
         isSpread: p.isSpread,
-        overrideStylePrompt: p.text
+        overrideStylePrompt: p.fullPrompt || p.text
       })));
       setCurrentStep('characters');
     } catch (e) { alert("Script analysis failed."); }
@@ -770,6 +803,20 @@ const App: React.FC = () => {
           <div className="max-w-4xl mx-auto py-20 px-8 space-y-12 animate-in slide-in-from-bottom duration-500">
             <div className="text-center space-y-4"><h2 className="text-6xl font-black">Narrative Analysis</h2><p className="text-slate-500 text-xl font-medium">Parse your script into production scenes.</p></div>
             <textarea className="w-full h-[500px] bg-white border-2 border-slate-100 rounded-[3rem] p-16 text-2xl font-medium outline-none shadow-inner leading-relaxed" placeholder="Paste full script here..." value={fullScript} onChange={e => setFullScript(e.target.value)} />
+            
+            <div className="flex items-center gap-4 px-4">
+              <button 
+                onClick={() => setEnableActivityDesigner(!enableActivityDesigner)}
+                className={`w-14 h-8 rounded-full transition-colors relative ${enableActivityDesigner ? 'bg-indigo-600' : 'bg-slate-200'}`}
+              >
+                <div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform ${enableActivityDesigner ? 'translate-x-6' : 'translate-x-0'}`} />
+              </button>
+              <div>
+                <h4 className="font-black text-slate-900">Enable Activity Designer</h4>
+                <p className="text-sm text-slate-500 font-medium">Extract global instructions and detailed prompts for activity pages.</p>
+              </div>
+            </div>
+
             <div className="flex gap-8">
                <button onClick={() => setCurrentStep('landing')} className="flex-1 py-8 bg-slate-100 text-slate-500 rounded-[2.5rem] font-black text-2xl">CANCEL</button>
                <button disabled={isParsing || !fullScript} onClick={handlePlanStory} className="flex-[2] py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-3xl shadow-2xl flex items-center justify-center gap-6 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50">
@@ -808,7 +855,18 @@ const App: React.FC = () => {
             </div>
             <input type="file" ref={charImageInputRef} className="hidden" accept="image/*" onChange={handleCharImageUpload} />
             <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-3xl p-16 z-50 flex justify-center border-t border-slate-100 shadow-2xl">
-               <button onClick={() => setCurrentStep(settings.mode === 'activity-builder' ? 'generate' : 'restyle-editor')} className="bg-indigo-600 text-white px-40 py-10 rounded-[3.5rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-8">CONFIRM CAST <ChevronRight size={48} /></button>
+               <button 
+                 onClick={() => {
+                   if (settings.mode === 'activity-builder') {
+                     processProductionBatch();
+                   } else {
+                     setCurrentStep('restyle-editor');
+                   }
+                 }} 
+                 className="bg-indigo-600 text-white px-40 py-10 rounded-[3.5rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-8"
+               >
+                 CONFIRM CAST <ChevronRight size={48} />
+               </button>
             </div>
           </div>
         );
