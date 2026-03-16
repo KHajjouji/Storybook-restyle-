@@ -3,18 +3,20 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid, TrendingUp
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer } from './types';
 import { auth, signInWithGoogle, logout } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers } from './geminiService';
+import { searchBookNiches } from './nicheService';
+import Markdown from 'react-markdown';
 import { generateBookPDF } from './utils/pdfGenerator';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 
-type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor';
+type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor' | 'niche-research';
 
 const SpreadGuide = ({ isSpread, show, format }: { isSpread: boolean, show: boolean, format: ExportFormat }) => {
   if (!show) return null;
@@ -77,6 +79,11 @@ const App: React.FC = () => {
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [coverLayers, setCoverLayers] = useState<BookLayer[]>([]);
   const [selectedCoverCharIds, setSelectedCoverCharIds] = useState<Set<string>>(new Set());
+  
+  // Niche Research State
+  const [nicheTopic, setNicheTopic] = useState("");
+  const [nicheResult, setNicheResult] = useState("");
+  const [isSearchingNiche, setIsSearchingNiche] = useState(false);
   
   // Production Config
   const [globalFixPrompt, setGlobalFixPrompt] = useState("Keep character facial features and clothing consistent with reference images.");
@@ -237,6 +244,19 @@ const App: React.FC = () => {
   };
 
   // Logic Handlers
+  const handleNicheSearch = async () => {
+    if (!nicheTopic) return;
+    setIsSearchingNiche(true);
+    try {
+      const result = await searchBookNiches(nicheTopic);
+      setNicheResult(result);
+    } catch (e) {
+      alert("Niche research failed.");
+    } finally {
+      setIsSearchingNiche(false);
+    }
+  };
+
   const handlePlanStory = async () => {
     if (!fullScript) return;
     setIsParsing(true);
@@ -594,6 +614,59 @@ const App: React.FC = () => {
                 <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform"><Ruler size={32} /></div>
                 <h4 className="text-2xl font-black mb-3 text-slate-900">Print Layout</h4>
                 <p className="text-slate-400 font-medium">Automate Bleed and Gutter for KDP and Lulu publishing.</p>
+              </button>
+              <button onClick={() => setCurrentStep('niche-research')} className="group p-10 bg-white border-2 border-rose-100 rounded-[4rem] text-left hover:border-rose-600 hover:shadow-2xl transition-all relative overflow-hidden">
+                <div className="w-16 h-16 bg-rose-50 rounded-3xl flex items-center justify-center mb-8 text-rose-600 group-hover:scale-110 transition-transform"><TrendingUp size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">Niche Research</h4>
+                <p className="text-slate-400 font-medium">Analyze market demand, competition, and profitability for book ideas.</p>
+              </button>
+            </div>
+          </div>
+        );
+
+      case 'niche-research':
+        return (
+          <div className="max-w-5xl mx-auto py-20 px-8 space-y-12 animate-in slide-in-from-bottom duration-500">
+            <div className="text-center space-y-4">
+              <h2 className="text-6xl font-black text-slate-900">Niche Research</h2>
+              <p className="text-slate-500 text-xl font-medium">Discover high-demand, low-competition book ideas.</p>
+            </div>
+            
+            <div className="bg-white border-2 border-slate-100 rounded-[3rem] p-12 shadow-2xl space-y-8">
+              <div className="space-y-4">
+                <h4 className="text-sm font-black uppercase text-rose-600 tracking-widest">Target Topic or Keyword</h4>
+                <div className="flex gap-4">
+                  <input 
+                    type="text"
+                    className="flex-1 bg-slate-50 border-none rounded-[2rem] px-8 py-6 text-xl font-bold outline-none focus:ring-4 focus:ring-rose-100 transition-all"
+                    placeholder="e.g. 'Dinosaurs', 'Toddler Activity Books', 'Bedtime Stories'"
+                    value={nicheTopic}
+                    onChange={e => setNicheTopic(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleNicheSearch()}
+                  />
+                  <button 
+                    disabled={isSearchingNiche || !nicheTopic} 
+                    onClick={handleNicheSearch} 
+                    className="px-12 bg-rose-600 text-white rounded-[2rem] font-black text-xl shadow-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-4"
+                  >
+                    {isSearchingNiche ? <Loader2 className="animate-spin" size={28} /> : <TrendingUp size={28} />} 
+                    ANALYZE
+                  </button>
+                </div>
+              </div>
+
+              {nicheResult && (
+                <div className="mt-12 pt-12 border-t-2 border-slate-100">
+                  <div className="prose prose-lg prose-slate max-w-none prose-headings:font-black prose-h3:text-rose-600 prose-a:text-rose-600">
+                    <Markdown>{nicheResult}</Markdown>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-center">
+              <button onClick={() => setCurrentStep('landing')} className="py-6 px-12 bg-slate-100 text-slate-500 rounded-[2rem] font-black text-xl hover:bg-slate-200 transition-all">
+                BACK TO DASHBOARD
               </button>
             </div>
           </div>
