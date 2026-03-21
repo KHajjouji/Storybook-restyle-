@@ -108,13 +108,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser && currentUser.email !== 'hypocritic2002@gmail.com') {
-        await logout();
-        setUser(null);
-        setAuthError("Access denied. Only hypocritic2002@gmail.com is authorized to use this application.");
-      } else {
-        setUser(currentUser);
-      }
+      setUser(currentUser);
       setIsAuthReady(true);
     });
     return () => unsubscribe();
@@ -131,8 +125,19 @@ const App: React.FC = () => {
     setProjectName(proj.name);
     setSettings(proj.settings);
     setPages(proj.pages);
+    setFullScript(proj.fullScript || "");
+    setActivityScript(proj.activityScript || "");
+    setNicheTopic(proj.nicheTopic || "");
+    setNicheResult(proj.nicheResult || "");
+    setCoverImage(proj.coverImage || null);
+    setCoverLayers(proj.coverLayers || []);
+    setProjectContext(proj.projectContext || "");
+    setEnableActivityDesigner(proj.enableActivityDesigner || false);
+    setGlobalFixPrompt(proj.globalFixPrompt || "Keep character facial features and clothing consistent with reference images.");
+    setTargetAspectRatio(proj.targetAspectRatio || '4:3');
+    setTargetResolution(proj.targetResolution || '1K');
     setShowProjectsModal(false);
-    setCurrentStep('restyle-editor');
+    setCurrentStep((proj.currentStep as Step) || 'restyle-editor');
   };
 
   const retargetSourceInputRef = useRef<HTMLInputElement>(null);
@@ -175,11 +180,7 @@ const App: React.FC = () => {
   const handleSignIn = async () => {
     try {
       setAuthError(null);
-      const loggedInUser = await signInWithGoogle();
-      if (loggedInUser && loggedInUser.email !== 'hypocritic2002@gmail.com') {
-        await logout();
-        setAuthError("Access denied. Only hypocritic2002@gmail.com is authorized to use this application.");
-      }
+      await signInWithGoogle();
     } catch (error: any) {
       console.error("Sign in error:", error);
       setAuthError(error.message || "Failed to sign in. Please try again.");
@@ -215,12 +216,57 @@ const App: React.FC = () => {
 
   // Persistence
   const handleSaveProject = async () => {
-    const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages, thumbnail: pages.find(p => p.processedImage)?.processedImage || pages[0]?.originalImage };
+    const project: Project = { 
+      id: projectId, 
+      name: projectName, 
+      lastModified: Date.now(), 
+      settings, 
+      pages, 
+      thumbnail: pages.find(p => p.processedImage)?.processedImage || pages[0]?.originalImage,
+      currentStep,
+      fullScript,
+      activityScript,
+      nicheTopic,
+      nicheResult,
+      coverImage,
+      coverLayers,
+      projectContext,
+      enableActivityDesigner,
+      globalFixPrompt,
+      targetAspectRatio,
+      targetResolution
+    };
     try { await persistenceService.saveProject(project); } catch (e) { console.error(e); }
   };
 
+  useEffect(() => {
+    if (!isAuthReady || !user || currentStep === 'landing') return;
+    const timeoutId = setTimeout(() => {
+      handleSaveProject();
+    }, 3000);
+    return () => clearTimeout(timeoutId);
+  }, [pages, currentStep, settings, fullScript, activityScript, nicheTopic, nicheResult, coverImage, coverLayers, projectName, projectContext, enableActivityDesigner, globalFixPrompt, targetAspectRatio, targetResolution]);
+
   const handleExportProjectFile = () => {
-    const project: Project = { id: projectId, name: projectName, lastModified: Date.now(), settings, pages };
+    const project: Project = { 
+      id: projectId, 
+      name: projectName, 
+      lastModified: Date.now(), 
+      settings, 
+      pages,
+      currentStep,
+      fullScript,
+      activityScript,
+      nicheTopic,
+      nicheResult,
+      coverImage,
+      coverLayers,
+      projectContext,
+      enableActivityDesigner,
+      globalFixPrompt,
+      targetAspectRatio,
+      targetResolution
+    };
     const blob = new window.Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -83,6 +83,18 @@ export interface Project {
   settings: AppSettings;
   pages: BookPage[];
   thumbnail?: string;
+  currentStep?: string;
+  fullScript?: string;
+  activityScript?: string;
+  nicheTopic?: string;
+  nicheResult?: string;
+  coverImage?: string | null;
+  coverLayers?: BookLayer[];
+  projectContext?: string;
+  enableActivityDesigner?: boolean;
+  globalFixPrompt?: string;
+  targetAspectRatio?: '1:1' | '4:3' | '16:9' | '9:16';
+  targetResolution?: '1K' | '2K' | '4K';
 }
 
 export const PRINT_FORMATS = {

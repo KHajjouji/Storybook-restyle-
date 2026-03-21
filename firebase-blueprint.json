@@ -32,6 +32,54 @@
         "thumbnail": {
           "type": "string",
           "description": "Thumbnail image base64."
+        },
+        "currentStep": {
+          "type": "string",
+          "description": "The current step the user is on."
+        },
+        "fullScript": {
+          "type": "string",
+          "description": "The full script of the story."
+        },
+        "activityScript": {
+          "type": "string",
+          "description": "The activity script."
+        },
+        "nicheTopic": {
+          "type": "string",
+          "description": "The niche topic being researched."
+        },
+        "nicheResult": {
+          "type": "string",
+          "description": "The result of the niche research."
+        },
+        "coverImage": {
+          "type": "string",
+          "description": "The generated cover image base64."
+        },
+        "coverLayers": {
+          "type": "string",
+          "description": "JSON stringified cover layers."
+        },
+        "projectContext": {
+          "type": "string",
+          "description": "The project context."
+        },
+        "enableActivityDesigner": {
+          "type": "boolean",
+          "description": "Whether the activity designer is enabled."
+        },
+        "globalFixPrompt": {
+          "type": "string",
+          "description": "The global fix prompt."
+        },
+        "targetAspectRatio": {
+          "type": "string",
+          "description": "The target aspect ratio."
+        },
+        "targetResolution": {
+          "type": "string",
+          "description": "The target resolution."
         }
       },
       "required": ["id", "uid", "name", "lastModified", "settings", "pages"]

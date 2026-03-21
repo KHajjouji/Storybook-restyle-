@@ -57,7 +57,7 @@ service cloud.firestore {
 
     // Domain Validators
     function isValidProject(data) {
-      let allowedFields = ['id', 'uid', 'name', 'lastModified', 'settings', 'pages', 'thumbnail'];
+      let allowedFields = ['id', 'uid', 'name', 'lastModified', 'settings', 'pages', 'thumbnail', 'currentStep', 'fullScript', 'activityScript', 'nicheTopic', 'nicheResult', 'coverImage', 'coverLayers', 'projectContext', 'enableActivityDesigner', 'globalFixPrompt', 'targetAspectRatio', 'targetResolution'];
       return hasOnlyAllowedFields(allowedFields) &&
              hasRequiredFields(['id', 'uid', 'name', 'lastModified', 'settings', 'pages']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
@@ -66,7 +66,19 @@ service cloud.firestore {
              data.lastModified is number &&
              data.settings is string && data.settings.size() < 1048576 && // 1MB limit
              data.pages is string && data.pages.size() < 1048576 && // 1MB limit
-             (!('thumbnail' in data) || (data.thumbnail is string && data.thumbnail.size() < 1048576));
+             (!('thumbnail' in data) || data.thumbnail == null || (data.thumbnail is string && data.thumbnail.size() < 1048576)) &&
+             (!('currentStep' in data) || data.currentStep == null || (data.currentStep is string && data.currentStep.size() < 100)) &&
+             (!('fullScript' in data) || data.fullScript == null || (data.fullScript is string && data.fullScript.size() < 1048576)) &&
+             (!('activityScript' in data) || data.activityScript == null || (data.activityScript is string && data.activityScript.size() < 1048576)) &&
+             (!('nicheTopic' in data) || data.nicheTopic == null || (data.nicheTopic is string && data.nicheTopic.size() < 1000)) &&
+             (!('nicheResult' in data) || data.nicheResult == null || (data.nicheResult is string && data.nicheResult.size() < 1048576)) &&
+             (!('coverImage' in data) || data.coverImage == null || (data.coverImage is string && data.coverImage.size() < 1048576)) &&
+             (!('coverLayers' in data) || data.coverLayers == null || (data.coverLayers is string && data.coverLayers.size() < 1048576)) &&
+             (!('projectContext' in data) || data.projectContext == null || (data.projectContext is string && data.projectContext.size() < 1048576)) &&
+             (!('enableActivityDesigner' in data) || data.enableActivityDesigner == null || data.enableActivityDesigner is bool) &&
+             (!('globalFixPrompt' in data) || data.globalFixPrompt == null || (data.globalFixPrompt is string && data.globalFixPrompt.size() < 1048576)) &&
+             (!('targetAspectRatio' in data) || data.targetAspectRatio == null || (data.targetAspectRatio is string && data.targetAspectRatio.size() < 100)) &&
+             (!('targetResolution' in data) || data.targetResolution == null || (data.targetResolution is string && data.targetResolution.size() < 100));
     }
 
     match /projects/{projectId} {
