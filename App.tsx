@@ -132,11 +132,18 @@ const App: React.FC = () => {
 
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
+  const [recentProject, setRecentProject] = useState<Project | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);
+      if (currentUser) {
+        const projs = await persistenceService.getAllProjects();
+        if (projs.length > 0) {
+          setRecentProject(projs[0]);
+        }
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -227,7 +234,7 @@ const App: React.FC = () => {
     if (!isAuthReady || !user || currentStep === 'landing') return;
     const timeoutId = setTimeout(() => {
       handleSaveProject();
-    }, 3000);
+    }, 1000);
     return () => clearTimeout(timeoutId);
   }, [pages, currentStep, settings, fullScript, activityScript, nicheTopic, nicheResult, coverImage, coverLayers, projectName, projectContext, enableActivityDesigner, globalFixPrompt, targetAspectRatio, targetResolution]);
 
@@ -682,6 +689,15 @@ const App: React.FC = () => {
               <p className="text-slate-500 text-2xl max-w-2xl mx-auto font-medium">Professional Children's Book Production & Consistency Lab.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+              {recentProject && (
+                <button onClick={() => handleLoadProject(recentProject)} className="group p-10 bg-indigo-50 border-2 border-indigo-200 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden md:col-span-2 lg:col-span-3 flex items-center gap-8">
+                  <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition-transform"><FolderOpen size={40} /></div>
+                  <div>
+                    <h4 className="text-3xl font-black mb-2 text-slate-900">Resume Project: {recentProject.name}</h4>
+                    <p className="text-indigo-600 font-medium text-lg">Pick up right where you left off. All your generated pages and settings are saved.</p>
+                  </div>
+                </button>
+              )}
               <button onClick={() => { setSettings({...settings, mode: 'create'}); setCurrentStep('script'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
                 <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform"><Rocket size={32} /></div>
                 <h4 className="text-2xl font-black mb-3 text-slate-900">Script Storyboarder</h4>
@@ -1114,10 +1130,20 @@ const App: React.FC = () => {
           <div className="max-w-7xl mx-auto py-16 px-8 space-y-20 pb-64">
             <div className="text-center space-y-4">
               <h2 className="text-6xl font-black">Production Dashboard</h2>
-              <div className="flex items-center justify-center gap-4">
-                <p className="text-slate-500 text-2xl font-medium">Refining {settings.mode === 'activity-builder' ? 'Activity Spreads' : 'Series Frames'} at {targetResolution}.</p>
-                {settings.mode === 'retarget' && (
-                  <span className="px-4 py-1 bg-indigo-600 text-white text-xs font-black rounded-full animate-pulse">RETARGETING MODE</span>
+              <div className="flex flex-col items-center justify-center gap-4">
+                <div className="flex items-center gap-4">
+                  <p className="text-slate-500 text-2xl font-medium">Refining {settings.mode === 'activity-builder' ? 'Activity Spreads' : 'Series Frames'} at {targetResolution}.</p>
+                  {settings.mode === 'retarget' && (
+                    <span className="px-4 py-1 bg-indigo-600 text-white text-xs font-black rounded-full animate-pulse">RETARGETING MODE</span>
+                  )}
+                </div>
+                {!isProcessing && stats.progress < 100 && (
+                  <button 
+                    onClick={processProductionBatch}
+                    className="mt-4 px-8 py-4 bg-emerald-500 text-white rounded-full font-black text-xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
+                  >
+                    <Sparkles size={24} /> RESUME GENERATION
+                  </button>
                 )}
               </div>
             </div>
@@ -1328,7 +1354,10 @@ const App: React.FC = () => {
                         </button>
                       ))}
                   </div>
-                  <button onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode)} className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8"><Download size={48} /> DOWNLOAD INTERIOR PDF</button>
+                  <div className="space-y-6">
+                    <button onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode)} className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8"><Download size={48} /> DOWNLOAD INTERIOR PDF</button>
+                    <button onClick={() => setCurrentStep('cover-master')} className="w-full py-8 bg-amber-50 text-amber-600 rounded-[3rem] font-black text-2xl shadow-sm hover:bg-amber-100 transition-all flex items-center justify-center gap-4">GO TO COVER DESIGNER <ChevronRight size={32} /></button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1498,6 +1527,9 @@ const App: React.FC = () => {
                     </div>
                   )}
                </div>
+            </div>
+            <div className="flex justify-center mt-12">
+              <button onClick={() => setCurrentStep('production-layout')} className="text-slate-400 font-bold hover:text-slate-600 underline text-xl">Back to Interior Master</button>
             </div>
           </div>
         );
