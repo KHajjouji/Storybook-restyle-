@@ -3,6 +3,33 @@ import { SeriesPreset } from './types';
 export const GLOBAL_STYLE_LOCK = `STYLE LOCK: Children’s picture-book illustration for ages 3–9. Simplified cute characters, rounded proportions, big expressive eyes, small noses and mouths, soft painterly shading, smooth gradients, warm gentle glow lighting, pastel-bright palette, clean uncluttered composition, friendly cozy mood, no photorealism, no gritty texture, no harsh contrast, minimal-to-no hard black outlines. High readability with large clear shapes. No text inside the illustration.
 GLOBAL RULES: No readable text (no labels, signs, price tags, phone UI). No logos/watermarks. Keep faces consistent. Do not invent locations.`;
 
+export const PREDEFINED_STYLES = [
+  {
+    id: 'style-1',
+    name: 'Soft Pastel Storybook',
+    prompt: "soft vibrant children's storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines",
+    image: 'https://picsum.photos/seed/pastel/400/400'
+  },
+  {
+    id: 'style-2',
+    name: 'Watercolor Whimsy',
+    prompt: "delicate watercolor illustration, children's book style, loose brushstrokes, translucent colors, whimsical, soft edges, dreamy atmosphere, white background",
+    image: 'https://picsum.photos/seed/watercolor/400/400'
+  },
+  {
+    id: 'style-3',
+    name: 'Bold Vector Art',
+    prompt: "flat vector illustration, bold clean lines, vibrant solid colors, geometric shapes, modern children's book, high contrast, minimalist background",
+    image: 'https://picsum.photos/seed/vector/400/400'
+  },
+  {
+    id: 'style-4',
+    name: '3D Pixar Style',
+    prompt: "3D rendered illustration, Pixar style, soft global illumination, detailed textures, expressive characters, cinematic lighting, vibrant colors, octane render",
+    image: 'https://picsum.photos/seed/3d/400/400'
+  }
+];
+
 export const SERIES_PRESETS: SeriesPreset[] = [
   {
     id: 'story-1',

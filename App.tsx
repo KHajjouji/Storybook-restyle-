@@ -64,6 +64,33 @@ const LayerManager = ({ layers, onToggle }: { layers?: any[], onToggle: (id: str
   );
 };
 
+const PREDEFINED_STYLES = [
+  {
+    id: 'style-1',
+    name: 'Soft Painterly',
+    image: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?auto=format&fit=crop&q=80&w=400&h=400',
+    prompt: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines'
+  },
+  {
+    id: 'style-2',
+    name: 'Flat Vector',
+    image: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=400&h=400',
+    prompt: 'Flat vector illustration, SVG style, solid colors, clean crisp edges, no gradients, no shading, minimalist, 2D flat design, perfect for auto-tracing'
+  },
+  {
+    id: 'style-3',
+    name: 'Watercolor Magic',
+    image: 'https://images.unsplash.com/photo-1580136608260-4eb11f4b24fe?auto=format&fit=crop&q=80&w=400&h=400',
+    prompt: 'whimsical watercolor illustration, visible paper texture, soft color bleeds, magical atmosphere, loose brushstrokes, dreamy lighting'
+  },
+  {
+    id: 'style-4',
+    name: '3D Pixar Style',
+    image: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=400&h=400', // Need better image
+    prompt: '3D rendered animation style, Pixar style, octane render, ray tracing, subsurface scattering, highly detailed textures, cinematic lighting, cute stylized proportions'
+  }
+];
+
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -159,8 +186,10 @@ const App: React.FC = () => {
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
+  const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
   const restyleInputRef = useRef<HTMLInputElement>(null);
   const charImageInputRef = useRef<HTMLInputElement>(null);
+  const styleImageInputRef = useRef<HTMLInputElement>(null);
   const [activeCharId, setActiveCharId] = useState<string | null>(null);
 
   const stats = useMemo(() => {
@@ -390,6 +419,33 @@ const App: React.FC = () => {
         )
       }));
       setActiveCharId(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleStyleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsAnalyzingStyle(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      try {
+        const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+        if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+        
+        const stylePrompt = await analyzeStyleFromImage(base64);
+        setSettings(prev => ({
+          ...prev,
+          masterBible: `${stylePrompt}\n\n${prev.masterBible}`
+        }));
+      } catch (error) {
+        console.error("Style analysis failed:", error);
+        alert("Failed to analyze style. Please try again.");
+      } finally {
+        setIsAnalyzingStyle(false);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -948,6 +1004,55 @@ const App: React.FC = () => {
       case 'characters':
         return (
           <div className="max-w-7xl mx-auto py-20 px-8 space-y-20 pb-56">
+            {/* Style Lock Section */}
+            <div className="space-y-10">
+              <div className="text-center space-y-4">
+                <h2 className="text-6xl font-black">Style Lock</h2>
+                <p className="text-slate-500 text-xl font-medium">Choose a predefined style or analyze your own image to lock the series look.</p>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {PREDEFINED_STYLES.map(style => (
+                  <div 
+                    key={style.id}
+                    onClick={() => setSettings(s => ({ ...s, masterBible: `STYLE LOCK: ${style.prompt}\n\n${s.masterBible}` }))}
+                    className="cursor-pointer group relative rounded-[3rem] overflow-hidden border-4 border-transparent hover:border-indigo-600 transition-all shadow-lg"
+                  >
+                    <img src={style.image} alt={style.name} className="w-full aspect-square object-cover group-hover:scale-105 transition-transform duration-500" />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-6 pt-20">
+                      <h4 className="text-white font-black text-xl">{style.name}</h4>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-white border-2 border-slate-100 rounded-[3rem] p-10 shadow-xl flex flex-col md:flex-row gap-8 items-center">
+                <div className="flex-1 space-y-4">
+                  <h3 className="text-2xl font-black text-slate-900">Analyze Custom Style</h3>
+                  <p className="text-slate-500 font-medium">Upload an illustration you love. Our AI will analyze the medium, lighting, and mood to generate a perfect style lock prompt.</p>
+                  <button 
+                    onClick={() => styleImageInputRef.current?.click()}
+                    disabled={isAnalyzingStyle}
+                    className="px-8 py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-black flex items-center gap-3 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                  >
+                    {isAnalyzingStyle ? <Loader2 className="animate-spin" size={20} /> : <Upload size={20} />}
+                    {isAnalyzingStyle ? 'ANALYZING...' : 'UPLOAD STYLE IMAGE'}
+                  </button>
+                  <input type="file" ref={styleImageInputRef} className="hidden" accept="image/*" onChange={handleStyleImageUpload} />
+                </div>
+                <div className="flex-[2] w-full">
+                  <textarea 
+                    className="w-full h-40 bg-slate-50 border-2 border-slate-100 rounded-[2rem] p-6 text-sm font-bold outline-none shadow-inner focus:border-indigo-600 transition-colors leading-relaxed"
+                    value={settings.masterBible}
+                    onChange={e => setSettings({...settings, masterBible: e.target.value})}
+                    placeholder="Global Style Lock Prompt..."
+                  />
+                </div>
+              </div>
+            </div>
+
+            <hr className="border-2 border-slate-100 rounded-full" />
+
             <div className="text-center space-y-4"><h2 className="text-6xl font-black">Consistency Lab</h2><p className="text-slate-500 text-xl font-medium">Define your cast to lock identities across the series.</p></div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
               {settings.characterReferences.map(char => (

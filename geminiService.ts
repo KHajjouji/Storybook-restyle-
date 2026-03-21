@@ -395,7 +395,7 @@ export const analyzeStyleFromImage = async (imageBase64: string): Promise<string
   const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: { parts: [{ inlineData: { data, mimeType: 'image/png' } }, { text: "Describe style." }] }
+    contents: { parts: [{ inlineData: { data, mimeType: 'image/png' } }, { text: "Analyze the illustration style of this image in detail. Provide a comprehensive prompt that can be used to generate images in this exact style. Include details about medium, lighting, color palette, line work, shading, and overall mood. Format it as a single paragraph starting with 'STYLE LOCK:'." }] }
   });
   return response.text?.trim() || "";
 };
