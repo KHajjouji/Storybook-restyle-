@@ -169,6 +169,39 @@ const App: React.FC = () => {
     return { total, completed, progress: total === 0 ? 0 : Math.round((completed / total) * 100) };
   }, [pages]);
 
+  // Persistence
+  const handleSaveProject = async () => {
+    const project: Project = { 
+      id: projectId, 
+      name: projectName, 
+      lastModified: Date.now(), 
+      settings, 
+      pages, 
+      thumbnail: pages.find(p => p.processedImage)?.processedImage || pages[0]?.originalImage,
+      currentStep,
+      fullScript,
+      activityScript,
+      nicheTopic,
+      nicheResult,
+      coverImage,
+      coverLayers,
+      projectContext,
+      enableActivityDesigner,
+      globalFixPrompt,
+      targetAspectRatio,
+      targetResolution
+    };
+    try { await persistenceService.saveProject(project); } catch (e) { console.error(e); }
+  };
+
+  useEffect(() => {
+    if (!isAuthReady || !user || currentStep === 'landing') return;
+    const timeoutId = setTimeout(() => {
+      handleSaveProject();
+    }, 3000);
+    return () => clearTimeout(timeoutId);
+  }, [pages, currentStep, settings, fullScript, activityScript, nicheTopic, nicheResult, coverImage, coverLayers, projectName, projectContext, enableActivityDesigner, globalFixPrompt, targetAspectRatio, targetResolution]);
+
   if (!isAuthReady) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -213,39 +246,6 @@ const App: React.FC = () => {
       </div>
     );
   }
-
-  // Persistence
-  const handleSaveProject = async () => {
-    const project: Project = { 
-      id: projectId, 
-      name: projectName, 
-      lastModified: Date.now(), 
-      settings, 
-      pages, 
-      thumbnail: pages.find(p => p.processedImage)?.processedImage || pages[0]?.originalImage,
-      currentStep,
-      fullScript,
-      activityScript,
-      nicheTopic,
-      nicheResult,
-      coverImage,
-      coverLayers,
-      projectContext,
-      enableActivityDesigner,
-      globalFixPrompt,
-      targetAspectRatio,
-      targetResolution
-    };
-    try { await persistenceService.saveProject(project); } catch (e) { console.error(e); }
-  };
-
-  useEffect(() => {
-    if (!isAuthReady || !user || currentStep === 'landing') return;
-    const timeoutId = setTimeout(() => {
-      handleSaveProject();
-    }, 3000);
-    return () => clearTimeout(timeoutId);
-  }, [pages, currentStep, settings, fullScript, activityScript, nicheTopic, nicheResult, coverImage, coverLayers, projectName, projectContext, enableActivityDesigner, globalFixPrompt, targetAspectRatio, targetResolution]);
 
   const handleExportProjectFile = () => {
     const project: Project = { 
