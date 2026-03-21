@@ -83,12 +83,48 @@
         }
       },
       "required": ["id", "uid", "name", "lastModified", "settings", "pages"]
+    },
+    "UserStyle": {
+      "title": "UserStyle",
+      "description": "A custom style saved by the user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the style."
+        },
+        "uid": {
+          "type": "string",
+          "description": "The user ID of the owner."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the style."
+        },
+        "image": {
+          "type": "string",
+          "description": "Base64 image of the style."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "The style prompt."
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp of creation."
+        }
+      },
+      "required": ["id", "uid", "name", "image", "prompt", "createdAt"]
     }
   },
   "firestore": {
     "projects/{projectId}": {
       "schema": "Project",
       "description": "User projects."
+    },
+    "userStyles/{styleId}": {
+      "schema": "UserStyle",
+      "description": "User custom styles."
     }
   }
 }

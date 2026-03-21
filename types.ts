@@ -59,6 +59,14 @@ export interface SeriesPreset {
   scenes: { id: string, text: string, prompt: string, isSpread: boolean }[];
 }
 
+export interface UserStyle {
+  id: string;
+  name: string;
+  image: string;
+  prompt: string;
+  createdAt: number;
+}
+
 export interface AppSettings {
   mode: AppMode;
   fullScript?: string;

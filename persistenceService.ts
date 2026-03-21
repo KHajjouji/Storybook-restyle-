@@ -118,5 +118,53 @@ export const persistenceService = {
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, path);
     }
+  },
+
+  async saveUserStyle(style: import('./types').UserStyle): Promise<void> {
+    if (!auth.currentUser) return;
+    const path = `userStyles/${style.id}`;
+    try {
+      const styleToSave = {
+        ...style,
+        uid: auth.currentUser.uid
+      };
+      await setDoc(doc(db, 'userStyles', style.id), styleToSave);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  },
+
+  async getUserStyles(): Promise<import('./types').UserStyle[]> {
+    if (!auth.currentUser) return [];
+    const path = 'userStyles';
+    try {
+      const q = query(collection(db, path), where("uid", "==", auth.currentUser.uid));
+      const querySnapshot = await getDocs(q);
+      const styles: import('./types').UserStyle[] = [];
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        styles.push({
+          id: data.id,
+          name: data.name,
+          image: data.image,
+          prompt: data.prompt,
+          createdAt: data.createdAt
+        });
+      });
+      return styles.sort((a, b) => b.createdAt - a.createdAt);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, path);
+      return [];
+    }
+  },
+
+  async deleteUserStyle(id: string): Promise<void> {
+    if (!auth.currentUser) return;
+    const path = `userStyles/${id}`;
+    try {
+      await deleteDoc(doc(db, 'userStyles', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
   }
 };

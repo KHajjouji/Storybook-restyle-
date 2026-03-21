@@ -92,6 +92,52 @@ const PREDEFINED_STYLES = [
   }
 ];
 
+const getAvailableSteps = (mode: AppMode): { id: Step, label: string }[] => {
+  switch (mode) {
+    case 'create':
+      return [
+        { id: 'script', label: 'Narrative' },
+        { id: 'prompt-pack', label: 'Prompts' },
+        { id: 'characters', label: 'Cast' },
+        { id: 'generate', label: 'Production' },
+        { id: 'production-layout', label: 'Interior' },
+        { id: 'cover-master', label: 'Cover' }
+      ];
+    case 'restyle':
+      return [
+        { id: 'upload', label: 'Upload' },
+        { id: 'restyle-editor', label: 'Restyle' },
+        { id: 'characters', label: 'Cast' },
+        { id: 'generate', label: 'Production' },
+        { id: 'production-layout', label: 'Interior' },
+        { id: 'cover-master', label: 'Cover' }
+      ];
+    case 'activity-builder':
+      return [
+        { id: 'activity-builder', label: 'Activity' },
+        { id: 'generate', label: 'Production' },
+        { id: 'production-layout', label: 'Interior' },
+        { id: 'cover-master', label: 'Cover' }
+      ];
+    case 'retarget':
+      return [
+        { id: 'upload', label: 'Upload' },
+        { id: 'retarget-editor', label: 'Retarget' },
+        { id: 'generate', label: 'Production' }
+      ];
+    case 'upscale':
+      return [
+        { id: 'direct-upscale', label: 'Upscale' }
+      ];
+    case 'niche-research':
+      return [
+        { id: 'niche-research', label: 'Research' }
+      ];
+    default:
+      return [];
+  }
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -133,6 +179,7 @@ const App: React.FC = () => {
 
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
+  const [userStyles, setUserStyles] = useState<import('./types').UserStyle[]>([]);
   const [recentProject, setRecentProject] = useState<Project | null>(null);
 
   useEffect(() => {
@@ -144,6 +191,8 @@ const App: React.FC = () => {
         if (projs.length > 0) {
           setRecentProject(projs[0]);
         }
+        const styles = await persistenceService.getUserStyles();
+        setUserStyles(styles);
       }
     });
     return () => unsubscribe();
@@ -444,6 +493,18 @@ const App: React.FC = () => {
         if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
         
         const stylePrompt = await analyzeStyleFromImage(base64);
+        
+        const newStyle: import('./types').UserStyle = {
+          id: Date.now().toString(),
+          name: file.name.split('.')[0] || 'Custom Style',
+          image: base64,
+          prompt: stylePrompt,
+          createdAt: Date.now()
+        };
+        
+        await persistenceService.saveUserStyle(newStyle);
+        setUserStyles(prev => [newStyle, ...prev]);
+
         setSettings(prev => ({
           ...prev,
           styleReference: base64,
@@ -1040,6 +1101,27 @@ const App: React.FC = () => {
                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-6 pt-20">
                       <h4 className="text-white font-black text-xl">{style.name}</h4>
                     </div>
+                  </div>
+                ))}
+                {userStyles.map(style => (
+                  <div 
+                    key={style.id}
+                    className="cursor-pointer group relative rounded-[3rem] overflow-hidden border-4 border-transparent hover:border-indigo-600 transition-all shadow-lg"
+                  >
+                    <img src={style.image} alt={style.name} className="w-full aspect-square object-cover group-hover:scale-105 transition-transform duration-500" onClick={() => setSettings(s => ({ ...s, masterBible: `STYLE LOCK (From Uploaded Reference): ${style.prompt}\n\n${s.masterBible}`, styleReference: style.image }))} />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-6 pt-20 pointer-events-none">
+                      <h4 className="text-white font-black text-xl">{style.name}</h4>
+                    </div>
+                    <button 
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await persistenceService.deleteUserStyle(style.id);
+                        setUserStyles(prev => prev.filter(s => s.id !== style.id));
+                      }}
+                      className="absolute top-4 right-4 bg-white/80 backdrop-blur-sm text-rose-500 p-2 rounded-full shadow-md hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -1719,6 +1801,24 @@ const App: React.FC = () => {
            <button onClick={logout} className="p-5 bg-rose-50 text-rose-600 rounded-[2rem] shadow-sm hover:bg-rose-600 hover:text-white transition-all" title="Sign Out"><LogOut size={32} /></button>
         </div>
       </header>
+      
+      {currentStep !== 'landing' && getAvailableSteps(settings.mode).length > 0 && (
+        <div className="bg-white border-b border-slate-100 py-4 px-20 flex items-center gap-4 overflow-x-auto sticky top-36 z-[50] shadow-sm">
+          {getAvailableSteps(settings.mode).map((step, idx, arr) => (
+            <div key={step.id} className="flex items-center gap-4">
+              <button 
+                onClick={() => setCurrentStep(step.id)}
+                className={`px-6 py-2 rounded-full font-black text-sm uppercase tracking-widest transition-all ${currentStep === step.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
+              >
+                {step.label}
+              </button>
+              {idx < arr.length - 1 && (
+                <ChevronRight size={16} className="text-slate-300" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       
       {showProjectsModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-16">

@@ -56,6 +56,18 @@ service cloud.firestore {
     }
 
     // Domain Validators
+    function isValidUserStyle(data) {
+      let allowedFields = ['id', 'uid', 'name', 'image', 'prompt', 'createdAt'];
+      return hasOnlyAllowedFields(allowedFields) &&
+             hasRequiredFields(['id', 'uid', 'name', 'image', 'prompt', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.image is string && data.image.size() < 1048576 && // 1MB limit
+             data.prompt is string && data.prompt.size() < 1048576 && // 1MB limit
+             data.createdAt is number;
+    }
+
     function isValidProject(data) {
       let allowedFields = ['id', 'uid', 'name', 'lastModified', 'settings', 'pages', 'thumbnail', 'currentStep', 'fullScript', 'activityScript', 'nicheTopic', 'nicheResult', 'coverImage', 'coverLayers', 'projectContext', 'enableActivityDesigner', 'globalFixPrompt', 'targetAspectRatio', 'targetResolution'];
       return hasOnlyAllowedFields(allowedFields) &&
@@ -85,6 +97,13 @@ service cloud.firestore {
       allow read: if isAuthenticated() && isDocOwner();
       allow create: if isAuthenticated() && isValidProject(request.resource.data) && uidUnchanged() && request.resource.data.uid == request.auth.uid;
       allow update: if isAuthenticated() && isDocOwner() && isValidProject(request.resource.data) && uidNotModified();
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /userStyles/{styleId} {
+      allow read: if isAuthenticated() && isDocOwner();
+      allow create: if isAuthenticated() && isValidUserStyle(request.resource.data) && uidUnchanged() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && isDocOwner() && isValidUserStyle(request.resource.data) && uidNotModified();
       allow delete: if isAuthenticated() && isDocOwner();
     }
   }
