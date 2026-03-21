@@ -67,27 +67,27 @@ const LayerManager = ({ layers, onToggle }: { layers?: any[], onToggle: (id: str
 const PREDEFINED_STYLES = [
   {
     id: 'style-1',
-    name: 'Soft Painterly',
+    name: 'Classic Storybook',
     image: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?auto=format&fit=crop&q=80&w=400&h=400',
-    prompt: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines'
+    prompt: 'classic children’s book illustration, soft painterly textures, whimsical, rounded shapes, warm inviting lighting, highly detailed but stylized'
   },
   {
     id: 'style-2',
-    name: 'Flat Vector',
-    image: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=400&h=400',
-    prompt: 'Flat vector illustration, SVG style, solid colors, clean crisp edges, no gradients, no shading, minimalist, 2D flat design, perfect for auto-tracing'
+    name: 'Vibrant & Playful',
+    image: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?auto=format&fit=crop&q=80&w=400&h=400',
+    prompt: 'vibrant children’s book illustration, bright bold colors, playful and energetic, flat shading with subtle gradients, cute proportions'
   },
   {
     id: 'style-3',
     name: 'Watercolor Magic',
     image: 'https://images.unsplash.com/photo-1580136608260-4eb11f4b24fe?auto=format&fit=crop&q=80&w=400&h=400',
-    prompt: 'whimsical watercolor illustration, visible paper texture, soft color bleeds, magical atmosphere, loose brushstrokes, dreamy lighting'
+    prompt: 'whimsical watercolor children’s book illustration, visible paper texture, soft color bleeds, magical atmosphere, loose brushstrokes, dreamy lighting'
   },
   {
     id: 'style-4',
-    name: '3D Pixar Style',
-    image: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=400&h=400', // Need better image
-    prompt: '3D rendered animation style, Pixar style, octane render, ray tracing, subsurface scattering, highly detailed textures, cinematic lighting, cute stylized proportions'
+    name: 'Soft Pastel',
+    image: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=400&h=400',
+    prompt: 'soft pastel children’s book illustration, gentle glow lighting, warm pastel palette, minimal outlines, soothing and calm mood, dreamy'
   }
 ];
 
@@ -438,7 +438,8 @@ const App: React.FC = () => {
         const stylePrompt = await analyzeStyleFromImage(base64);
         setSettings(prev => ({
           ...prev,
-          masterBible: `${stylePrompt}\n\n${prev.masterBible}`
+          styleReference: base64,
+          masterBible: `STYLE LOCK (From Uploaded Reference): ${stylePrompt}\n\n${prev.masterBible}`
         }));
       } catch (error) {
         console.error("Style analysis failed:", error);
@@ -1030,13 +1031,26 @@ const App: React.FC = () => {
                 <div className="flex-1 space-y-4">
                   <h3 className="text-2xl font-black text-slate-900">Analyze Custom Style</h3>
                   <p className="text-slate-500 font-medium">Upload an illustration you love. Our AI will analyze the medium, lighting, and mood to generate a perfect style lock prompt.</p>
+                  
+                  {settings.styleReference && (
+                    <div className="relative w-32 h-32 rounded-2xl overflow-hidden border-4 border-indigo-100 shadow-md mb-4">
+                      <img src={settings.styleReference} alt="Style Reference" className="w-full h-full object-cover" />
+                      <button 
+                        onClick={() => setSettings(s => ({ ...s, styleReference: undefined }))}
+                        className="absolute top-1 right-1 bg-white text-red-500 p-1 rounded-full shadow-md hover:bg-red-50"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+
                   <button 
                     onClick={() => styleImageInputRef.current?.click()}
                     disabled={isAnalyzingStyle}
                     className="px-8 py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-black flex items-center gap-3 hover:bg-indigo-100 transition-colors disabled:opacity-50"
                   >
                     {isAnalyzingStyle ? <Loader2 className="animate-spin" size={20} /> : <Upload size={20} />}
-                    {isAnalyzingStyle ? 'ANALYZING...' : 'UPLOAD STYLE IMAGE'}
+                    {isAnalyzingStyle ? 'ANALYZING...' : (settings.styleReference ? 'REPLACE STYLE IMAGE' : 'UPLOAD STYLE IMAGE')}
                   </button>
                   <input type="file" ref={styleImageInputRef} className="hidden" accept="image/*" onChange={handleStyleImageUpload} />
                 </div>
