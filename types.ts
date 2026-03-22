@@ -80,6 +80,7 @@ export interface AppSettings {
   useProModel: boolean;
   embedTextInImage: boolean;
   layeredMode: boolean;
+  overlayText: boolean;
   showSafeGuides: boolean;
   estimatedPageCount: number;
 }

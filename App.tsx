@@ -197,6 +197,13 @@ const getAvailableSteps = (mode: AppMode): { id: Step, label: string }[] => {
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
   const [authError, setAuthError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<Step>('landing');
   const [projectId, setProjectId] = useState<string>(Math.random().toString(36).substring(7));
@@ -291,6 +298,7 @@ const App: React.FC = () => {
     useProModel: true,
     embedTextInImage: false,
     layeredMode: false,
+    overlayText: false,
     showSafeGuides: true,
     characterReferences: [],
     estimatedPageCount: 32,
@@ -343,6 +351,18 @@ const App: React.FC = () => {
     }, 1000);
     return () => clearTimeout(timeoutId);
   }, [pages, currentStep, settings, fullScript, activityScript, nicheTopic, nicheResult, coverImage, coverLayers, projectName, projectContext, enableActivityDesigner, globalFixPrompt, targetAspectRatio, targetResolution]);
+
+  useEffect(() => {
+    const isGenerating = isProcessing || pages.some(p => p.status === 'processing');
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isGenerating) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isProcessing, pages]);
 
   if (!isAuthReady) {
     return (
@@ -417,6 +437,40 @@ const App: React.FC = () => {
     a.click();
   };
 
+  const handleImportProjectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const project: Project = JSON.parse(event.target?.result as string);
+        await persistenceService.saveProject(project);
+        setProjectId(project.id);
+        setProjectName(project.name);
+        setSettings(project.settings);
+        setPages(project.pages);
+        setCurrentStep(project.currentStep);
+        setFullScript(project.fullScript || "");
+        setActivityScript(project.activityScript || "");
+        setNicheTopic(project.nicheTopic || "");
+        setNicheResult(project.nicheResult || null);
+        setCoverImage(project.coverImage || null);
+        setCoverLayers(project.coverLayers || []);
+        setProjectContext(project.projectContext || "");
+        setEnableActivityDesigner(project.enableActivityDesigner || false);
+        setGlobalFixPrompt(project.globalFixPrompt || "");
+        setTargetAspectRatio(project.targetAspectRatio || '4:3');
+        setTargetResolution(project.targetResolution || '1024x1024');
+        showToast("Project imported successfully!");
+      } catch (err) {
+        console.error(err);
+        showToast("Failed to import project file.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset input
+  };
+
   const handleDownloadLayers = async (page: BookPage, index: number) => {
     if (!page.layers || page.layers.length === 0) return;
     const zip = new JSZip();
@@ -439,7 +493,7 @@ const App: React.FC = () => {
       const result = await searchBookNiches(nicheTopic);
       setNicheResult(result);
     } catch (e) {
-      alert("Niche research failed.");
+      showToast("Niche research failed.");
     } finally {
       setIsSearchingNiche(false);
     }
@@ -456,16 +510,16 @@ const App: React.FC = () => {
           masterBible: `${result.globalInstructions}\n\n${prev.masterBible}`
         }));
       }
-      setPages(result.pages.map(p => ({
+      setPages(prev => [...prev, ...result.pages.map(p => ({
         id: Math.random().toString(36).substring(7),
         originalText: p.text,
         status: 'idle',
         assignments: p.mappedCharacterNames.map(name => ({ refId: name, description: "" })),
         isSpread: p.isSpread,
         overrideStylePrompt: p.fullPrompt || p.text
-      })));
+      }))]);
       setCurrentStep('characters');
-    } catch (e) { alert("Script analysis failed."); }
+    } catch (e) { showToast("Script analysis failed."); }
     finally { setIsParsing(false); }
   };
 
@@ -475,17 +529,17 @@ const App: React.FC = () => {
     try {
       const result = await parseActivityPack(activityScript);
       setSettings(prev => ({ ...prev, masterBible: `${result.globalInstructions}\n\n${prev.masterBible}` }));
-      setPages(result.spreads.map(s => ({
+      setPages(prev => [...prev, ...result.spreads.map(s => ({
         id: Math.random().toString(36).substring(7),
         originalText: s.title,
         status: 'idle',
         assignments: [],
         isSpread: true,
         overrideStylePrompt: s.fullPrompt
-      })));
+      }))]);
       setTargetAspectRatio('16:9'); // Activities are typically spreads
       setCurrentStep('characters');
-    } catch (e) { alert("Activity analysis failed."); }
+    } catch (e) { showToast("Activity analysis failed."); }
     finally { setIsParsing(false); }
   }
 
@@ -568,7 +622,7 @@ const App: React.FC = () => {
         }));
       } catch (error) {
         console.error("Style analysis failed:", error);
-        alert("Failed to analyze style. Please try again.");
+        showToast("Failed to analyze style. Please try again.");
       } finally {
         setIsAnalyzingStyle(false);
       }
@@ -1032,6 +1086,23 @@ const App: React.FC = () => {
                     <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, AI generates separate layers for BG, Characters, and Text for professional compositing.</p>
                   </div>
 
+                  {/* OVERLAY TEXT CONTROL */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center px-4">
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">Overlay Text in PDF</h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400">{settings.overlayText ? 'ON' : 'OFF'}</span>
+                        <button 
+                          onClick={() => setSettings({...settings, overlayText: !settings.overlayText})}
+                          className={`w-12 h-6 rounded-full transition-all relative ${settings.overlayText ? 'bg-indigo-600' : 'bg-slate-200'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.overlayText ? 'left-7' : 'left-1'}`} />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, the original text will be overlaid on the generated PDF pages.</p>
+                  </div>
+
                   {/* SAFE GUIDES CONTROL */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center px-4">
@@ -1391,7 +1462,7 @@ const App: React.FC = () => {
                            </button>
                          </>
                        )}
-                       <button onClick={() => renderScene(p.id)} className="p-7 bg-slate-100 text-slate-400 rounded-[2rem] hover:text-indigo-600 transition-all"><RefreshCw size={32} /></button>
+                       <button onClick={() => renderScene(p.id)} className="p-7 bg-slate-100 text-slate-400 rounded-[2rem] hover:text-indigo-600 transition-all" title="Regenerate Page"><RefreshCw size={32} /></button>
                        {p.processedImage && <button onClick={() => { const a = document.createElement('a'); a.href = p.processedImage!; a.download = `page_${idx+1}.png`; a.click(); }} className="p-7 bg-emerald-50 text-emerald-600 rounded-[2rem]"><Download size={32} /></button>}
                        {p.layers && p.layers.length > 0 && (
                          <button onClick={() => handleDownloadLayers(p, idx)} className="p-7 bg-indigo-50 text-indigo-600 rounded-[2rem] flex flex-col items-center gap-1">
@@ -1399,11 +1470,32 @@ const App: React.FC = () => {
                            <span className="text-[8px] font-black uppercase tracking-widest">ZIP</span>
                          </button>
                        )}
+                       <button onClick={() => setConfirmDeleteId(p.id)} className="p-7 bg-rose-50 text-rose-400 rounded-[2rem] hover:bg-rose-500 hover:text-white transition-all" title="Delete Page"><Trash2 size={32} /></button>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
+
+            {/* Delete Confirmation Modal */}
+            {confirmDeleteId && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-12">
+                <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" onClick={() => setConfirmDeleteId(null)} />
+                <div className="bg-white w-full max-w-md rounded-[3rem] p-12 shadow-2xl relative z-10 space-y-8 animate-in zoom-in duration-300 text-center">
+                  <Trash2 size={64} className="mx-auto text-rose-500 mb-6" />
+                  <h2 className="text-3xl font-black text-slate-900">Delete Page?</h2>
+                  <p className="text-slate-500 font-medium">This action cannot be undone. Are you sure you want to remove this page from your project?</p>
+                  <div className="flex gap-4 pt-4">
+                    <button onClick={() => setConfirmDeleteId(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all">Cancel</button>
+                    <button onClick={() => {
+                      setPages(curr => curr.filter(pg => pg.id !== confirmDeleteId));
+                      setConfirmDeleteId(null);
+                      showToast("Page deleted successfully.");
+                    }} className="flex-1 py-4 bg-rose-500 text-white rounded-2xl font-bold hover:bg-rose-600 shadow-lg shadow-rose-500/30 transition-all">Delete</button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Advanced Fixer Modal */}
             {activeFixId && (
@@ -1494,7 +1586,7 @@ const App: React.FC = () => {
                       ))}
                   </div>
                   <div className="space-y-6">
-                    <button onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, false, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode)} className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8"><Download size={48} /> DOWNLOAD INTERIOR PDF</button>
+                    <button onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode)} className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8"><Download size={48} /> DOWNLOAD INTERIOR PDF</button>
                     <button onClick={() => exportProjectAssetsForCanva(pages, projectName)} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-4"><Layers size={32} /> DOWNLOAD ASSETS FOR CANVA / PHOTOSHOP</button>
                     <button onClick={() => setCurrentStep('cover-master')} className="w-full py-8 bg-amber-50 text-amber-600 rounded-[3rem] font-black text-2xl shadow-sm hover:bg-amber-100 transition-all flex items-center justify-center gap-4">GO TO COVER DESIGNER <ChevronRight size={32} /></button>
                   </div>
@@ -1851,6 +1943,10 @@ const App: React.FC = () => {
                  <button onClick={handleSaveProject} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Save Project"><Save size={28} /></button>
                  <button onClick={handleOpenProjects} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Load Project"><FolderOpen size={28} /></button>
                  <button onClick={handleExportProjectFile} className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Export Project"><FileDown size={28} /></button>
+                 <label className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform cursor-pointer" title="Import Project">
+                   <FileUp size={28} />
+                   <input type="file" accept=".storyflow,.json" className="hidden" onChange={handleImportProjectFile} />
+                 </label>
               </div>
            </div>
            <button onClick={async () => { await (window as any).aistudio?.openSelectKey(); }} className="px-10 py-5 bg-emerald-50 text-emerald-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm" title="Manage API Key"><Key size={24} /> API KEY</button>
@@ -1933,6 +2029,12 @@ const App: React.FC = () => {
       )}
 
       <main className="flex-1 w-full">{renderStep()}</main>
+      
+      {toastMessage && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[200] bg-slate-900 text-white px-8 py-4 rounded-full font-bold shadow-2xl animate-in slide-in-from-bottom-10 fade-in duration-300">
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 };

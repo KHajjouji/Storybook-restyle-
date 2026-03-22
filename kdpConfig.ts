@@ -306,7 +306,7 @@ export const calculatePageWithBleed = (trimWidth: number, trimHeight: number, bl
 export const calculateSpreadWithBleed = (trimWidth: number, trimHeight: number, bleed: boolean = true) => {
   if (!bleed) return { width: trimWidth * 2, height: trimHeight };
   return {
-    width: (trimWidth * 2) + KDP_PRINT_SYSTEM.bleed_rules.interior_bleed_addition_in.width,
+    width: (trimWidth * 2) + (KDP_PRINT_SYSTEM.bleed_rules.interior_bleed_addition_in.width * 2),
     height: trimHeight + KDP_PRINT_SYSTEM.bleed_rules.interior_bleed_addition_in.height
   };
 };

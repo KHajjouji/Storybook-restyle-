@@ -67,8 +67,10 @@ export const generateBookPDF = async (
   const gutter = calculateGutter(totalEstimatedPages, format);
   
   // Dimensions with bleed (standard 0.125" for KDP/Lulu)
-  const singleFullWidth = config.width + (config.bleed * 2);
-  const fullHeight = config.height + (config.bleed * 2);
+  // KDP requires bleed on top, bottom, and outside edges. No bleed on inside edge.
+  const singleFullWidth = config.width + config.bleed; // Only outside edge gets bleed
+  const fullHeight = config.height + (config.bleed * 2); // Top and bottom get bleed
+  const spreadWidth = (config.width * 2) + (config.bleed * 2); // Both outside edges get bleed
 
   const pdf = new jsPDF({
     orientation: config.width > config.height ? 'landscape' : 'portrait',
@@ -84,7 +86,6 @@ export const generateBookPDF = async (
     if (!image) continue;
 
     const isRightPage = currentPageNum % 2 !== 0;
-    const spreadWidth = (config.width * 2) + (config.bleed * 2);
 
     if (page.isSpread && spreadMode === 'WIDE_SPREAD') {
       if (currentPageNum === 1) {
@@ -108,7 +109,7 @@ export const generateBookPDF = async (
         if (textLayer) pdf.addImage(textLayer.image, 'PNG', 0, 0, spreadWidth, fullHeight);
         
         // Active Text (Dynamic)
-        if (page.originalText && !textLayer) {
+        if (overlayText && page.originalText && !textLayer) {
           pdf.setFontSize(18);
           pdf.setTextColor(0, 0, 0);
           
@@ -125,6 +126,37 @@ export const generateBookPDF = async (
         pdf.addImage(image, 'PNG', 0, 0, spreadWidth, fullHeight);
       }
       currentPageNum += 2;
+    } else if (page.isSpread && spreadMode === 'SPLIT_PAGES') {
+      // Split the spread into two single pages
+      // Left Page (Even page, usually page 2, 4, etc. if starting from 1)
+      if (currentPageNum > 1) pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? 'landscape' : 'portrait');
+      
+      // Draw left half of the spread. The spread is `spreadWidth` wide. We want to draw it such that the left half fits into `singleFullWidth`.
+      // Since the left page has bleed on the left, but NO bleed on the right (gutter), the left half of the spread is exactly `singleFullWidth` wide.
+      pdf.addImage(image, 'PNG', 0, 0, spreadWidth, fullHeight);
+      
+      // Active Text (Dynamic) for Left Page
+      if (overlayText && page.originalText) {
+        pdf.setFontSize(16);
+        pdf.setTextColor(0, 0, 0);
+        const safeBottom = fullHeight - config.bottom - config.bleed;
+        const safeLeft = config.outside + config.bleed;
+        const safeRight = singleFullWidth - gutter;
+        const maxWidth = safeRight - safeLeft;
+        pdf.text(page.originalText, safeLeft + (maxWidth / 2), safeBottom, { align: 'center', maxWidth: maxWidth });
+      }
+      currentPageNum++;
+
+      // Right Page (Odd page)
+      pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? 'landscape' : 'portrait');
+      
+      // Draw right half of the spread. We shift the image left by `singleFullWidth`.
+      // Wait, the spread image has bleed on the left and right. 
+      // The right page needs bleed on the right, but NO bleed on the left (gutter).
+      // So we shift the image left by `spreadWidth - singleFullWidth`.
+      pdf.addImage(image, 'PNG', -(spreadWidth - singleFullWidth), 0, spreadWidth, fullHeight);
+      
+      currentPageNum++;
     } else {
       if (currentPageNum > 1) pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? 'landscape' : 'portrait');
       
@@ -140,7 +172,7 @@ export const generateBookPDF = async (
         if (textLayer) pdf.addImage(textLayer.image, 'PNG', 0, 0, singleFullWidth, fullHeight);
 
         // Active Text (Dynamic)
-        if (page.originalText && !textLayer) {
+        if (overlayText && page.originalText && !textLayer) {
           pdf.setFontSize(16);
           pdf.setTextColor(0, 0, 0);
           
