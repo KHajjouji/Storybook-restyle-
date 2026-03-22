@@ -1,12 +1,17 @@
 
 import { jsPDF } from "jspdf";
 import { BookPage, PRINT_FORMATS, ExportFormat, SpreadExportMode } from "../types";
+import { getInsideMargin, validateProjectForKDP, calculateCoverWithBleed } from "../kdpConfig";
 
 /**
  * Calculates the exact gutter requirement based on platform standards
  * Higher page count requires more gutter for spine curve.
  */
 const calculateGutter = (pageCount: number, format: ExportFormat): number => {
+  if (format.startsWith('KDP_')) {
+    return getInsideMargin(pageCount);
+  }
+  
   const config = PRINT_FORMATS[format];
   const base = config?.baseGutter || 0.375;
   
@@ -19,6 +24,28 @@ const calculateGutter = (pageCount: number, format: ExportFormat): number => {
   return base;
 };
 
+export const generateCoverPDF = async (
+  coverImage: string,
+  format: ExportFormat,
+  title: string,
+  totalEstimatedPages: number,
+  paperType: 'white' | 'cream' = 'white',
+  colorType: 'bw' | 'standard_color' | 'premium_color' = 'standard_color'
+) => {
+  const config = PRINT_FORMATS[format] || PRINT_FORMATS.KDP_8_5x8_5;
+  
+  const coverDims = calculateCoverWithBleed(config.width, config.height, totalEstimatedPages, paperType, colorType);
+  
+  const pdf = new jsPDF({
+    orientation: 'landscape',
+    unit: 'in',
+    format: [coverDims.width, coverDims.height]
+  });
+
+  pdf.addImage(coverImage, 'JPEG', 0, 0, coverDims.width, coverDims.height, undefined, 'FAST');
+  pdf.save(`${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_cover_kdp.pdf`);
+};
+
 export const generateBookPDF = async (
   pages: BookPage[],
   format: ExportFormat,
@@ -28,7 +55,15 @@ export const generateBookPDF = async (
   spreadMode: SpreadExportMode = 'WIDE_SPREAD',
   layeredMode: boolean = false
 ) => {
-  const config = PRINT_FORMATS[format] || PRINT_FORMATS.KDP_SQUARE;
+  const validation = validateProjectForKDP(pages, format, totalEstimatedPages);
+  if (!validation.isValid) {
+    console.error("KDP Pre-flight Validation Errors:", validation.errors);
+  }
+  if (validation.warnings.length > 0) {
+    console.warn("KDP Pre-flight Validation Warnings:", validation.warnings);
+  }
+
+  const config = PRINT_FORMATS[format] || PRINT_FORMATS.KDP_8_5x8_5;
   const gutter = calculateGutter(totalEstimatedPages, format);
   
   // Dimensions with bleed (standard 0.125" for KDP/Lulu)

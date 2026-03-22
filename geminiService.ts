@@ -134,6 +134,11 @@ export const generateBookCover = async (
   MASTER BIBLE / GLOBAL RULES:
   ${masterBible}
   
+  LAYOUT RULES FOR KDP COVER:
+  - BLEED ZONE: The outer 0.125" will be trimmed off. Extend background art to the edges but keep critical details out.
+  - SAFE MARGINS: Keep all critical details at least 0.5" away from the edges.
+  - SPINE: If this is a full wrap cover, leave space in the center for the spine.
+
   RULES:
   1. Generate a SINGLE professional book cover illustration.
   2. NO TITLE TEXT. NO LOGOS. Pure illustration only.
@@ -224,11 +229,16 @@ export const restyleIllustration = async (
   const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-2.5-flash-image';
   
   const layoutRules = isSpread ? `
-  LAYOUT RULES FOR 2-PAGE SPREAD:
+  LAYOUT RULES FOR KDP 2-PAGE SPREAD:
   - This is a WIDE SPREAD that will be folded in the middle (GUTTER).
-  - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold).
-  - SAFE MARGINS: Keep all text and critical details at least 10% away from the top, bottom, and outer edges.
-  - BALANCE: Ensure the composition works as two distinct halves while remaining a cohesive single image.` : "";
+  - BLEED ZONE: The outer 0.125" (approx 3% of width/height) will be trimmed off. Do NOT place any text or critical details here.
+  - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" (approx 5%) around the center fold.
+  - SAFE MARGINS: Keep all text and critical details at least 0.5" (approx 6%) away from the top, bottom, and outer edges.
+  - BALANCE: Ensure the composition works as two distinct halves while remaining a cohesive single image.` : `
+  LAYOUT RULES FOR KDP SINGLE PAGE:
+  - BLEED ZONE: The outer 0.125" (approx 3% of width/height) will be trimmed off. Extend background art to the very edge, but keep critical details out.
+  - SAFE MARGINS: Keep all text and critical details at least 0.5" (approx 6%) away from the top, bottom, and outer edges.
+  - GUTTER: The side that binds to the spine needs extra margin. Keep critical elements away from the binding edge.`;
 
   const textInstruction = targetText ? `
   TEXT EMBEDDING TASK:
@@ -677,17 +687,26 @@ export const generateLayeredIllustration = async (
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
   
+  const layoutRules = isSpread ? `
+  LAYOUT RULES FOR KDP 2-PAGE SPREAD:
+  - BLEED ZONE: The outer 0.125" will be trimmed off.
+  - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" around the center fold.
+  - SAFE MARGINS: Keep all text and critical details at least 0.5" away from the top, bottom, and outer edges.` : `
+  LAYOUT RULES FOR KDP SINGLE PAGE:
+  - BLEED ZONE: The outer 0.125" will be trimmed off.
+  - SAFE MARGINS: Keep all text and critical details at least 0.5" away from the top, bottom, and outer edges.`;
+
   // 1. BACKGROUND LAYER
-  const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment.`;
+  const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment. ${layoutRules}`;
   const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio);
 
   // 2. CHARACTER LAYER
-  const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND.`;
+  const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
   const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
-  const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND.`;
+  const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
   const propsRaw = await restyleIllustration(undefined, propsPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio);
   const propsImage = await removeWhiteBackground(propsRaw);
 
@@ -696,7 +715,7 @@ export const generateLayeredIllustration = async (
   if (targetText) {
     const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. 
     IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
-    Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
+    Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${layoutRules}`;
     const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
     textLayer = await removeWhiteBackground(textRaw);
   }
@@ -761,12 +780,19 @@ export const generateLayeredCover = async (
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered cover generation...");
   
+  const coverRules = `
+  LAYOUT RULES FOR KDP COVER:
+  - BLEED ZONE: The outer 0.125" will be trimmed off. Extend background art to the edges but keep critical details out.
+  - SAFE MARGINS: Keep all text and critical details at least 0.5" away from the edges.
+  - SPINE: If this is a full wrap cover, leave space in the center for the spine. Do not place critical text across the spine folds.
+  `;
+
   // 1. BACKGROUND LAYER
-  const bgPrompt = `BOOK COVER BACKGROUND ONLY: ${context}. Style: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO TEXT. Just the environment and atmosphere.`;
+  const bgPrompt = `BOOK COVER BACKGROUND ONLY: ${context}. Style: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO TEXT. Just the environment and atmosphere. ${coverRules}`;
   const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio);
 
   // 2. CHARACTER LAYER
-  const charPrompt = `BOOK COVER CHARACTER LAYER: ${context}. Style: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO TEXT. Place them on a SOLID PURE WHITE BACKGROUND.`;
+  const charPrompt = `BOOK COVER CHARACTER LAYER: ${context}. Style: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO TEXT. Place them on a SOLID PURE WHITE BACKGROUND. ${coverRules}`;
   const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, characters, [], true, false, false, masterBible, targetResolution, "", aspectRatio);
   const charImage = await removeWhiteBackground(charRaw);
 
@@ -774,8 +800,8 @@ export const generateLayeredCover = async (
   let textLayer = null;
   if (title) {
     const textPrompt = `BOOK COVER TITLE LAYER: Render the title "${title}" in a bold, cinematic book cover font style. 
-    IMPORTANT: Place the title in the UPPER THIRD of the frame, leaving at least 15% margin from all edges. 
-    Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
+    IMPORTANT: Place the title in the UPPER THIRD of the frame, leaving at least 15% margin from all edges (SAFE MARGINS). 
+    Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${coverRules}`;
     const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio);
     textLayer = await removeWhiteBackground(textRaw);
   }

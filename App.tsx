@@ -12,22 +12,46 @@ import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers } from './geminiService';
 import { searchBookNiches } from './nicheService';
 import Markdown from 'react-markdown';
-import { generateBookPDF } from './utils/pdfGenerator';
+import { generateBookPDF, generateCoverPDF } from './utils/pdfGenerator';
 import { exportProjectAssetsForCanva } from './utils/exportUtils';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
+import { getInsideMargin } from './kdpConfig';
 
 type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor' | 'niche-research';
 
-const SpreadGuide = ({ isSpread, show, format }: { isSpread: boolean, show: boolean, format: ExportFormat }) => {
+const SpreadGuide = ({ isSpread, show, format, pageCount = 100 }: { isSpread: boolean, show: boolean, format: ExportFormat, pageCount?: number }) => {
   if (!show) return null;
-  const config = PRINT_FORMATS[format];
+  const config = PRINT_FORMATS[format] || PRINT_FORMATS.KDP_8_5x8_5;
+  
+  // Calculate percentages based on the format dimensions
+  const totalWidth = isSpread ? config.width * 2 : config.width;
+  const totalHeight = config.height;
+  
+  const bleedX = (config.bleed / totalWidth) * 100;
+  const bleedY = (config.bleed / totalHeight) * 100;
+  
+  const safeTop = (config.top / totalHeight) * 100;
+  const safeBottom = (config.bottom / totalHeight) * 100;
+  const safeOutside = (config.outside / totalWidth) * 100;
+  
+  const actualGutter = format.startsWith('KDP_') ? getInsideMargin(pageCount) : config.baseGutter;
+  const safeInside = (actualGutter / totalWidth) * 100;
   
   return (
     <div className="absolute inset-0 pointer-events-none z-20">
       {/* Bleed Area Overlay */}
-      <div className="absolute inset-0 border-[8px] border-red-500/10" />
-      <div className="absolute top-2 right-2 text-red-500/40 font-black text-[6px] uppercase tracking-widest">Bleed Zone</div>
+      <div 
+        className="absolute border-red-500/20" 
+        style={{
+          top: 0, left: 0, right: 0, bottom: 0,
+          borderTopWidth: `${bleedY}%`,
+          borderBottomWidth: `${bleedY}%`,
+          borderLeftWidth: `${bleedX}%`,
+          borderRightWidth: `${bleedX}%`,
+        }}
+      />
+      <div className="absolute top-2 right-2 text-red-500/60 font-black text-[6px] uppercase tracking-widest">Bleed Zone</div>
 
       {/* Gutter / Fold */}
       {isSpread && (
@@ -38,7 +62,39 @@ const SpreadGuide = ({ isSpread, show, format }: { isSpread: boolean, show: bool
       )}
       
       {/* Safe Margins Guide */}
-      <div className="absolute inset-12 border-2 border-dashed border-indigo-500/30 rounded-lg" />
+      <div 
+        className="absolute border-2 border-dashed border-indigo-500/50 rounded-sm"
+        style={{
+          top: `${safeTop}%`,
+          bottom: `${safeBottom}%`,
+          left: isSpread ? `${safeOutside}%` : `${safeInside}%`,
+          right: isSpread ? `${safeOutside}%` : `${safeOutside}%`,
+        }}
+      />
+      {isSpread && (
+        <div 
+          className="absolute border-2 border-dashed border-indigo-500/50 rounded-sm"
+          style={{
+            top: `${safeTop}%`,
+            bottom: `${safeBottom}%`,
+            left: `50%`,
+            right: `${safeOutside}%`,
+            marginLeft: `${safeInside}%`
+          }}
+        />
+      )}
+      {isSpread && (
+        <div 
+          className="absolute border-2 border-dashed border-indigo-500/50 rounded-sm"
+          style={{
+            top: `${safeTop}%`,
+            bottom: `${safeBottom}%`,
+            left: `${safeOutside}%`,
+            right: `50%`,
+            marginRight: `${safeInside}%`
+          }}
+        />
+      )}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-widest shadow-lg whitespace-nowrap">Safe Text Area</div>
     </div>
   );
@@ -230,7 +286,7 @@ const App: React.FC = () => {
     mode: 'restyle',
     targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines',
     targetLanguage: 'NONE_CLEAN_BG',
-    exportFormat: 'KDP_SQUARE',
+    exportFormat: 'KDP_8_5x8_5',
     spreadExportMode: 'WIDE_SPREAD',
     useProModel: true,
     embedTextInImage: false,
@@ -1005,7 +1061,7 @@ const App: React.FC = () => {
                     <div className="absolute top-8 left-8 z-10 w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black text-2xl shadow-2xl">#{idx + 1}</div>
                     <div className="aspect-[4/3] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner border-8 border-white relative">
                       {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
-                      <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} />
+                      <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
                     </div>
                     {p.originalText && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 italic leading-relaxed">"{p.originalText}"</p>}
                     {p.layers && p.layers.length > 0 && (
@@ -1235,7 +1291,7 @@ const App: React.FC = () => {
                 <div key={p.id} className="bg-white rounded-[6rem] border-4 border-slate-50 shadow-2xl overflow-hidden group transition-all">
                   <div className="aspect-[16/9] bg-slate-100 relative group overflow-hidden">
                      {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className={`w-full h-full object-cover transition-all duration-1000 ${p.status === 'processing' ? 'opacity-30 blur-2xl scale-110' : 'opacity-100'}`} />}
-                     <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} />
+                     <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
                      {p.status === 'processing' && <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-600/10"><Loader2 size={80} className="animate-spin text-indigo-600" /></div>}
                      {p.status === 'error' && (
                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50/90 backdrop-blur-sm p-8 text-center">
@@ -1429,11 +1485,11 @@ const App: React.FC = () => {
               <div className="flex-1 space-y-12 sticky top-36">
                 <div className="space-y-4"><h2 className="text-7xl font-black">Interior Master</h2><p className="text-slate-500 text-2xl font-medium">Standardized layout for professional KDP and Lulu publishing.</p></div>
                 <div className="bg-white border-2 border-slate-100 rounded-[5rem] p-16 shadow-2xl space-y-12">
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-2 gap-6 max-h-[50vh] overflow-y-auto p-4 -m-4">
                       {(Object.keys(PRINT_FORMATS) as (keyof typeof PRINT_FORMATS)[]).map((key) => (
-                        <button key={key} onClick={() => setSettings({...settings, exportFormat: key})} className={`p-10 rounded-[3rem] border-2 text-left transition-all ${settings.exportFormat === key ? 'border-indigo-600 bg-indigo-50 shadow-2xl' : 'border-slate-50 opacity-40 hover:opacity-100'}`}>
-                          <div className="font-black text-2xl text-slate-800">{PRINT_FORMATS[key].name}</div>
-                          <div className="text-xs text-slate-400 font-bold uppercase mt-2 tracking-widest">Industry Default</div>
+                        <button key={key} onClick={() => setSettings({...settings, exportFormat: key})} className={`p-8 rounded-[2rem] border-2 text-left transition-all ${settings.exportFormat === key ? 'border-indigo-600 bg-indigo-50 shadow-xl' : 'border-slate-100 opacity-60 hover:opacity-100 hover:border-slate-300'}`}>
+                          <div className="font-black text-xl text-slate-800">{PRINT_FORMATS[key].name}</div>
+                          <div className="text-[10px] text-slate-400 font-bold uppercase mt-2 tracking-widest">{key.startsWith('KDP') ? 'KDP Standard' : 'Industry Default'}</div>
                         </button>
                       ))}
                   </div>
@@ -1551,7 +1607,7 @@ const App: React.FC = () => {
                   {coverImage ? (
                     <div className="relative w-full h-full">
                        <img src={coverImage} className="w-full h-full object-cover" />
-                       <SpreadGuide isSpread={false} show={settings.showSafeGuides} format={settings.exportFormat} />
+                       <SpreadGuide isSpread={false} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
                        {coverLayers && coverLayers.length > 0 && (
                          <div className="absolute bottom-0 inset-x-0 bg-white/90 backdrop-blur-xl p-6 border-t border-slate-100">
                             <LayerManager 
@@ -1594,8 +1650,9 @@ const App: React.FC = () => {
                          </div>
                        )}
                        <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-6">
-                         <button onClick={() => { const a = document.createElement('a'); a.href = coverImage; a.download = 'cover.png'; a.click(); }} className="p-6 bg-white rounded-3xl text-indigo-600 shadow-2xl hover:scale-110 transition-transform"><Download size={32} /></button>
-                         <button onClick={() => setCoverImage(null)} className="p-6 bg-white rounded-3xl text-red-500 shadow-2xl hover:scale-110 transition-transform"><Trash2 size={32} /></button>
+                         <button onClick={() => { const a = document.createElement('a'); a.href = coverImage; a.download = 'cover.png'; a.click(); }} className="p-6 bg-white rounded-3xl text-indigo-600 shadow-2xl hover:scale-110 transition-transform" title="Download PNG"><Download size={32} /></button>
+                         <button onClick={() => generateCoverPDF(coverImage, settings.exportFormat, projectName, settings.estimatedPageCount)} className="p-6 bg-emerald-500 rounded-3xl text-white shadow-2xl hover:scale-110 transition-transform" title="Download KDP PDF"><FileText size={32} /></button>
+                         <button onClick={() => setCoverImage(null)} className="p-6 bg-white rounded-3xl text-red-500 shadow-2xl hover:scale-110 transition-transform" title="Delete Cover"><Trash2 size={32} /></button>
                        </div>
                     </div>
                   ) : (
