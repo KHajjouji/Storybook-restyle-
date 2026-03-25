@@ -17,8 +17,9 @@ import { exportProjectAssetsForCanva } from './utils/exportUtils';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 import { getInsideMargin } from './kdpConfig';
+import { KdpPdfFixer } from './components/KdpPdfFixer';
 
-type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor' | 'niche-research';
+type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor' | 'niche-research' | 'kdp-fixer';
 
 const SpreadGuide = ({ isSpread, show, format, pageCount = 100 }: { isSpread: boolean, show: boolean, format: ExportFormat, pageCount?: number }) => {
   if (!show) return null;
@@ -449,7 +450,7 @@ const App: React.FC = () => {
         setProjectName(project.name);
         setSettings(project.settings);
         setPages(project.pages);
-        setCurrentStep(project.currentStep);
+        setCurrentStep((project.currentStep as Step) || 'restyle-editor');
         setFullScript(project.fullScript || "");
         setActivityScript(project.activityScript || "");
         setNicheTopic(project.nicheTopic || "");
@@ -459,8 +460,8 @@ const App: React.FC = () => {
         setProjectContext(project.projectContext || "");
         setEnableActivityDesigner(project.enableActivityDesigner || false);
         setGlobalFixPrompt(project.globalFixPrompt || "");
-        setTargetAspectRatio(project.targetAspectRatio || '4:3');
-        setTargetResolution(project.targetResolution || '1024x1024');
+        setTargetAspectRatio((project.targetAspectRatio as any) || '4:3');
+        setTargetResolution((project.targetResolution as any) || '1K');
         showToast("Project imported successfully!");
       } catch (err) {
         console.error(err);
@@ -513,7 +514,7 @@ const App: React.FC = () => {
       setPages(prev => [...prev, ...result.pages.map(p => ({
         id: Math.random().toString(36).substring(7),
         originalText: p.text,
-        status: 'idle',
+        status: 'idle' as const,
         assignments: p.mappedCharacterNames.map(name => ({ refId: name, description: "" })),
         isSpread: p.isSpread,
         overrideStylePrompt: p.fullPrompt || p.text
@@ -532,7 +533,7 @@ const App: React.FC = () => {
       setPages(prev => [...prev, ...result.spreads.map(s => ({
         id: Math.random().toString(36).substring(7),
         originalText: s.title,
-        status: 'idle',
+        status: 'idle' as const,
         assignments: [],
         isSpread: true,
         overrideStylePrompt: s.fullPrompt
@@ -911,9 +912,17 @@ const App: React.FC = () => {
                 <h4 className="text-2xl font-black mb-3 text-slate-900">Niche Research</h4>
                 <p className="text-slate-400 font-medium">Analyze market demand, competition, and profitability for book ideas.</p>
               </button>
+              <button onClick={() => { setSettings({...settings, mode: 'kdp-fixer'}); setCurrentStep('kdp-fixer'); }} className="group p-10 bg-white border-2 border-emerald-100 rounded-[4rem] text-left hover:border-emerald-600 hover:shadow-2xl transition-all relative overflow-hidden">
+                <div className="w-16 h-16 bg-emerald-50 rounded-3xl flex items-center justify-center mb-8 text-emerald-600 group-hover:scale-110 transition-transform"><FileText size={32} /></div>
+                <h4 className="text-2xl font-black mb-3 text-slate-900">KDP PDF Fixer</h4>
+                <p className="text-slate-400 font-medium">Upload a rejected PDF and KDP notes to automatically fix bleed and margins.</p>
+              </button>
             </div>
           </div>
         );
+
+      case 'kdp-fixer':
+        return <KdpPdfFixer onBack={() => setCurrentStep('landing')} />;
 
       case 'niche-research':
         return (
