@@ -1385,8 +1385,13 @@ const App: React.FC = () => {
                   </div>
                   <div className="p-16 space-y-10">
                     <div className="space-y-4">
-                       <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><PenTool size={20} /> Scene Instructions</h4>
-                       <p className="text-lg text-slate-500 font-bold leading-relaxed italic bg-slate-50 p-10 rounded-[2.5rem]">"{p.originalText || 'General Scene'}"</p>
+                       <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><PenTool size={20} /> Editable PDF Text Overlay</h4>
+                       <textarea 
+                         value={p.originalText || ''}
+                         onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, originalText: e.target.value } : pg))}
+                         className="w-full text-lg text-slate-700 font-bold leading-relaxed bg-slate-50 p-10 rounded-[2.5rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0 resize-y min-h-[120px]"
+                         placeholder="Enter the text that will appear on this page in the final PDF..."
+                       />
                     </div>
 
                     <LayerManager 

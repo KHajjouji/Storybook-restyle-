@@ -8,6 +8,7 @@ interface KdpPdfFixerProps {
 }
 
 export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
+  const [fixMode, setFixMode] = useState<'scale_original' | 'center_original' | 'blank_template'>('scale_original');
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [kdpNotes, setKdpNotes] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -54,6 +55,8 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
           "isCover": boolean, // true if the notes refer to a cover, false if interior
           "targetWidthInches": number, // The FINAL required width of the PDF page in inches (MUST include bleed if required by KDP). E.g., if trim is 8.5x11 and interior bleed is required, width is 8.625 and height is 11.25.
           "targetHeightInches": number, // The FINAL required height of the PDF page in inches (MUST include bleed if required).
+          "trimWidthInches": number, // The intended trim width in inches (without bleed).
+          "trimHeightInches": number, // The intended trim height in inches (without bleed).
           "hasBleed": boolean, // true if the document requires bleed
           "action": "scale_to_fit" | "scale_to_bleed" | "center" // How to handle the original pages. If background needs to extend to edges, use "scale_to_bleed". If content is cut off, use "scale_to_fit".
         }
@@ -75,10 +78,12 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
               isCover: { type: Type.BOOLEAN },
               targetWidthInches: { type: Type.NUMBER },
               targetHeightInches: { type: Type.NUMBER },
+              trimWidthInches: { type: Type.NUMBER },
+              trimHeightInches: { type: Type.NUMBER },
               hasBleed: { type: Type.BOOLEAN },
               action: { type: Type.STRING }
             },
-            required: ["isCover", "targetWidthInches", "targetHeightInches", "hasBleed", "action"]
+            required: ["isCover", "targetWidthInches", "targetHeightInches", "trimWidthInches", "trimHeightInches", "hasBleed", "action"]
           }
         }
       });
@@ -101,50 +106,96 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
       const targetWidthPts = specs.targetWidthInches * 72;
       const targetHeightPts = specs.targetHeightInches * 72;
 
-      // 4. Embed and place pages
-      const embeddedPages = await newPdf.embedPdf(pdfBytes, indices);
-
-      for (let i = 0; i < embeddedPages.length; i++) {
-        const embeddedPage = embeddedPages[i];
-        const newPage = newPdf.addPage([targetWidthPts, targetHeightPts]);
+      if (fixMode === 'blank_template') {
+        // Generate blank template with guides
+        const { rgb } = await import('pdf-lib');
         
-        const origWidth = embeddedPage.width;
-        const origHeight = embeddedPage.height;
-
-        let scale = 1;
-        let x = 0;
-        let y = 0;
-
-        if (specs.action === 'scale_to_bleed') {
-          // Scale to fill the entire new page (might crop slightly if aspect ratios differ)
-          const scaleX = targetWidthPts / origWidth;
-          const scaleY = targetHeightPts / origHeight;
-          scale = Math.max(scaleX, scaleY);
-          x = (targetWidthPts - origWidth * scale) / 2;
-          y = (targetHeightPts - origHeight * scale) / 2;
-        } else if (specs.action === 'scale_to_fit') {
-          // Scale to fit within the safe area (assuming 0.25" safe margin)
-          const safeMarginPts = 0.25 * 72;
-          const safeWidth = targetWidthPts - (safeMarginPts * 2);
-          const safeHeight = targetHeightPts - (safeMarginPts * 2);
+        for (let i = 0; i < pageCount; i++) {
+          const newPage = newPdf.addPage([targetWidthPts, targetHeightPts]);
           
-          const scaleX = safeWidth / origWidth;
-          const scaleY = safeHeight / origHeight;
-          scale = Math.min(scaleX, scaleY);
-          x = (targetWidthPts - origWidth * scale) / 2;
-          y = (targetHeightPts - origHeight * scale) / 2;
-        } else {
-          // Center without scaling
-          x = (targetWidthPts - origWidth) / 2;
-          y = (targetHeightPts - origHeight) / 2;
+          const bleedPts = 0.125 * 72;
+          const safePts = 0.25 * 72;
+          
+          // Draw Bleed Area (Red border)
+          newPage.drawRectangle({
+            x: bleedPts,
+            y: bleedPts,
+            width: targetWidthPts - (bleedPts * 2),
+            height: targetHeightPts - (bleedPts * 2),
+            borderColor: rgb(1, 0, 0),
+            borderWidth: 1,
+          });
+          
+          // Draw Safe Area (Blue dashed border)
+          newPage.drawRectangle({
+            x: bleedPts + safePts,
+            y: bleedPts + safePts,
+            width: targetWidthPts - (bleedPts * 2) - (safePts * 2),
+            height: targetHeightPts - (bleedPts * 2) - (safePts * 2),
+            borderColor: rgb(0, 0, 1),
+            borderWidth: 1,
+            borderDashArray: [5, 5],
+          });
+          
+          // Add text
+          newPage.drawText(`Page ${i + 1} Template`, { x: 50, y: targetHeightPts - 50, size: 24, color: rgb(0,0,0) });
+          newPage.drawText(`Target Size (with Bleed): ${specs.targetWidthInches}" x ${specs.targetHeightInches}"`, { x: 50, y: targetHeightPts - 80, size: 14 });
+          newPage.drawText(`Trim Size: ${specs.trimWidthInches}" x ${specs.trimHeightInches}"`, { x: 50, y: targetHeightPts - 100, size: 14 });
+          newPage.drawText(`Red Box = Trim Line`, { x: 50, y: targetHeightPts - 130, size: 12, color: rgb(1,0,0) });
+          newPage.drawText(`Dashed Blue Box = Safe Area`, { x: 50, y: targetHeightPts - 150, size: 12, color: rgb(0,0,1) });
         }
+        
+        setSuccessMsg(`Successfully generated ${pageCount}-page template at ${specs.targetWidthInches}" x ${specs.targetHeightInches}".`);
+      } else {
+        // 4. Embed and place pages
+        const embeddedPages = await newPdf.embedPdf(pdfBytes, indices);
 
-        newPage.drawPage(embeddedPage, {
-          x,
-          y,
-          width: origWidth * scale,
-          height: origHeight * scale,
-        });
+        for (let i = 0; i < embeddedPages.length; i++) {
+          const embeddedPage = embeddedPages[i];
+          const newPage = newPdf.addPage([targetWidthPts, targetHeightPts]);
+          
+          const origWidth = embeddedPage.width;
+          const origHeight = embeddedPage.height;
+
+          let scale = 1;
+          let x = 0;
+          let y = 0;
+
+          if (fixMode === 'center_original') {
+            x = (targetWidthPts - origWidth) / 2;
+            y = (targetHeightPts - origHeight) / 2;
+          } else if (specs.action === 'scale_to_bleed') {
+            // Scale to fill the entire new page (might crop slightly if aspect ratios differ)
+            const scaleX = targetWidthPts / origWidth;
+            const scaleY = targetHeightPts / origHeight;
+            scale = Math.max(scaleX, scaleY);
+            x = (targetWidthPts - origWidth * scale) / 2;
+            y = (targetHeightPts - origHeight * scale) / 2;
+          } else if (specs.action === 'scale_to_fit') {
+            // Scale to fit within the safe area (assuming 0.25" safe margin)
+            const safeMarginPts = 0.25 * 72;
+            const safeWidth = targetWidthPts - (safeMarginPts * 2);
+            const safeHeight = targetHeightPts - (safeMarginPts * 2);
+            
+            const scaleX = safeWidth / origWidth;
+            const scaleY = safeHeight / origHeight;
+            scale = Math.min(scaleX, scaleY);
+            x = (targetWidthPts - origWidth * scale) / 2;
+            y = (targetHeightPts - origHeight * scale) / 2;
+          } else {
+            // Center without scaling
+            x = (targetWidthPts - origWidth) / 2;
+            y = (targetHeightPts - origHeight) / 2;
+          }
+
+          newPage.drawPage(embeddedPage, {
+            x,
+            y,
+            width: origWidth * scale,
+            height: origHeight * scale,
+          });
+        }
+        setSuccessMsg(`Successfully resized to ${specs.targetWidthInches}" x ${specs.targetHeightInches}" (${specs.isCover ? 'Cover' : 'Interior'}, ${specs.action}).`);
       }
 
       // 5. Save and create URL
@@ -153,7 +204,6 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
       const url = URL.createObjectURL(blob);
       
       setFixedPdfUrl(url);
-      setSuccessMsg(`Successfully resized to ${specs.targetWidthInches}" x ${specs.targetHeightInches}" (${specs.isCover ? 'Cover' : 'Interior'}, ${specs.action}).`);
 
     } catch (err: any) {
       console.error(err);
@@ -173,6 +223,38 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Left Column: Inputs */}
         <div className="bg-white rounded-[3rem] p-10 shadow-2xl border border-slate-100 space-y-8">
+          
+          <div className="space-y-4">
+            <h3 className="text-xl font-black text-slate-800 flex items-center gap-3">
+              <CheckCircle2 className="text-emerald-500" /> Mode
+            </h3>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <button 
+                onClick={() => setFixMode('scale_original')}
+                className={`flex-1 py-4 px-6 rounded-2xl font-bold border-2 transition-all ${fixMode === 'scale_original' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-white border-slate-200 text-slate-500 hover:border-emerald-300'}`}
+              >
+                Fix & Scale Original
+              </button>
+              <button 
+                onClick={() => setFixMode('center_original')}
+                className={`flex-1 py-4 px-6 rounded-2xl font-bold border-2 transition-all ${fixMode === 'center_original' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-white border-slate-200 text-slate-500 hover:border-emerald-300'}`}
+              >
+                Center Original (No Scale)
+              </button>
+              <button 
+                onClick={() => setFixMode('blank_template')}
+                className={`flex-1 py-4 px-6 rounded-2xl font-bold border-2 transition-all ${fixMode === 'blank_template' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-white border-slate-200 text-slate-500 hover:border-emerald-300'}`}
+              >
+                Generate Blank Template
+              </button>
+            </div>
+            <p className="text-sm text-slate-500">
+              {fixMode === 'scale_original' && "Resizes your uploaded PDF and scales the existing pages to fit the new KDP dimensions."}
+              {fixMode === 'center_original' && "Adds the required KDP margins/bleed around your existing pages without stretching or scaling them (best for text manuscripts)."}
+              {fixMode === 'blank_template' && "Creates a blank PDF with the exact same number of pages, but adds KDP bleed and safe area guides so you can place your own images."}
+            </p>
+          </div>
+
           <div className="space-y-4">
             <h3 className="text-xl font-black text-slate-800 flex items-center gap-3">
               <Upload className="text-indigo-500" /> 1. Upload PDF
