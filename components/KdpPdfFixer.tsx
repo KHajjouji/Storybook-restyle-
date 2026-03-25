@@ -37,7 +37,18 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
     setSuccessMsg(null);
 
     try {
-      // 1. Parse KDP Notes using Gemini
+      // 1. Load the uploaded PDF to get original dimensions
+      const pdfBytes = await pdfFile.arrayBuffer();
+      const originalPdf = await PDFDocument.load(pdfBytes);
+      const pageCount = originalPdf.getPageCount();
+      const indices = Array.from({ length: pageCount }, (_, i) => i);
+      
+      // Get dimensions of the first page (in points, 72 pts = 1 inch)
+      const firstPage = originalPdf.getPage(0);
+      const origWidthInches = firstPage.getWidth() / 72;
+      const origHeightInches = firstPage.getHeight() / 72;
+
+      // 2. Parse KDP Notes using Gemini
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
       
@@ -46,6 +57,9 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
       const prompt = `
         Analyze the following KDP (Kindle Direct Publishing) rejection email or notes.
         Extract the required dimensions and specifications for the PDF.
+        
+        The user uploaded a PDF with original dimensions: ${origWidthInches.toFixed(3)}" x ${origHeightInches.toFixed(3)}".
+        If the email does not explicitly state the target trim size, assume the original dimensions are the intended trim size (or close to it) and calculate the target size by adding the required bleed.
         
         KDP Notes:
         "${kdpNotes}"
@@ -92,12 +106,6 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
       if (!specs.targetWidthInches || !specs.targetHeightInches) {
         throw new Error("Could not determine target dimensions from the provided notes.");
       }
-
-      // 2. Load the uploaded PDF
-      const pdfBytes = await pdfFile.arrayBuffer();
-      const originalPdf = await PDFDocument.load(pdfBytes);
-      const pageCount = originalPdf.getPageCount();
-      const indices = Array.from({ length: pageCount }, (_, i) => i);
 
       // 3. Create a new PDF
       const newPdf = await PDFDocument.create();
