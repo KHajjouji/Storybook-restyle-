@@ -156,9 +156,11 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
       const newPdf = await PDFDocument.create();
       
       // Convert inches to points (1 inch = 72 points)
-      // We use Math.round(x * 1000) / 1000 to prevent floating point precision issues
-      const targetWidthPts = Math.round(specs.targetWidthInches * 72 * 1000) / 1000;
-      const targetHeightPts = Math.round(specs.targetHeightInches * 72 * 1000) / 1000;
+      // PDF-lib requires exact point values. 
+      // 8.625 inches * 72 points = 621 points exactly.
+      // 8.75 inches * 72 points = 630 points exactly.
+      const targetWidthPts = Math.round(specs.targetWidthInches * 72);
+      const targetHeightPts = Math.round(specs.targetHeightInches * 72);
 
       if (fixMode === 'blank_template') {
         // Generate blank template with guides
