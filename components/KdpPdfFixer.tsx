@@ -19,9 +19,20 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
 
   // Manual Override State
   const [useManualOverride, setUseManualOverride] = useState(false);
+  const [selectedStandardSize, setSelectedStandardSize] = useState<string>('8.5x8.5');
   const [manualTrimWidth, setManualTrimWidth] = useState<string>('8.5');
   const [manualTrimHeight, setManualTrimHeight] = useState<string>('8.5');
   const [manualIsCover, setManualIsCover] = useState<boolean>(false);
+
+  const handleStandardSizeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setSelectedStandardSize(val);
+    if (val !== 'custom') {
+      const [w, h] = val.split('x');
+      setManualTrimWidth(w);
+      setManualTrimHeight(h);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -354,13 +365,40 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
             
             {useManualOverride && (
               <div className="grid grid-cols-2 gap-4 mt-4 animate-in fade-in slide-in-from-top-2">
+                <div className="col-span-2">
+                  <label className="block text-sm font-bold text-slate-600 mb-1">Standard KDP Trim Size</label>
+                  <select 
+                    value={selectedStandardSize}
+                    onChange={handleStandardSizeChange}
+                    className="w-full p-3 rounded-xl border-2 border-slate-200 focus:border-indigo-400 bg-white text-slate-700 font-medium"
+                  >
+                    <option value="5x8">5" x 8"</option>
+                    <option value="5.06x7.81">5.06" x 7.81"</option>
+                    <option value="5.25x8">5.25" x 8"</option>
+                    <option value="5.5x8.5">5.5" x 8.5"</option>
+                    <option value="6x9">6" x 9"</option>
+                    <option value="6.14x9.21">6.14" x 9.21"</option>
+                    <option value="6.69x9.61">6.69" x 9.61"</option>
+                    <option value="7x10">7" x 10"</option>
+                    <option value="7.44x9.69">7.44" x 9.69"</option>
+                    <option value="7.5x9.25">7.5" x 9.25"</option>
+                    <option value="8x10">8" x 10"</option>
+                    <option value="8.5x8.5">8.5" x 8.5"</option>
+                    <option value="8.5x11">8.5" x 11"</option>
+                    <option value="8.27x11.69">8.27" x 11.69" (A4)</option>
+                    <option value="custom">Custom Size...</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-600 mb-1">Trim Width (inches)</label>
                   <input 
                     type="number" 
                     step="0.125"
                     value={manualTrimWidth} 
-                    onChange={(e) => setManualTrimWidth(e.target.value)}
+                    onChange={(e) => {
+                      setManualTrimWidth(e.target.value);
+                      setSelectedStandardSize('custom');
+                    }}
                     className="w-full p-3 rounded-xl border-2 border-slate-200 focus:border-indigo-400"
                   />
                 </div>
@@ -370,7 +408,10 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
                     type="number" 
                     step="0.125"
                     value={manualTrimHeight} 
-                    onChange={(e) => setManualTrimHeight(e.target.value)}
+                    onChange={(e) => {
+                      setManualTrimHeight(e.target.value);
+                      setSelectedStandardSize('custom');
+                    }}
                     className="w-full p-3 rounded-xl border-2 border-slate-200 focus:border-indigo-400"
                   />
                 </div>
