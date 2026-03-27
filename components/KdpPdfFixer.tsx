@@ -156,8 +156,9 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
       const newPdf = await PDFDocument.create();
       
       // Convert inches to points (1 inch = 72 points)
-      const targetWidthPts = specs.targetWidthInches * 72;
-      const targetHeightPts = specs.targetHeightInches * 72;
+      // We use Math.round(x * 1000) / 1000 to prevent floating point precision issues
+      const targetWidthPts = Math.round(specs.targetWidthInches * 72 * 1000) / 1000;
+      const targetHeightPts = Math.round(specs.targetHeightInches * 72 * 1000) / 1000;
 
       if (fixMode === 'blank_template') {
         // Generate blank template with guides
@@ -192,13 +193,13 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
           
           // Add text
           newPage.drawText(`Page ${i + 1} Template`, { x: 50, y: targetHeightPts - 50, size: 24, color: rgb(0,0,0) });
-          newPage.drawText(`Target Size (with Bleed): ${specs.targetWidthInches}" x ${specs.targetHeightInches}"`, { x: 50, y: targetHeightPts - 80, size: 14 });
-          newPage.drawText(`Trim Size: ${specs.trimWidthInches}" x ${specs.trimHeightInches}"`, { x: 50, y: targetHeightPts - 100, size: 14 });
+          newPage.drawText(`Target Size (with Bleed): ${specs.targetWidthInches.toFixed(3)}" x ${specs.targetHeightInches.toFixed(3)}"`, { x: 50, y: targetHeightPts - 80, size: 14 });
+          newPage.drawText(`Trim Size: ${specs.trimWidthInches.toFixed(3)}" x ${specs.trimHeightInches.toFixed(3)}"`, { x: 50, y: targetHeightPts - 100, size: 14 });
           newPage.drawText(`Red Box = Trim Line`, { x: 50, y: targetHeightPts - 130, size: 12, color: rgb(1,0,0) });
           newPage.drawText(`Dashed Blue Box = Safe Area`, { x: 50, y: targetHeightPts - 150, size: 12, color: rgb(0,0,1) });
         }
         
-        setSuccessMsg(`Successfully generated ${pageCount}-page template at ${specs.targetWidthInches}" x ${specs.targetHeightInches}".`);
+        setSuccessMsg(`Successfully generated ${pageCount}-page template at ${specs.targetWidthInches.toFixed(3)}" x ${specs.targetHeightInches.toFixed(3)}".`);
       } else {
         // 4. Embed and place pages
         const embeddedPages = await newPdf.embedPdf(pdfBytes, indices);
@@ -248,7 +249,7 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
             height: origHeight * scale,
           });
         }
-        setSuccessMsg(`Successfully resized to ${specs.targetWidthInches}" x ${specs.targetHeightInches}" (${specs.isCover ? 'Cover' : 'Interior'}, ${specs.action}).`);
+        setSuccessMsg(`Successfully resized to ${specs.targetWidthInches.toFixed(3)}" x ${specs.targetHeightInches.toFixed(3)}" (${specs.isCover ? 'Cover' : 'Interior'}, ${specs.action}).`);
       }
 
       // 5. Save and create URL
