@@ -654,7 +654,9 @@ const App: React.FC = () => {
           finalAspectRatio,
           targetResolution,
           targetText,
-          p.isSpread
+          p.isSpread,
+          settings.exportFormat,
+          settings.estimatedPageCount
         );
         result = layeredResult.composite;
         layers = layeredResult.layers;
@@ -662,11 +664,11 @@ const App: React.FC = () => {
         result = await upscaleIllustration(p.originalImage, narrativeContext, p.isSpread, targetResolution, finalAspectRatio);
       } else if (p.originalImage) {
         const others = pages.filter(pg => pg.id !== pageId && pg.processedImage).slice(0, 3).map(pg => ({ base64: pg.processedImage!, index: pages.indexOf(pg) + 1 }));
-        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText);
+        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText, settings.exportFormat, settings.estimatedPageCount);
       } else {
         // For activities, use the specific spread prompt as the primary instruction
         const promptToUse = p.overrideStylePrompt || narrativeContext;
-        result = await restyleIllustration(undefined, promptToUse, undefined, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio);
+        result = await restyleIllustration(undefined, promptToUse, undefined, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
     } catch (e) { 
@@ -712,15 +714,15 @@ const App: React.FC = () => {
       let layers;
 
       if (fixMode === 'separate-layers') {
-        const layeredRes = await separateIllustrationIntoLayers(targetImg, finalPrompt, selectedRefs, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
+        const layeredRes = await separateIllustrationIntoLayers(targetImg, finalPrompt, selectedRefs, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else if (settings.layeredMode) {
-        const layeredRes = await refineLayeredIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
+        const layeredRes = await refineLayeredIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else {
-        res = await refineIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText);
+        res = await refineIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount);
       }
       
       setPages(curr => curr.map(pg => pg.id === targetId ? { 
@@ -1689,7 +1691,7 @@ const App: React.FC = () => {
                          const selectedChars = settings.characterReferences.filter(c => selectedCoverCharIds.has(c.id));
                          
                          if (settings.layeredMode) {
-                           generateLayeredCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, projectName, targetAspectRatio)
+                           generateLayeredCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, projectName, targetAspectRatio, settings.exportFormat, settings.estimatedPageCount)
                              .then(res => {
                                setCoverImage(res.composite);
                                setCoverLayers(res.layers);
@@ -1697,7 +1699,7 @@ const App: React.FC = () => {
                              .catch(err => console.error(err))
                              .finally(() => setIsProcessing(false));
                          } else {
-                           generateBookCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, targetAspectRatio)
+                           generateBookCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, targetAspectRatio, settings.exportFormat, settings.estimatedPageCount)
                              .then(res => setCoverImage(res))
                              .catch(err => console.error(err))
                              .finally(() => setIsProcessing(false)); 

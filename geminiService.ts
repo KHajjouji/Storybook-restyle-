@@ -1,6 +1,59 @@
 
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
-import { CharacterRef, CharacterAssignment } from "./types";
+import { CharacterRef, CharacterAssignment, ExportFormat, PRINT_FORMATS } from "./types";
+import { calculateCoverWithBleed } from "./kdpConfig";
+
+export const getBestAspectRatio = (
+  format?: ExportFormat, 
+  isSpread: boolean = false, 
+  estimatedPageCount: number = 24,
+  fallbackRatio: string = "16:9"
+): "1:1" | "3:4" | "4:3" | "9:16" | "16:9" | "1:4" | "1:8" | "4:1" | "8:1" => {
+  if (!format || !PRINT_FORMATS[format]) {
+    const supported = ["1:1", "3:4", "4:3", "9:16", "16:9", "1:4", "1:8", "4:1", "8:1"];
+    return supported.includes(fallbackRatio) ? (fallbackRatio as any) : "16:9";
+  }
+  
+  const config = PRINT_FORMATS[format];
+  let width = config.width;
+  let height = config.height;
+  
+  if (isSpread) {
+    const coverDims = calculateCoverWithBleed(config.width, config.height, estimatedPageCount);
+    width = coverDims.width;
+    height = coverDims.height;
+  } else {
+    width = config.width + config.bleed;
+    height = config.height + (config.bleed * 2);
+  }
+  
+  const targetRatio = width / height;
+  
+  const ratios = [
+    { str: "1:1", val: 1 },
+    { str: "3:4", val: 0.75 },
+    { str: "4:3", val: 1.333 },
+    { str: "9:16", val: 0.5625 },
+    { str: "16:9", val: 1.777 },
+    { str: "1:4", val: 0.25 },
+    { str: "1:8", val: 0.125 },
+    { str: "4:1", val: 4 },
+    { str: "8:1", val: 8 }
+  ];
+  
+  let best = ratios[0];
+  let minDiff = Math.abs(targetRatio - best.val);
+  
+  for (const r of ratios) {
+    const diff = Math.abs(targetRatio - r.val);
+    if (diff < minDiff) {
+      minDiff = diff;
+      best = r;
+    }
+  }
+  
+  return best.str as any;
+}
 
 /**
  * Parses a raw script text into a structured prompt pack.
@@ -119,10 +172,24 @@ export const generateBookCover = async (
   stylePrompt: string,
   masterBible: string = "",
   targetResolution: '1K' | '2K' | '4K' = '1K',
-  targetAspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16"
+  targetAspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16",
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
+  let formatRules = "";
+  if (exportFormat && estimatedPageCount && PRINT_FORMATS[exportFormat]) {
+    const config = PRINT_FORMATS[exportFormat];
+    const coverDims = calculateCoverWithBleed(config.width, config.height, estimatedPageCount);
+    formatRules = `
+  TARGET PRINT FORMAT: ${config.name} (${estimatedPageCount} pages)
+  - Exact Target Dimensions (including bleed and spine): ${coverDims.width.toFixed(3)}" wide x ${coverDims.height.toFixed(3)}" high.
+  - Spine Width: ${coverDims.spine.toFixed(3)}".
+  - Bleed Zone: The outer 0.125" will be trimmed off. Extend background art to the edges but keep critical details out.
+  - Safe Margins: Keep all critical details at least 0.5" away from the edges.`;
+  }
+
   const instruction = `INDUSTRIAL BOOK COVER DESIGN TASK:
   
   PROJECT BRIEF:
@@ -134,9 +201,7 @@ export const generateBookCover = async (
   MASTER BIBLE / GLOBAL RULES:
   ${masterBible}
   
-  LAYOUT RULES FOR KDP COVER:
-  - BLEED ZONE: The outer 0.125" will be trimmed off. Extend background art to the edges but keep critical details out.
-  - SAFE MARGINS: Keep all critical details at least 0.5" away from the edges.
+  LAYOUT RULES FOR KDP COVER: ${formatRules}
   - SPINE: If this is a full wrap cover, leave space in the center for the spine.
 
   RULES:
@@ -161,7 +226,7 @@ export const generateBookCover = async (
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3.1-flash-image-preview',
     contents: { parts },
-    config: { imageConfig: { aspectRatio: targetAspectRatio, imageSize: targetResolution } }
+    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, true, estimatedPageCount, targetAspectRatio), imageSize: targetResolution } }
   });
 
   if (response.candidates?.[0]?.content?.parts) {
@@ -223,21 +288,33 @@ export const restyleIllustration = async (
   masterBible?: string,
   imageSize: '1K' | '2K' | '4K' = '1K',
   projectContext: string = "",
-  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-2.5-flash-image';
   
+  let formatRules = "";
+  if (exportFormat && PRINT_FORMATS[exportFormat]) {
+    const config = PRINT_FORMATS[exportFormat];
+    const bleed = config.bleed;
+    const safe = config.outside;
+    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
+    const height = config.height + (bleed * 2);
+    formatRules = `
+  TARGET PRINT FORMAT: ${config.name}
+  - Exact Target Dimensions (including bleed): ${width.toFixed(3)}" wide x ${height.toFixed(3)}" high.
+  - Bleed Zone: The outer ${bleed}" will be trimmed off. Extend background art to the very edge, but keep critical details out.
+  - Safe Margins: Keep all text and critical details at least ${safe}" away from the top, bottom, and outer edges.`;
+  }
+
   const layoutRules = isSpread ? `
-  LAYOUT RULES FOR KDP 2-PAGE SPREAD:
+  LAYOUT RULES FOR KDP 2-PAGE SPREAD: ${formatRules}
   - This is a WIDE SPREAD that will be folded in the middle (GUTTER).
-  - BLEED ZONE: The outer 0.125" (approx 3% of width/height) will be trimmed off. Do NOT place any text or critical details here.
   - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" (approx 5%) around the center fold.
-  - SAFE MARGINS: Keep all text and critical details at least 0.5" (approx 6%) away from the top, bottom, and outer edges.
   - BALANCE: Ensure the composition works as two distinct halves while remaining a cohesive single image.` : `
-  LAYOUT RULES FOR KDP SINGLE PAGE:
-  - BLEED ZONE: The outer 0.125" (approx 3% of width/height) will be trimmed off. Extend background art to the very edge, but keep critical details out.
-  - SAFE MARGINS: Keep all text and critical details at least 0.5" (approx 6%) away from the top, bottom, and outer edges.
+  LAYOUT RULES FOR KDP SINGLE PAGE: ${formatRules}
   - GUTTER: The side that binds to the spine needs extra margin. Keep critical elements away from the binding edge.`;
 
   const textInstruction = targetText ? `
@@ -275,7 +352,7 @@ export const restyleIllustration = async (
   const response: GenerateContentResponse = await ai.models.generateContent({
     model,
     contents: { parts },
-    config: { imageConfig: { aspectRatio, ...(usePro ? { imageSize } : {}) } }
+    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), ...(usePro ? { imageSize } : {}) } }
   });
 
   if (response.candidates?.[0]?.content?.parts) {
@@ -299,16 +376,33 @@ export const refineIllustration = async (
   projectContext: string = "",
   charRefs: CharacterRef[] = [],
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
-  targetText?: string
+  targetText?: string,
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
   
+  let formatRules = "";
+  if (exportFormat && PRINT_FORMATS[exportFormat]) {
+    const config = PRINT_FORMATS[exportFormat];
+    const bleed = config.bleed;
+    const safe = config.outside;
+    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
+    const height = config.height + (bleed * 2);
+    formatRules = `
+  TARGET PRINT FORMAT: ${config.name}
+  - Exact Target Dimensions (including bleed): ${width.toFixed(3)}" wide x ${height.toFixed(3)}" high.
+  - Bleed Zone: The outer ${bleed}" will be trimmed off. Extend background art to the very edge, but keep critical details out.
+  - Safe Margins: Keep all text and critical details at least ${safe}" away from the top, bottom, and outer edges.`;
+  }
+
   const layoutRules = isSpread ? `
-  LAYOUT RULES FOR 2-PAGE SPREAD:
+  LAYOUT RULES FOR 2-PAGE SPREAD: ${formatRules}
   - This is a WIDE SPREAD that will be folded in the middle (GUTTER).
   - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold).
-  - SAFE MARGINS: Keep all text and critical details at least 10% away from the top, bottom, and outer edges.` : "";
+  - SAFE MARGINS: Keep all text and critical details at least 10% away from the top, bottom, and outer edges.` : `
+  LAYOUT RULES FOR SINGLE PAGE: ${formatRules}`;
 
   const textInstruction = targetText ? `
   TEXT EMBEDDING TASK:
@@ -347,7 +441,7 @@ export const refineIllustration = async (
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3.1-flash-image-preview',
     contents: { parts },
-    config: { imageConfig: { aspectRatio, imageSize } }
+    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), imageSize } }
   });
 
   if (response.candidates?.[0]?.content?.parts) {
@@ -479,27 +573,29 @@ export const separateIllustrationIntoLayers = async (
   projectContext: string = "",
   charRefs: CharacterRef[] = [],
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
-  targetText?: string
+  targetText?: string,
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting layer separation...");
   
   // 1. BACKGROUND LAYER
   const bgPrompt = `LAYER SEPARATION: Extract the BACKGROUND ONLY from the provided image. Remove all characters, text bubbles, and text. Fill in the missing background details seamlessly. ${refinementPrompt}`;
-  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
 
   // 2. CHARACTER LAYER
   const charPrompt = `LAYER SEPARATION: Extract the CHARACTERS ONLY from the provided image. Remove the background, text bubbles, and text. Place the characters on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
-  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio);
+  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio, undefined, exportFormat, estimatedPageCount);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. TEXT BUBBLE LAYER
   const bubblePrompt = `LAYER SEPARATION: Extract the TEXT BUBBLES or SPEECH BALLOONS ONLY from the provided image. Remove the background, characters, and the text inside the bubbles (leave the bubbles blank). Place the empty bubbles on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
-  const bubbleRaw = await refineIllustration(targetImageBase64, bubblePrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+  const bubbleRaw = await refineIllustration(targetImageBase64, bubblePrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
   const bubbleImage = await removeWhiteBackground(bubbleRaw);
 
   // 4. TEXT LAYER
   const textPrompt = `LAYER SEPARATION: Extract the TEXT ONLY from the provided image. Remove the background, characters, and text bubbles. Place the text on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
-  const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+  const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
   const textImage = await removeWhiteBackground(textRaw);
 
   const layers: any[] = [
@@ -512,7 +608,7 @@ export const separateIllustrationIntoLayers = async (
   // Create a composite for the main preview
   const composite = await new Promise<string>((resolve) => {
     const canvas = document.createElement('canvas');
-    const [w, h] = aspectRatio.split(':').map(Number);
+    const [w, h] = getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio).split(':').map(Number);
     const ratio = w / h;
     canvas.width = 1024 * ratio;
     canvas.height = 1024;
@@ -553,22 +649,24 @@ export const refineLayeredIllustration = async (
   projectContext: string = "",
   charRefs: CharacterRef[] = [],
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
-  targetText?: string
+  targetText?: string,
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered refinement...");
   
   // 1. BACKGROUND LAYER REFINEMENT
   const bgPrompt = `ENVIRONMENT/BACKGROUND FIX: ${refinementPrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment.`;
-  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
 
   // 2. CHARACTER LAYER REFINEMENT
   const charPrompt = `CHARACTER LAYER FIX: ${refinementPrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND.`;
-  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio);
+  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio, undefined, exportFormat, estimatedPageCount);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER REFINEMENT
   const propsPrompt = `FOREGROUND PROPS FIX: ${refinementPrompt}. Render only the interactive objects, toys, or foreground elements. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND.`;
-  const propsRaw = await refineIllustration(targetImageBase64, propsPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+  const propsRaw = await refineIllustration(targetImageBase64, propsPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER (If applicable)
@@ -577,7 +675,7 @@ export const refineLayeredIllustration = async (
     const textPrompt = `TEXT LAYER FIX: Render/Update the text "${targetText}" in a professional book font style. 
     IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
-    const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio);
+    const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
     textLayer = await removeWhiteBackground(textRaw);
   }
 
@@ -594,7 +692,7 @@ export const refineLayeredIllustration = async (
   // Create a composite for the main preview
   const composite = await new Promise<string>((resolve) => {
     const canvas = document.createElement('canvas');
-    const [wStr, hStr] = aspectRatio.split(':');
+    const [wStr, hStr] = getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio).split(':');
     const w = parseInt(wStr);
     const h = parseInt(hStr);
     canvas.width = 1024 * (w/h);
@@ -683,31 +781,43 @@ export const generateLayeredIllustration = async (
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   targetResolution: '1K' | '2K' | '4K' = '1K',
   targetText?: string,
-  isSpread: boolean = false
+  isSpread: boolean = false,
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
   
+  let formatRules = "";
+  if (exportFormat && PRINT_FORMATS[exportFormat]) {
+    const config = PRINT_FORMATS[exportFormat];
+    const bleed = config.bleed;
+    const safe = config.outside;
+    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
+    const height = config.height + (bleed * 2);
+    formatRules = `
+  TARGET PRINT FORMAT: ${config.name}
+  - Exact Target Dimensions (including bleed): ${width.toFixed(3)}" wide x ${height.toFixed(3)}" high.
+  - Bleed Zone: The outer ${bleed}" will be trimmed off. Extend background art to the very edge, but keep critical details out.
+  - Safe Margins: Keep all text and critical details at least ${safe}" away from the top, bottom, and outer edges.`;
+  }
+
   const layoutRules = isSpread ? `
-  LAYOUT RULES FOR KDP 2-PAGE SPREAD:
-  - BLEED ZONE: The outer 0.125" will be trimmed off.
-  - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" around the center fold.
-  - SAFE MARGINS: Keep all text and critical details at least 0.5" away from the top, bottom, and outer edges.` : `
-  LAYOUT RULES FOR KDP SINGLE PAGE:
-  - BLEED ZONE: The outer 0.125" will be trimmed off.
-  - SAFE MARGINS: Keep all text and critical details at least 0.5" away from the top, bottom, and outer edges.`;
+  LAYOUT RULES FOR KDP 2-PAGE SPREAD: ${formatRules}
+  - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" around the center fold.` : `
+  LAYOUT RULES FOR KDP SINGLE PAGE: ${formatRules}`;
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment. ${layoutRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
 
   // 2. CHARACTER LAYER
   const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio);
+  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
   const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const propsRaw = await restyleIllustration(undefined, propsPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio);
+  const propsRaw = await restyleIllustration(undefined, propsPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER (If applicable)
@@ -716,7 +826,7 @@ export const generateLayeredIllustration = async (
     const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. 
     IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${layoutRules}`;
-    const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio);
+    const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
     textLayer = await removeWhiteBackground(textRaw);
   }
 
@@ -733,7 +843,7 @@ export const generateLayeredIllustration = async (
   // Create a composite for the main preview
   const composite = await new Promise<string>((resolve) => {
     const canvas = document.createElement('canvas');
-    const [wStr, hStr] = aspectRatio.split(':');
+    const [wStr, hStr] = getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio).split(':');
     const w = parseInt(wStr);
     const h = parseInt(hStr);
     canvas.width = 1024 * (w/h);
@@ -776,24 +886,36 @@ export const generateLayeredCover = async (
   masterBible: string = "",
   targetResolution: '1K' | '2K' | '4K' = '1K',
   title?: string,
-  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16"
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16",
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered cover generation...");
   
+  let formatRules = "";
+  if (exportFormat && estimatedPageCount && PRINT_FORMATS[exportFormat]) {
+    const config = PRINT_FORMATS[exportFormat];
+    const coverDims = calculateCoverWithBleed(config.width, config.height, estimatedPageCount);
+    formatRules = `
+  TARGET PRINT FORMAT: ${config.name} (${estimatedPageCount} pages)
+  - Exact Target Dimensions (including bleed and spine): ${coverDims.width.toFixed(3)}" wide x ${coverDims.height.toFixed(3)}" high.
+  - Spine Width: ${coverDims.spine.toFixed(3)}".
+  - Bleed Zone: The outer 0.125" will be trimmed off. Extend background art to the edges but keep critical details out.
+  - Safe Margins: Keep all critical details at least 0.5" away from the edges.`;
+  }
+
   const coverRules = `
-  LAYOUT RULES FOR KDP COVER:
-  - BLEED ZONE: The outer 0.125" will be trimmed off. Extend background art to the edges but keep critical details out.
-  - SAFE MARGINS: Keep all text and critical details at least 0.5" away from the edges.
+  LAYOUT RULES FOR KDP COVER: ${formatRules}
   - SPINE: If this is a full wrap cover, leave space in the center for the spine. Do not place critical text across the spine folds.
   `;
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `BOOK COVER BACKGROUND ONLY: ${context}. Style: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO TEXT. Just the environment and atmosphere. ${coverRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
 
   // 2. CHARACTER LAYER
   const charPrompt = `BOOK COVER CHARACTER LAYER: ${context}. Style: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO TEXT. Place them on a SOLID PURE WHITE BACKGROUND. ${coverRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, characters, [], true, false, false, masterBible, targetResolution, "", aspectRatio);
+  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, characters, [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. TEXT LAYER (If applicable)
@@ -802,7 +924,7 @@ export const generateLayeredCover = async (
     const textPrompt = `BOOK COVER TITLE LAYER: Render the title "${title}" in a bold, cinematic book cover font style. 
     IMPORTANT: Place the title in the UPPER THIRD of the frame, leaving at least 15% margin from all edges (SAFE MARGINS). 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${coverRules}`;
-    const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio);
+    const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
     textLayer = await removeWhiteBackground(textRaw);
   }
 
@@ -818,7 +940,7 @@ export const generateLayeredCover = async (
   // Create a composite
   const composite = await new Promise<string>((resolve) => {
     const canvas = document.createElement('canvas');
-    const [w, h] = aspectRatio.split(':').map(Number);
+    const [w, h] = getBestAspectRatio(exportFormat, true, estimatedPageCount, aspectRatio).split(':').map(Number);
     const ratio = w / h;
     canvas.width = 1024 * ratio;
     canvas.height = 1024;
