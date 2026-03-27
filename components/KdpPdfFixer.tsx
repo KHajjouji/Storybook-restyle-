@@ -17,6 +17,12 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Manual Override State
+  const [useManualOverride, setUseManualOverride] = useState(false);
+  const [manualTrimWidth, setManualTrimWidth] = useState<string>('8.5');
+  const [manualTrimHeight, setManualTrimHeight] = useState<string>('8.5');
+  const [manualIsCover, setManualIsCover] = useState<boolean>(false);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setPdfFile(e.target.files[0]);
@@ -27,8 +33,8 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
   };
 
   const processPdf = async () => {
-    if (!pdfFile || !kdpNotes) {
-      setError("Please upload a PDF and paste the KDP email notes.");
+    if (!pdfFile || (!kdpNotes && !useManualOverride)) {
+      setError("Please upload a PDF and either paste the KDP email notes or use Manual Override.");
       return;
     }
 
@@ -48,61 +54,89 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
       const origWidthInches = firstPage.getWidth() / 72;
       const origHeightInches = firstPage.getHeight() / 72;
 
-      // 2. Parse KDP Notes using Gemini
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
-      
-      const ai = new GoogleGenAI({ apiKey });
-      
-      const prompt = `
-        Analyze the following KDP (Kindle Direct Publishing) rejection email or notes.
-        Extract the required dimensions and specifications for the PDF.
-        
-        The user uploaded a PDF with original dimensions: ${origWidthInches.toFixed(3)}" x ${origHeightInches.toFixed(3)}".
-        If the email does not explicitly state the target trim size, assume the original dimensions are the intended trim size (or close to it) and calculate the target size by adding the required bleed.
-        
-        KDP Notes:
-        "${kdpNotes}"
-        
-        Return a JSON object with the following structure:
-        {
-          "isCover": boolean, // true if the notes refer to a cover, false if interior
-          "targetWidthInches": number, // The FINAL required width of the PDF page in inches (MUST include bleed if required by KDP). E.g., if trim is 8.5x11 and interior bleed is required, width is 8.625 and height is 11.25.
-          "targetHeightInches": number, // The FINAL required height of the PDF page in inches (MUST include bleed if required).
-          "trimWidthInches": number, // The intended trim width in inches (without bleed).
-          "trimHeightInches": number, // The intended trim height in inches (without bleed).
-          "hasBleed": boolean, // true if the document requires bleed
-          "action": "scale_to_fit" | "scale_to_bleed" | "center" // How to handle the original pages. If background needs to extend to edges, use "scale_to_bleed". If content is cut off, use "scale_to_fit".
+      let specs;
+
+      if (useManualOverride) {
+        const trimW = Number(manualTrimWidth);
+        const trimH = Number(manualTrimHeight);
+        if (isNaN(trimW) || isNaN(trimH)) {
+          throw new Error("Invalid manual trim dimensions.");
         }
         
-        Important KDP Bleed Rules:
-        - Interior Bleed: Add 0.125" to top, bottom, and outside edges. (Total added: 0.125" to width, 0.25" to height).
-        - Cover Bleed: Add 0.125" to top, bottom, and outside edges. (Total added: 0.25" to width, 0.25" to height).
-        Calculate the exact targetWidthInches and targetHeightInches based on the email's stated expected size or trim size.
-      `;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              isCover: { type: Type.BOOLEAN },
-              targetWidthInches: { type: Type.NUMBER },
-              targetHeightInches: { type: Type.NUMBER },
-              trimWidthInches: { type: Type.NUMBER },
-              trimHeightInches: { type: Type.NUMBER },
-              hasBleed: { type: Type.BOOLEAN },
-              action: { type: Type.STRING }
-            },
-            required: ["isCover", "targetWidthInches", "targetHeightInches", "trimWidthInches", "trimHeightInches", "hasBleed", "action"]
+        const bleedW = manualIsCover ? 0.25 : 0.125;
+        const bleedH = manualIsCover ? 0.25 : 0.25;
+        
+        specs = {
+          isCover: manualIsCover,
+          trimWidthInches: trimW,
+          trimHeightInches: trimH,
+          targetWidthInches: trimW + bleedW,
+          targetHeightInches: trimH + bleedH,
+          hasBleed: true,
+          action: 'center'
+        };
+      } else {
+        // 2. Parse KDP Notes using Gemini
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
+        
+        const ai = new GoogleGenAI({ apiKey });
+        
+        const prompt = `
+          Analyze the following KDP (Kindle Direct Publishing) rejection email or notes.
+          Extract the required dimensions and specifications for the PDF.
+          
+          The user uploaded a PDF with original dimensions: ${origWidthInches.toFixed(3)}" x ${origHeightInches.toFixed(3)}".
+          
+          CRITICAL RULES FOR DETERMINING TRIM SIZE:
+          1. If the email explicitly states "You chose [X] by [Y] trim size" or similar, then X and Y are the EXACT trimWidthInches and trimHeightInches.
+          2. DO NOT reverse-engineer the trim size from the "submitted at" size. The submitted size is wrong, which is why they got the error!
+          3. Only if the email does NOT explicitly state the target trim size, assume the original dimensions are the intended trim size (or close to it) and calculate the target size by adding the required bleed.
+          
+          KDP Notes:
+          "${kdpNotes}"
+          
+          Return a JSON object with the following structure:
+          {
+            "isCover": boolean, // true if the notes refer to a cover, false if interior
+            "targetWidthInches": number, // The FINAL required width of the PDF page in inches (MUST include bleed if required by KDP). E.g., if trim is 8.5x11 and interior bleed is required, width is 8.625 and height is 11.25.
+            "targetHeightInches": number, // The FINAL required height of the PDF page in inches (MUST include bleed if required).
+            "trimWidthInches": number, // The intended trim width in inches (without bleed).
+            "trimHeightInches": number, // The intended trim height in inches (without bleed).
+            "hasBleed": boolean, // true if the document requires bleed
+            "action": "scale_to_fit" | "scale_to_bleed" | "center" // How to handle the original pages. If background needs to extend to edges, use "scale_to_bleed". If content is cut off, use "scale_to_fit".
           }
-        }
-      });
+          
+          Important KDP Bleed Rules:
+          - Interior Bleed: Add 0.125" to top, bottom, and outside edges. (Total added: 0.125" to width, 0.25" to height).
+          - Cover Bleed: Add 0.125" to top, bottom, and outside edges. (Total added: 0.25" to width, 0.25" to height).
+          Calculate the exact targetWidthInches and targetHeightInches based on the email's stated expected size or trim size.
+        `;
 
-      const specs = JSON.parse(response.text || '{}');
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                isCover: { type: Type.BOOLEAN },
+                targetWidthInches: { type: Type.NUMBER },
+                targetHeightInches: { type: Type.NUMBER },
+                trimWidthInches: { type: Type.NUMBER },
+                trimHeightInches: { type: Type.NUMBER },
+                hasBleed: { type: Type.BOOLEAN },
+                action: { type: Type.STRING }
+              },
+              required: ["isCover", "targetWidthInches", "targetHeightInches", "trimWidthInches", "trimHeightInches", "hasBleed", "action"]
+            }
+          }
+        });
+
+        specs = JSON.parse(response.text || '{}');
+      }
+
       if (!specs.targetWidthInches || !specs.targetHeightInches) {
         throw new Error("Could not determine target dimensions from the provided notes.");
       }
@@ -302,13 +336,61 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
               value={kdpNotes}
               onChange={(e) => setKdpNotes(e.target.value)}
               placeholder="Paste the exact text from the KDP rejection email here. E.g., 'Update your file to ensure all background images and graphics extend 0.125” (3.2 mm) beyond the trim line...'"
-              className="w-full h-48 p-6 bg-slate-50 rounded-3xl border-2 border-slate-100 focus:border-amber-400 focus:ring-0 resize-none font-medium text-slate-700"
+              className={`w-full h-48 p-6 bg-slate-50 rounded-3xl border-2 border-slate-100 focus:border-amber-400 focus:ring-0 resize-none font-medium text-slate-700 ${useManualOverride ? 'opacity-50 pointer-events-none' : ''}`}
+              disabled={useManualOverride}
             />
+          </div>
+
+          <div className="space-y-4 bg-slate-50 p-6 rounded-3xl border-2 border-slate-100">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                Manual Override
+              </h3>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" className="sr-only peer" checked={useManualOverride} onChange={(e) => setUseManualOverride(e.target.checked)} />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+            
+            {useManualOverride && (
+              <div className="grid grid-cols-2 gap-4 mt-4 animate-in fade-in slide-in-from-top-2">
+                <div>
+                  <label className="block text-sm font-bold text-slate-600 mb-1">Trim Width (inches)</label>
+                  <input 
+                    type="number" 
+                    step="0.125"
+                    value={manualTrimWidth} 
+                    onChange={(e) => setManualTrimWidth(e.target.value)}
+                    className="w-full p-3 rounded-xl border-2 border-slate-200 focus:border-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-600 mb-1">Trim Height (inches)</label>
+                  <input 
+                    type="number" 
+                    step="0.125"
+                    value={manualTrimHeight} 
+                    onChange={(e) => setManualTrimHeight(e.target.value)}
+                    className="w-full p-3 rounded-xl border-2 border-slate-200 focus:border-indigo-400"
+                  />
+                </div>
+                <div className="col-span-2 flex items-center gap-2 mt-2">
+                  <input 
+                    type="checkbox" 
+                    id="isCover" 
+                    checked={manualIsCover} 
+                    onChange={(e) => setManualIsCover(e.target.checked)}
+                    className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="isCover" className="text-sm font-bold text-slate-700 cursor-pointer">This is a Cover PDF (adds 0.25" to width instead of 0.125")</label>
+                </div>
+              </div>
+            )}
           </div>
 
           <button
             onClick={processPdf}
-            disabled={!pdfFile || !kdpNotes || isProcessing}
+            disabled={!pdfFile || (!kdpNotes && !useManualOverride) || isProcessing}
             className="w-full py-6 bg-indigo-600 text-white rounded-full font-black text-xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-4 disabled:opacity-50 disabled:hover:scale-100"
           >
             {isProcessing ? <Loader2 className="animate-spin" size={28} /> : <CheckCircle2 size={28} />}
