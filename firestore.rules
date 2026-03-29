@@ -17,6 +17,14 @@ service cloud.firestore {
     //   - pages: string (required) - JSON stringified pages.
     //   - thumbnail: string (optional) - Thumbnail image base64.
     //
+    // Collection: allowedEmails
+    // Document ID: {emailId} (The email address itself)
+    // Fields:
+    //   - email: string (required)
+    //   - role: string (required) - 'admin' or 'user'
+    //   - addedBy: string (required)
+    //   - createdAt: number (required)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -26,6 +34,15 @@ service cloud.firestore {
     // Check if the user is authenticated
     function isAuthenticated() {
       return request.auth != null;
+    }
+    
+    // Check if the user is an admin
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email == "hypocritic2002@gmail.com" && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email)) &&
+         get(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email)).data.role == 'admin')
+      );
     }
     
     // Check if user is owner based on document's uid field
@@ -93,6 +110,16 @@ service cloud.firestore {
              (!('targetResolution' in data) || data.targetResolution == null || (data.targetResolution is string && data.targetResolution.size() < 100));
     }
 
+    function isValidAllowedEmail(data) {
+      let allowedFields = ['email', 'role', 'addedBy', 'createdAt'];
+      return hasOnlyAllowedFields(allowedFields) &&
+             hasRequiredFields(['email', 'role', 'addedBy', 'createdAt']) &&
+             data.email is string && data.email.size() > 0 && data.email.size() < 200 &&
+             data.role in ['admin', 'user'] &&
+             data.addedBy is string && data.addedBy.size() > 0 && data.addedBy.size() < 100 &&
+             data.createdAt is number;
+    }
+
     match /projects/{projectId} {
       allow read: if isAuthenticated() && isDocOwner();
       allow create: if isAuthenticated() && isValidProject(request.resource.data) && uidUnchanged() && request.resource.data.uid == request.auth.uid;
@@ -105,6 +132,13 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidUserStyle(request.resource.data) && uidUnchanged() && request.resource.data.uid == request.auth.uid;
       allow update: if isAuthenticated() && isDocOwner() && isValidUserStyle(request.resource.data) && uidNotModified();
       allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /allowedEmails/{emailId} {
+      allow read: if isAuthenticated() && (isAdmin() || request.auth.token.email == emailId);
+      allow create: if isAdmin() && isValidAllowedEmail(request.resource.data) && request.resource.data.email == emailId;
+      allow update: if isAdmin() && isValidAllowedEmail(request.resource.data) && request.resource.data.email == emailId && request.resource.data.email == resource.data.email;
+      allow delete: if isAdmin();
     }
   }
 }

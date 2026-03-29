@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer } from './types';
-import { auth, signInWithGoogle, logout } from './firebase';
+import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers } from './geminiService';
 import { searchBookNiches } from './nicheService';
@@ -18,6 +18,7 @@ import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 import { getInsideMargin } from './kdpConfig';
 import { KdpPdfFixer } from './components/KdpPdfFixer';
+import { AdminModal } from './components/AdminModal';
 
 type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor' | 'niche-research' | 'kdp-fixer';
 
@@ -245,18 +246,38 @@ const App: React.FC = () => {
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
   const [userStyles, setUserStyles] = useState<import('./types').UserStyle[]>([]);
   const [recentProject, setRecentProject] = useState<Project | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      setIsAuthReady(true);
       if (currentUser) {
+        const isAllowed = await checkUserAllowed(currentUser.email);
+        if (!isAllowed) {
+          await logout();
+          setAuthError("Your email is not authorized to access this app. Please contact the administrator.");
+          setUser(null);
+          setIsAdmin(false);
+          setIsAuthReady(true);
+          return;
+        }
+        
+        const adminStatus = await checkIsAdmin(currentUser.email);
+        setIsAdmin(adminStatus);
+        
+        setAuthError(null);
+        setUser(currentUser);
+        setIsAuthReady(true);
         const projs = await persistenceService.getAllProjects();
         if (projs.length > 0) {
           setRecentProject(projs[0]);
         }
         const styles = await persistenceService.getUserStyles();
         setUserStyles(styles);
+      } else {
+        setUser(null);
+        setIsAdmin(false);
+        setIsAuthReady(true);
       }
     });
     return () => unsubscribe();
@@ -1966,6 +1987,9 @@ const App: React.FC = () => {
               </div>
            </div>
            <button onClick={async () => { await (window as any).aistudio?.openSelectKey(); }} className="px-10 py-5 bg-emerald-50 text-emerald-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm" title="Manage API Key"><Key size={24} /> API KEY</button>
+           {isAdmin && (
+             <button onClick={() => setShowAdminModal(true)} className="px-10 py-5 bg-amber-50 text-amber-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-amber-100 hover:bg-amber-600 hover:text-white transition-all shadow-sm" title="Manage Users"><ShieldCheck size={24} /> ADMIN</button>
+           )}
            <button onClick={() => setCurrentStep('characters')} className="px-10 py-5 bg-indigo-50 text-indigo-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"><UserCheck size={24} /> SERIES CAST</button>
            <button onClick={() => setShowBibleEditor(!showBibleEditor)} className="p-5 bg-slate-900 text-white rounded-[2rem] shadow-2xl hover:scale-110 transition-all"><Book size={32} /></button>
            <button onClick={logout} className="p-5 bg-rose-50 text-rose-600 rounded-[2rem] shadow-sm hover:bg-rose-600 hover:text-white transition-all" title="Sign Out"><LogOut size={32} /></button>
@@ -2050,6 +2074,10 @@ const App: React.FC = () => {
         <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[200] bg-slate-900 text-white px-8 py-4 rounded-full font-bold shadow-2xl animate-in slide-in-from-bottom-10 fade-in duration-300">
           {toastMessage}
         </div>
+      )}
+
+      {showAdminModal && (
+        <AdminModal onClose={() => setShowAdminModal(false)} />
       )}
     </div>
   );

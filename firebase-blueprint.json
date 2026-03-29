@@ -115,6 +115,30 @@
         }
       },
       "required": ["id", "uid", "name", "image", "prompt", "createdAt"]
+    },
+    "AllowedEmail": {
+      "title": "AllowedEmail",
+      "description": "An email address allowed to sign in to the app.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "The allowed email address."
+        },
+        "role": {
+          "type": "string",
+          "description": "The role of the user, e.g., 'admin' or 'user'."
+        },
+        "addedBy": {
+          "type": "string",
+          "description": "The UID of the admin who added this email."
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp when the email was added."
+        }
+      },
+      "required": ["email", "role", "addedBy", "createdAt"]
     }
   },
   "firestore": {
@@ -125,6 +149,10 @@
     "userStyles/{styleId}": {
       "schema": "UserStyle",
       "description": "User custom styles."
+    },
+    "allowedEmails/{emailId}": {
+      "schema": "AllowedEmail",
+      "description": "Emails allowed to access the app."
     }
   }
 }
