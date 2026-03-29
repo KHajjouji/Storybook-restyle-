@@ -34,7 +34,7 @@ export const checkUserAllowed = async (email: string | null): Promise<boolean> =
   if (!email) return false;
   
   // Default admin is always allowed
-  if (email === 'hypocritic2002@gmail.com') {
+  if (email === import.meta.env.VITE_ADMIN_EMAIL) {
     return true;
   }
 
@@ -51,7 +51,7 @@ export const checkUserAllowed = async (email: string | null): Promise<boolean> =
 export const checkIsAdmin = async (email: string | null): Promise<boolean> => {
   if (!email) return false;
   
-  if (email === 'hypocritic2002@gmail.com') {
+  if (email === import.meta.env.VITE_ADMIN_EMAIL) {
     return true;
   }
 
