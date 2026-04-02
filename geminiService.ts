@@ -63,7 +63,7 @@ export const parsePromptPack = async (rawText: string): Promise<{
   characterIdentities: { name: string, description: string }[],
   scenes: { prompt: string, isSpread: boolean }[] 
 }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Analyze the provided script to extract structural production data.
@@ -123,7 +123,7 @@ export const parseActivityPack = async (rawText: string): Promise<{
   globalInstructions: string,
   spreads: { title: string, fullPrompt: string }[] 
 }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Break down this Activity Master Prompt into individual spreads.
@@ -176,7 +176,7 @@ export const generateBookCover = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   
   let formatRules = "";
   if (exportFormat && estimatedPageCount && PRINT_FORMATS[exportFormat]) {
@@ -241,7 +241,7 @@ export const generateBookCover = async (
  * Designs character sheets.
  */
 export const identifyAndDesignCharacters = async (charDescription: string, stylePrompt: string): Promise<CharacterRef[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const instruction = `INDUSTRIAL CHARACTER DESIGN SHEET:
   CHARACTER DESCRIPTION: ${charDescription}
   STYLE LOCK: ${stylePrompt}
@@ -292,7 +292,7 @@ export const restyleIllustration = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-2.5-flash-image';
   
   let formatRules = "";
@@ -380,7 +380,7 @@ export const refineIllustration = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
   
   let formatRules = "";
@@ -462,7 +462,7 @@ export const upscaleIllustration = async (
   imageSize: '1K' | '2K' | '4K' = '4K',
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const data = currentImageBase64.includes(',') ? currentImageBase64.split(',')[1] : currentImageBase64;
   
   const response: GenerateContentResponse = await ai.models.generateContent({
@@ -486,7 +486,7 @@ export const upscaleIllustration = async (
 
 export const translateText = async (text: string, targetLanguage: string): Promise<string> => {
   if (targetLanguage === 'NONE_CLEAN_BG' || targetLanguage === 'English') return text;
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Translate to ${targetLanguage}: "${text}"`,
@@ -495,7 +495,7 @@ export const translateText = async (text: string, targetLanguage: string): Promi
 };
 
 export const analyzeStyleFromImage = async (imageBase64: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -508,7 +508,7 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
   globalInstructions?: string,
   pages: {text: string, isSpread: boolean, mappedCharacterNames: string[], fullPrompt?: string}[]
 }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const prompt = enableActivityDesigner 
     ? `Break this script into distinct pages/spreads. The script may contain both narrative story scenes and design activities (like flashcards, coloring pages, etc.). 
     Extract any "GLOBAL" style or layout instructions into 'globalInstructions'. 
@@ -551,7 +551,7 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
 };
 
 export const extractTextFromImage = async (imageBase64: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -982,7 +982,7 @@ export const retargetCharacters = async (
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
 ): Promise<string> => {
   console.log("Starting retargetCharacters with:", { sourceHotspots: retargeting.sourceHotspots, targetHotspots: retargeting.targetHotspots });
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const sourceData = sourceImageBase64.includes(',') ? sourceImageBase64.split(',')[1] : sourceImageBase64;
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
 

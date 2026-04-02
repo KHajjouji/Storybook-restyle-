@@ -88,10 +88,10 @@ export const KdpPdfFixer: React.FC<KdpPdfFixerProps> = ({ onBack }) => {
         };
       } else {
         // 2. Parse KDP Notes using Gemini
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
+        const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+        if (!apiKey) throw new Error("API_KEY is missing.");
         
-        const ai = new GoogleGenAI({ apiKey });
+        const ai = new GoogleGenAI({ apiKey: apiKey as string });
         
         const prompt = `
           Analyze the following KDP (Kindle Direct Publishing) rejection email or notes.
