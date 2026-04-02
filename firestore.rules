@@ -64,6 +64,7 @@ service cloud.firestore {
     // Check if the user is an admin
     function isAdmin() {
       return isAuthenticated() && (
+        request.auth.token.email == 'hypocritic2002@gmail.com' ||
         (exists(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email)) &&
          get(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email)).data.role == 'admin')
       );
@@ -191,7 +192,7 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == userId);
       allow create: if isAuthenticated() && isValidUserProfile(request.resource.data) && request.resource.data.uid == userId && (
         isAdmin() || 
-        (request.resource.data.role == 'user' && request.resource.data.credits == 0 && request.resource.data.tierId == 'free')
+        (request.resource.data.role == 'user' && request.resource.data.credits <= 10 && request.resource.data.tierId == 'free')
       );
       allow update: if isAuthenticated() && isValidUserProfile(request.resource.data) && request.resource.data.uid == userId && request.resource.data.uid == resource.data.uid && (
         isAdmin() ||
@@ -209,6 +210,11 @@ service cloud.firestore {
       allow create: if isAdmin() && isValidTier(request.resource.data) && request.resource.data.id == tierId;
       allow update: if isAdmin() && isValidTier(request.resource.data) && request.resource.data.id == tierId && request.resource.data.id == resource.data.id;
       allow delete: if isAdmin();
+    }
+
+    match /config/{configId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
     }
   }
 }

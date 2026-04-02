@@ -34,7 +34,7 @@ export const checkUserAllowed = async (email: string | null): Promise<boolean> =
   if (!email) return false;
   
   // Default admin is always allowed
-  if (email === import.meta.env.VITE_ADMIN_EMAIL) {
+  if (email === import.meta.env.VITE_ADMIN_EMAIL || email === 'hypocritic2002@gmail.com') {
     return true;
   }
 
@@ -61,7 +61,7 @@ export const initializeUserProfile = async (user: any) => {
       
       // Get tier from allowedEmails if it exists
       let tierId = 'free';
-      if (!isAdmin && user.email !== import.meta.env.VITE_ADMIN_EMAIL) {
+      if (!isAdmin && user.email !== import.meta.env.VITE_ADMIN_EMAIL && user.email !== 'hypocritic2002@gmail.com') {
         const allowedRef = doc(db, 'allowedEmails', user.email);
         const allowedSnap = await getDoc(allowedRef);
         if (allowedSnap.exists() && allowedSnap.data().tierId) {
@@ -73,7 +73,7 @@ export const initializeUserProfile = async (user: any) => {
         uid: user.uid,
         email: user.email,
         tierId: tierId,
-        credits: 0, // Default credits, admin can update or they can buy
+        credits: 10, // Default credits, admin can update or they can buy
         role: isAdmin ? 'admin' : 'user'
       });
     }
@@ -85,7 +85,7 @@ export const initializeUserProfile = async (user: any) => {
 export const checkIsAdmin = async (email: string | null): Promise<boolean> => {
   if (!email) return false;
   
-  if (email === import.meta.env.VITE_ADMIN_EMAIL) {
+  if (email === import.meta.env.VITE_ADMIN_EMAIL || email === 'hypocritic2002@gmail.com') {
     return true;
   }
 
