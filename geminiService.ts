@@ -506,19 +506,21 @@ export const analyzeStyleFromImage = async (imageBase64: string): Promise<string
 
 export const planStoryScenes = async (fullScript: string, characters: CharacterRef[], enableActivityDesigner: boolean = false): Promise<{
   globalInstructions?: string,
+  characterIdentities?: { name: string, description: string }[],
   pages: {text: string, isSpread: boolean, mappedCharacterNames: string[], fullPrompt?: string}[]
 }> => {
   const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const prompt = enableActivityDesigner 
     ? `Break this script into distinct pages/spreads. The script may contain both narrative story scenes and design activities (like flashcards, coloring pages, etc.). 
     Extract any "GLOBAL" style or layout instructions into 'globalInstructions'. 
+    Extract all distinct characters and their descriptions into 'characterIdentities'.
     For each page or spread:
     - Provide a visual description in 'text'.
     - Set 'isSpread' to true if it spans 2 pages, false if 1 page.
     - List character names present in 'mappedCharacterNames'.
     - If it's an activity or requires specific layout logic, provide a 'fullPrompt' with the detailed layout and style instructions.
     Script: ${fullScript}`
-    : `Break this script into distinct pages/spreads. For each, provide a visual description (text), whether it's a 2-page spread (isSpread), and an array of character names present (mappedCharacterNames). Script: ${fullScript}`;
+    : `Break this script into distinct pages/spreads. Extract all distinct characters and their descriptions into 'characterIdentities'. For each page, provide a visual description (text), whether it's a 2-page spread (isSpread), and an array of character names present (mappedCharacterNames). Script: ${fullScript}`;
 
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -529,6 +531,17 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
         type: Type.OBJECT,
         properties: {
           globalInstructions: { type: Type.STRING },
+          characterIdentities: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                description: { type: Type.STRING }
+              },
+              required: ['name', 'description']
+            }
+          },
           pages: {
             type: Type.ARRAY,
             items: {

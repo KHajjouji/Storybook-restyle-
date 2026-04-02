@@ -25,8 +25,33 @@ service cloud.firestore {
     //   - addedBy: string (required)
     //   - createdAt: number (required)
     //
-    // ===============================================================
-
+    // Collection: userStyles
+    // Document ID: {styleId}
+    // Fields:
+    //   - id: string (required)
+    //   - uid: string (required)
+    //   - name: string (required)
+    //   - image: string (required)
+    //   - prompt: string (required)
+    //   - createdAt: number (required)
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - tierId: string (required)
+    //   - credits: number (required)
+    //   - role: string (required)
+    //
+    // Collection: tiers
+    // Document ID: {tierId}
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - maxProjects: number (required)
+    //   - monthlyCredits: number (required)
+    //
     // ===============================================================
     // Helper Functions
     // ===============================================================
@@ -110,13 +135,35 @@ service cloud.firestore {
     }
 
     function isValidAllowedEmail(data) {
-      let allowedFields = ['email', 'role', 'addedBy', 'createdAt'];
+      let allowedFields = ['email', 'role', 'tierId', 'addedBy', 'createdAt'];
       return hasOnlyAllowedFields(allowedFields) &&
              hasRequiredFields(['email', 'role', 'addedBy', 'createdAt']) &&
              data.email is string && data.email.size() > 0 && data.email.size() < 200 &&
              data.role in ['admin', 'user'] &&
+             (!('tierId' in data) || data.tierId == null || (data.tierId is string && data.tierId.size() < 100)) &&
              data.addedBy is string && data.addedBy.size() > 0 && data.addedBy.size() < 100 &&
              data.createdAt is number;
+    }
+
+    function isValidUserProfile(data) {
+      let allowedFields = ['uid', 'email', 'tierId', 'credits', 'role'];
+      return hasOnlyAllowedFields(allowedFields) &&
+             hasRequiredFields(['uid', 'email', 'tierId', 'credits', 'role']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && data.email.size() > 0 && data.email.size() < 200 &&
+             data.tierId is string && data.tierId.size() > 0 && data.tierId.size() < 100 &&
+             data.credits is number && data.credits >= 0 &&
+             data.role in ['admin', 'user'];
+    }
+
+    function isValidTier(data) {
+      let allowedFields = ['id', 'name', 'maxProjects', 'monthlyCredits'];
+      return hasOnlyAllowedFields(allowedFields) &&
+             hasRequiredFields(['id', 'name', 'maxProjects', 'monthlyCredits']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.maxProjects is number && data.maxProjects >= 0 &&
+             data.monthlyCredits is number && data.monthlyCredits >= 0;
     }
 
     match /projects/{projectId} {
@@ -137,6 +184,30 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (isAdmin() || request.auth.token.email == emailId);
       allow create: if isAdmin() && isValidAllowedEmail(request.resource.data) && request.resource.data.email == emailId;
       allow update: if isAdmin() && isValidAllowedEmail(request.resource.data) && request.resource.data.email == emailId && request.resource.data.email == resource.data.email;
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == userId);
+      allow create: if isAuthenticated() && isValidUserProfile(request.resource.data) && request.resource.data.uid == userId && (
+        isAdmin() || 
+        (request.resource.data.role == 'user' && request.resource.data.credits == 0 && request.resource.data.tierId == 'free')
+      );
+      allow update: if isAuthenticated() && isValidUserProfile(request.resource.data) && request.resource.data.uid == userId && request.resource.data.uid == resource.data.uid && (
+        isAdmin() ||
+        (request.auth.uid == userId && 
+         request.resource.data.role == resource.data.role && 
+         request.resource.data.tierId == resource.data.tierId && 
+         request.resource.data.email == resource.data.email &&
+         request.resource.data.credits <= resource.data.credits) // User can only decrement credits
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /tiers/{tierId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidTier(request.resource.data) && request.resource.data.id == tierId;
+      allow update: if isAdmin() && isValidTier(request.resource.data) && request.resource.data.id == tierId && request.resource.data.id == resource.data.id;
       allow delete: if isAdmin();
     }
   }

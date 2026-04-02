@@ -1,4 +1,19 @@
 
+export interface UserProfile {
+  uid: string;
+  email: string;
+  tierId: string;
+  credits: number;
+  role: 'admin' | 'user';
+}
+
+export interface Tier {
+  id: string;
+  name: string;
+  maxProjects: number;
+  monthlyCredits: number;
+}
+
 export interface CharacterRef {
   id: string;
   images: string[]; 

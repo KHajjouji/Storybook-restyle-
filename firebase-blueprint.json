@@ -129,6 +129,10 @@
           "type": "string",
           "description": "The role of the user, e.g., 'admin' or 'user'."
         },
+        "tierId": {
+          "type": "string",
+          "description": "The tier assigned to this user."
+        },
         "addedBy": {
           "type": "string",
           "description": "The UID of the admin who added this email."
@@ -139,6 +143,58 @@
         }
       },
       "required": ["email", "role", "addedBy", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile data including credits and tier.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The user ID."
+        },
+        "email": {
+          "type": "string",
+          "description": "The user's email."
+        },
+        "tierId": {
+          "type": "string",
+          "description": "The ID of the tier the user is on."
+        },
+        "credits": {
+          "type": "number",
+          "description": "The user's current API credit balance."
+        },
+        "role": {
+          "type": "string",
+          "description": "The user's role (admin or user)."
+        }
+      },
+      "required": ["uid", "email", "credits", "role"]
+    },
+    "Tier": {
+      "title": "Tier",
+      "description": "Subscription tier or plan.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the tier."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the tier."
+        },
+        "maxProjects": {
+          "type": "number",
+          "description": "Maximum number of saved projects allowed."
+        },
+        "monthlyCredits": {
+          "type": "number",
+          "description": "Number of credits allocated monthly."
+        }
+      },
+      "required": ["id", "name", "maxProjects", "monthlyCredits"]
     }
   },
   "firestore": {
@@ -153,6 +209,14 @@
     "allowedEmails/{emailId}": {
       "schema": "AllowedEmail",
       "description": "Emails allowed to access the app."
+    },
+    "users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles."
+    },
+    "tiers/{tierId}": {
+      "schema": "Tier",
+      "description": "Subscription tiers."
     }
   }
 }

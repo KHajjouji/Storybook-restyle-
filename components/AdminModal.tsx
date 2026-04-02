@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, ShieldCheck, User, Loader2 } from 'lucide-react';
+import { X, Plus, Trash2, ShieldCheck, User, Loader2, Layers, CreditCard, Settings } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, getDoc, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { UserProfile, Tier } from '../types';
 
 interface AllowedEmail {
   email: string;
@@ -11,28 +12,62 @@ interface AllowedEmail {
 }
 
 export const AdminModal = ({ onClose }: { onClose: () => void }) => {
+  const [activeTab, setActiveTab] = useState<'users' | 'tiers' | 'settings'>('users');
+  
   const [emails, setEmails] = useState<AllowedEmail[]>([]);
+  const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
+  const [tiers, setTiers] = useState<Tier[]>([]);
+  const [systemConfig, setSystemConfig] = useState({ globalApiKey: '', stripePublicKey: '' });
+  
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState('user');
+  const [newTierId, setNewTierId] = useState('free');
+  
+  const [newTier, setNewTier] = useState<Partial<Tier>>({ name: '', maxProjects: 10, monthlyCredits: 100 });
+  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchEmails();
+    fetchData();
   }, []);
 
-  const fetchEmails = async () => {
+  const fetchData = async () => {
     try {
       setLoading(true);
-      const querySnapshot = await getDocs(collection(db, 'allowedEmails'));
+      
+      // Fetch Tiers
+      const tiersSnap = await getDocs(collection(db, 'tiers'));
+      const fetchedTiers: Tier[] = [];
+      tiersSnap.forEach(doc => fetchedTiers.push(doc.data() as Tier));
+      
+      // Ensure 'free' tier exists locally if not in DB
+      if (!fetchedTiers.find(t => t.id === 'free')) {
+        fetchedTiers.push({ id: 'free', name: 'Free', maxProjects: 3, monthlyCredits: 10 });
+      }
+      setTiers(fetchedTiers);
+
+      // Fetch Allowed Emails
+      const emailsSnap = await getDocs(collection(db, 'allowedEmails'));
       const fetchedEmails: AllowedEmail[] = [];
-      querySnapshot.forEach((doc) => {
-        fetchedEmails.push(doc.data() as AllowedEmail);
-      });
+      emailsSnap.forEach(doc => fetchedEmails.push(doc.data() as AllowedEmail));
       setEmails(fetchedEmails.sort((a, b) => b.createdAt - a.createdAt));
+
+      // Fetch User Profiles
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const fetchedUsers: UserProfile[] = [];
+      usersSnap.forEach(doc => fetchedUsers.push(doc.data() as UserProfile));
+      setUserProfiles(fetchedUsers);
+
+      // Fetch System Config
+      const configSnap = await getDoc(doc(db, 'config', 'system'));
+      if (configSnap.exists()) {
+        setSystemConfig(configSnap.data() as any);
+      }
+
     } catch (err: any) {
-      console.error("Error fetching emails:", err);
-      setError("Failed to load users. You may not have permission.");
+      console.error("Error fetching admin data:", err);
+      setError("Failed to load data. You may not have permission.");
     } finally {
       setLoading(false);
     }
@@ -54,10 +89,61 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
 
       await setDoc(doc(db, 'allowedEmails', emailId), newEntry);
       setNewEmail('');
-      await fetchEmails();
+      await fetchData();
     } catch (err: any) {
       console.error("Error adding email:", err);
       setError("Failed to add user.");
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateUserCredits = async (uid: string, newCredits: number) => {
+    try {
+      setLoading(true);
+      await updateDoc(doc(db, 'users', uid), { credits: newCredits });
+      await fetchData();
+    } catch (err: any) {
+      console.error("Error updating credits:", err);
+      setError("Failed to update credits.");
+      setLoading(false);
+    }
+  };
+
+  const handleAddTier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTier.name) return;
+
+    try {
+      setLoading(true);
+      const tierId = newTier.name.toLowerCase().replace(/\s+/g, '-');
+      const tierData: Tier = {
+        id: tierId,
+        name: newTier.name,
+        maxProjects: newTier.maxProjects || 0,
+        monthlyCredits: newTier.monthlyCredits || 0
+      };
+
+      await setDoc(doc(db, 'tiers', tierId), tierData);
+      setNewTier({ name: '', maxProjects: 10, monthlyCredits: 100 });
+      await fetchData();
+    } catch (err: any) {
+      console.error("Error adding tier:", err);
+      setError("Failed to add tier.");
+      setLoading(false);
+    }
+  };
+
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      await setDoc(doc(db, 'config', 'system'), systemConfig);
+      setError(null);
+      alert("System configuration saved.");
+    } catch (err: any) {
+      console.error("Error saving config:", err);
+      setError("Failed to save system configuration.");
+    } finally {
       setLoading(false);
     }
   };
@@ -68,7 +154,7 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
     try {
       setLoading(true);
       await deleteDoc(doc(db, 'allowedEmails', email));
-      await fetchEmails();
+      await fetchData();
     } catch (err: any) {
       console.error("Error removing email:", err);
       setError("Failed to remove user.");
@@ -86,11 +172,32 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
             </div>
             <div>
               <h2 className="text-2xl font-black text-slate-800">Admin Dashboard</h2>
-              <p className="text-slate-500 font-medium">Manage who can access the application</p>
+              <p className="text-slate-500 font-medium">Manage users, tiers, and API credits</p>
             </div>
           </div>
           <button onClick={onClose} className="p-4 bg-white rounded-2xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shadow-sm">
             <X size={24} />
+          </button>
+        </div>
+
+        <div className="flex border-b border-slate-100 bg-slate-50 px-8">
+          <button 
+            onClick={() => setActiveTab('users')}
+            className={`px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'users' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+          >
+            Users & Access
+          </button>
+          <button 
+            onClick={() => setActiveTab('tiers')}
+            className={`px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'tiers' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+          >
+            Subscription Tiers
+          </button>
+          <button 
+            onClick={() => setActiveTab('settings')}
+            className={`px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'settings' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+          >
+            System Settings
           </button>
         </div>
 
@@ -101,75 +208,232 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
             </div>
           )}
 
-          <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-8">
-            <h3 className="text-lg font-black text-slate-800 mb-4">Add New User</h3>
-            <form onSubmit={handleAddEmail} className="flex gap-4">
-              <input
-                type="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="user@example.com"
-                className="flex-1 bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium"
-                required
-              />
-              <select
-                value={newRole}
-                onChange={(e) => setNewRole(e.target.value)}
-                className="bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium cursor-pointer"
-              >
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button
-                type="submit"
-                disabled={loading || !newEmail}
-                className="px-8 py-4 bg-amber-500 text-white rounded-2xl font-black hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                <Plus size={20} /> Add
-              </button>
-            </form>
-          </div>
+          {activeTab === 'users' && (
+            <>
+              <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-8">
+                <h3 className="text-lg font-black text-slate-800 mb-4">Pre-Authorize New User</h3>
+                <form onSubmit={handleAddEmail} className="flex gap-4">
+                  <input
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="user@example.com"
+                    className="flex-1 bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium"
+                    required
+                  />
+                  <select
+                    value={newRole}
+                    onChange={(e) => setNewRole(e.target.value)}
+                    className="bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium cursor-pointer"
+                  >
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <select
+                    value={newTierId}
+                    onChange={(e) => setNewTierId(e.target.value)}
+                    className="bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium cursor-pointer"
+                  >
+                    {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={loading || !newEmail}
+                    className="px-8 py-4 bg-amber-500 text-white rounded-2xl font-black hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <Plus size={20} /> Add
+                  </button>
+                </form>
+              </div>
 
-          <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-              <h3 className="text-lg font-black text-slate-800">Allowed Users</h3>
-            </div>
-            
-            {loading && emails.length === 0 ? (
-              <div className="p-12 flex justify-center">
-                <Loader2 className="animate-spin text-amber-500" size={32} />
-              </div>
-            ) : emails.length === 0 ? (
-              <div className="p-12 text-center text-slate-400 font-medium">
-                No users added yet. Only the default admin can access the app.
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-50">
-                {emails.map((entry) => (
-                  <div key={entry.email} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${entry.role === 'admin' ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                        {entry.role === 'admin' ? <ShieldCheck size={20} /> : <User size={20} />}
-                      </div>
-                      <div>
-                        <div className="font-bold text-slate-800">{entry.email}</div>
-                        <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mt-1">
-                          {entry.role} • Added {new Date(entry.createdAt).toLocaleDateString()}
+              <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden mb-8">
+                <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+                  <h3 className="text-lg font-black text-slate-800">Registered Users & Credits</h3>
+                </div>
+                <div className="divide-y divide-slate-50">
+                  {userProfiles.map(user => (
+                    <div key={user.uid} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                          <User size={20} />
+                        </div>
+                        <div>
+                          <div className="font-bold text-slate-800">{user.email}</div>
+                          <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mt-1">
+                            {user.role} • Tier: {user.tierId}
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl font-bold">
+                          <CreditCard size={16} />
+                          {user.credits} Credits
+                        </div>
+                        <button 
+                          onClick={() => handleUpdateUserCredits(user.uid, user.credits + 100)}
+                          className="text-xs font-bold bg-slate-100 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-200"
+                        >
+                          +100
+                        </button>
+                      </div>
                     </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+                  <h3 className="text-lg font-black text-slate-800">Pre-Authorized Emails</h3>
+                </div>
+                
+                {loading && emails.length === 0 ? (
+                  <div className="p-12 flex justify-center">
+                    <Loader2 className="animate-spin text-amber-500" size={32} />
+                  </div>
+                ) : emails.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 font-medium">
+                    No users added yet. Only the default admin can access the app.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-50">
+                    {emails.map((entry) => (
+                      <div key={entry.email} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${entry.role === 'admin' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
+                            {entry.role === 'admin' ? <ShieldCheck size={20} /> : <User size={20} />}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-800">{entry.email}</div>
+                            <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mt-1">
+                              {entry.role} • Added {new Date(entry.createdAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveEmail(entry.email)}
+                          className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                          title="Remove Access"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'tiers' && (
+            <>
+              <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-8">
+                <h3 className="text-lg font-black text-slate-800 mb-4">Create New Tier</h3>
+                <form onSubmit={handleAddTier} className="flex flex-col gap-4">
+                  <div className="flex gap-4">
+                    <input
+                      type="text"
+                      value={newTier.name}
+                      onChange={(e) => setNewTier({ ...newTier, name: e.target.value })}
+                      placeholder="Tier Name (e.g. Pro)"
+                      className="flex-1 bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium"
+                      required
+                    />
+                    <input
+                      type="number"
+                      value={newTier.maxProjects}
+                      onChange={(e) => setNewTier({ ...newTier, maxProjects: parseInt(e.target.value) })}
+                      placeholder="Max Projects"
+                      className="w-32 bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium"
+                      title="Max Projects"
+                    />
+                    <input
+                      type="number"
+                      value={newTier.monthlyCredits}
+                      onChange={(e) => setNewTier({ ...newTier, monthlyCredits: parseInt(e.target.value) })}
+                      placeholder="Monthly Credits"
+                      className="w-40 bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium"
+                      title="Monthly Credits"
+                    />
                     <button
-                      onClick={() => handleRemoveEmail(entry.email)}
-                      className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-                      title="Remove Access"
+                      type="submit"
+                      disabled={loading || !newTier.name}
+                      className="px-8 py-4 bg-amber-500 text-white rounded-2xl font-black hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-2"
                     >
-                      <Trash2 size={20} />
+                      <Plus size={20} /> Add
                     </button>
                   </div>
-                ))}
+                </form>
               </div>
-            )}
-          </div>
+
+              <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+                  <h3 className="text-lg font-black text-slate-800">Available Tiers</h3>
+                </div>
+                <div className="divide-y divide-slate-50">
+                  {tiers.map((tier) => (
+                    <div key={tier.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                          <Layers size={20} />
+                        </div>
+                        <div>
+                          <div className="font-bold text-slate-800">{tier.name}</div>
+                          <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mt-1">
+                            ID: {tier.id}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-8 text-sm font-medium text-slate-600">
+                        <div><span className="text-slate-400">Max Projects:</span> {tier.maxProjects}</div>
+                        <div><span className="text-slate-400">Monthly Credits:</span> {tier.monthlyCredits}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-8">
+              <h3 className="text-lg font-black text-slate-800 mb-4">System Configuration</h3>
+              <p className="text-sm text-slate-500 mb-8">Configure global API keys and integrations. Note: For security, sensitive keys like Stripe Secret should remain in environment variables.</p>
+              
+              <form onSubmit={handleSaveConfig} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-2">Global Gemini API Key (Optional)</label>
+                  <input
+                    type="password"
+                    value={systemConfig.globalApiKey || ''}
+                    onChange={(e) => setSystemConfig({ ...systemConfig, globalApiKey: e.target.value })}
+                    placeholder="AIzaSy..."
+                    className="w-full bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium focus:ring-2 ring-amber-500"
+                  />
+                  <p className="text-xs text-slate-400 ml-2">If set, this overrides the environment variable for all users.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-2">Stripe Public Key</label>
+                  <input
+                    type="text"
+                    value={systemConfig.stripePublicKey || ''}
+                    onChange={(e) => setSystemConfig({ ...systemConfig, stripePublicKey: e.target.value })}
+                    placeholder="pk_test_..."
+                    className="w-full bg-slate-50 border-none outline-none px-6 py-4 rounded-2xl font-medium focus:ring-2 ring-amber-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-4 bg-amber-500 text-white rounded-2xl font-black hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 size={20} className="animate-spin" /> : <Settings size={20} />}
+                  Save Configuration
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       </div>
     </div>

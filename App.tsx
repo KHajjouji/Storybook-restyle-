@@ -3,12 +3,13 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid, TrendingUp, Key
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid, TrendingUp, Key, CreditCard
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer } from './types';
-import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin } from './firebase';
+import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers } from './geminiService';
 import { searchBookNiches } from './nicheService';
 import Markdown from 'react-markdown';
@@ -247,6 +248,7 @@ const App: React.FC = () => {
   const [userStyles, setUserStyles] = useState<import('./types').UserStyle[]>([]);
   const [recentProject, setRecentProject] = useState<Project | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [userProfile, setUserProfile] = useState<import('./types').UserProfile | null>(null);
   const [showAdminModal, setShowAdminModal] = useState(false);
 
   useEffect(() => {
@@ -265,6 +267,15 @@ const App: React.FC = () => {
         const adminStatus = await checkIsAdmin(currentUser.email);
         setIsAdmin(adminStatus);
         
+        await initializeUserProfile(currentUser);
+        
+        const userRef = doc(db, 'users', currentUser.uid);
+        const unsubscribeProfile = onSnapshot(userRef, (docSnap) => {
+          if (docSnap.exists()) {
+            setUserProfile(docSnap.data() as import('./types').UserProfile);
+          }
+        });
+
         setAuthError(null);
         setUser(currentUser);
         setIsAuthReady(true);
@@ -274,14 +285,42 @@ const App: React.FC = () => {
         }
         const styles = await persistenceService.getUserStyles();
         setUserStyles(styles);
+        
+        return () => {
+          unsubscribeProfile();
+        };
       } else {
         setUser(null);
+        setUserProfile(null);
         setIsAdmin(false);
         setIsAuthReady(true);
       }
     });
     return () => unsubscribe();
   }, []);
+
+  const handleBuyCredits = async () => {
+    if (!user) return;
+    try {
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.uid,
+          credits: 100, // Example amount
+          priceId: 'price_placeholder' // In a real app, this would be a real Stripe Price ID
+        })
+      });
+      const data = await response.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        showToast("Failed to initiate checkout.");
+      }
+    } catch (e) {
+      showToast("Checkout error.");
+    }
+  };
 
   const handleOpenProjects = async () => {
     const projs = await persistenceService.getAllProjects();
@@ -526,6 +565,26 @@ const App: React.FC = () => {
     setIsParsing(true);
     try {
       const result = await planStoryScenes(fullScript, settings.characterReferences, enableActivityDesigner);
+      
+      // Add new characters
+      if (result.characterIdentities && result.characterIdentities.length > 0) {
+        const newChars = result.characterIdentities
+          .filter(ci => !settings.characterReferences.some(cr => cr.name.toLowerCase() === ci.name.toLowerCase()))
+          .map(ci => ({
+            id: Math.random().toString(36).substring(7),
+            name: ci.name,
+            description: ci.description,
+            images: []
+          }));
+        
+        if (newChars.length > 0) {
+          setSettings(prev => ({
+            ...prev,
+            characterReferences: [...prev.characterReferences, ...newChars]
+          }));
+        }
+      }
+
       if (result.globalInstructions) {
         setSettings(prev => ({ 
           ...prev, 
@@ -1023,6 +1082,35 @@ const App: React.FC = () => {
             <div className="flex flex-col lg:flex-row gap-16 items-start">
               <div className="flex-1 space-y-10 sticky top-36">
                 <div className="bg-white border-2 border-slate-100 rounded-[4rem] p-12 shadow-2xl space-y-10">
+                  {/* QUICK PRESETS */}
+                  <div className="space-y-3">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 px-4">Quick Presets</h3>
+                    <div className="grid grid-cols-2 gap-2 px-2">
+                      <button 
+                        onClick={() => {
+                          setTargetAspectRatio('1:1');
+                          setTargetResolution('2K');
+                          setSettings(s => ({ ...s, embedTextInImage: false, layeredMode: false, showSafeGuides: true, exportFormat: 'KDP_8_5x8_5' }));
+                        }}
+                        className="px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-left hover:border-indigo-300 hover:bg-indigo-50 transition-all group"
+                      >
+                        <div className="font-black text-xs text-slate-800 group-hover:text-indigo-600">KDP Standard Square</div>
+                        <div className="text-[9px] text-slate-400 font-bold mt-1">1:1 • 2K • No Layers</div>
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setTargetAspectRatio('4:3');
+                          setTargetResolution('4K');
+                          setSettings(s => ({ ...s, embedTextInImage: false, layeredMode: true, showSafeGuides: true, exportFormat: 'KDP_8_5x11' }));
+                        }}
+                        className="px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-left hover:border-indigo-300 hover:bg-indigo-50 transition-all group"
+                      >
+                        <div className="font-black text-xs text-slate-800 group-hover:text-indigo-600">Premium Hardcover</div>
+                        <div className="text-[9px] text-slate-400 font-bold mt-1">4:3 • 4K • Layered</div>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* COMPACT BIBLE */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center px-4">
@@ -1167,6 +1255,35 @@ const App: React.FC = () => {
                       <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
                     </div>
                     {p.originalText && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 italic leading-relaxed">"{p.originalText}"</p>}
+                    
+                    <div className="px-4 space-y-2">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Characters in Scene</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {settings.characterReferences.map(char => {
+                          const isAssigned = p.assignments?.some(a => a.refId === char.name);
+                          return (
+                            <button
+                              key={char.id}
+                              onClick={() => {
+                                setPages(curr => curr.map(pg => {
+                                  if (pg.id !== p.id) return pg;
+                                  const assignments = pg.assignments || [];
+                                  if (isAssigned) {
+                                    return { ...pg, assignments: assignments.filter(a => a.refId !== char.name) };
+                                  } else {
+                                    return { ...pg, assignments: [...assignments, { refId: char.name, description: '' }] };
+                                  }
+                                }));
+                              }}
+                              className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all ${isAssigned ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-slate-50 text-slate-400 border-slate-100 hover:bg-slate-100'}`}
+                            >
+                              {char.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {p.layers && p.layers.length > 0 && (
                       <LayerManager 
                         layers={p.layers} 
@@ -1401,6 +1518,12 @@ const App: React.FC = () => {
                          <AlertCircle size={64} className="text-red-500 mb-4" />
                          <p className="text-red-600 font-black uppercase tracking-widest text-sm">Render Failed</p>
                          <p className="text-red-400 text-xs font-medium mt-2">Check your API key or try a simpler prompt.</p>
+                         <button 
+                           onClick={() => renderScene(p.id)} 
+                           className="mt-6 px-8 py-3 bg-red-100 text-red-600 rounded-full font-black text-sm uppercase tracking-widest hover:bg-red-200 transition-colors flex items-center gap-2"
+                         >
+                           <RefreshCw size={16} /> Retry
+                         </button>
                        </div>
                      )}
                      <div className="absolute top-12 left-12 z-10 w-20 h-20 bg-slate-900 text-white rounded-[2rem] flex items-center justify-center font-black text-4xl shadow-2xl">#{idx + 1}</div>
@@ -1987,6 +2110,18 @@ const App: React.FC = () => {
               </div>
            </div>
            <button onClick={async () => { await (window as any).aistudio?.openSelectKey(); }} className="px-10 py-5 bg-emerald-50 text-emerald-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm" title="Manage API Key"><Key size={24} /> API KEY</button>
+           {userProfile && (
+             <div className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-6 py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest border border-emerald-100 shadow-sm">
+               <CreditCard size={24} />
+               {userProfile.credits} Credits
+               <button 
+                 onClick={handleBuyCredits}
+                 className="ml-4 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs hover:bg-emerald-700 transition-colors shadow-md"
+               >
+                 BUY
+               </button>
+             </div>
+           )}
            {isAdmin && (
              <button onClick={() => setShowAdminModal(true)} className="px-10 py-5 bg-amber-50 text-amber-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-amber-100 hover:bg-amber-600 hover:text-white transition-all shadow-sm" title="Manage Users"><ShieldCheck size={24} /> ADMIN</button>
            )}

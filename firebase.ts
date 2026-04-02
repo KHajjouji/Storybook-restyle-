@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 
 // Import the Firebase configuration
 import firebaseConfig from './firebase-applet-config.json';
@@ -45,6 +45,40 @@ export const checkUserAllowed = async (email: string | null): Promise<boolean> =
   } catch (error) {
     console.error("Error checking user allowed status:", error);
     return false;
+  }
+};
+
+export const initializeUserProfile = async (user: any) => {
+  if (!user || !user.email) return;
+  
+  try {
+    const userRef = doc(db, 'users', user.uid);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      // Check if they are admin
+      const isAdmin = await checkIsAdmin(user.email);
+      
+      // Get tier from allowedEmails if it exists
+      let tierId = 'free';
+      if (!isAdmin && user.email !== import.meta.env.VITE_ADMIN_EMAIL) {
+        const allowedRef = doc(db, 'allowedEmails', user.email);
+        const allowedSnap = await getDoc(allowedRef);
+        if (allowedSnap.exists() && allowedSnap.data().tierId) {
+          tierId = allowedSnap.data().tierId;
+        }
+      }
+
+      await setDoc(userRef, {
+        uid: user.uid,
+        email: user.email,
+        tierId: tierId,
+        credits: 0, // Default credits, admin can update or they can buy
+        role: isAdmin ? 'admin' : 'user'
+      });
+    }
+  } catch (error) {
+    console.error("Error initializing user profile:", error);
   }
 };
 
