@@ -187,7 +187,8 @@ export const generateBookCover = async (
   - Exact Target Dimensions (including bleed and spine): ${coverDims.width.toFixed(3)}" wide x ${coverDims.height.toFixed(3)}" high.
   - Spine Width: ${coverDims.spine.toFixed(3)}".
   - Bleed Zone: The outer 0.125" will be trimmed off. Extend background art to the edges but keep critical details out.
-  - Safe Margins: Keep all critical details at least 0.5" away from the edges.`;
+  - Safe Margins: Keep all critical details at least 0.5" away from the edges.
+  - CRITICAL: DO NOT draw visible bleed lines, margin lines, crop marks, or text describing the layout on the generated image. The layout instructions are for composition only.`;
   }
 
   const instruction = `INDUSTRIAL BOOK COVER DESIGN TASK:
@@ -306,7 +307,8 @@ export const restyleIllustration = async (
   TARGET PRINT FORMAT: ${config.name}
   - Exact Target Dimensions (including bleed): ${width.toFixed(3)}" wide x ${height.toFixed(3)}" high.
   - Bleed Zone: The outer ${bleed}" will be trimmed off. Extend background art to the very edge, but keep critical details out.
-  - Safe Margins: Keep all text and critical details at least ${safe}" away from the top, bottom, and outer edges.`;
+  - Safe Margins: Keep all text and critical details at least ${safe}" away from the top, bottom, and outer edges.
+  - CRITICAL: DO NOT draw visible bleed lines, margin lines, crop marks, or text describing the layout on the generated image. The layout instructions are for composition only.`;
   }
 
   const layoutRules = isSpread ? `
@@ -394,7 +396,8 @@ export const refineIllustration = async (
   TARGET PRINT FORMAT: ${config.name}
   - Exact Target Dimensions (including bleed): ${width.toFixed(3)}" wide x ${height.toFixed(3)}" high.
   - Bleed Zone: The outer ${bleed}" will be trimmed off. Extend background art to the very edge, but keep critical details out.
-  - Safe Margins: Keep all text and critical details at least ${safe}" away from the top, bottom, and outer edges.`;
+  - Safe Margins: Keep all text and critical details at least ${safe}" away from the top, bottom, and outer edges.
+  - CRITICAL: DO NOT draw visible bleed lines, margin lines, crop marks, or text describing the layout on the generated image. The layout instructions are for composition only.`;
   }
 
   const layoutRules = isSpread ? `
@@ -811,7 +814,8 @@ export const generateLayeredIllustration = async (
   TARGET PRINT FORMAT: ${config.name}
   - Exact Target Dimensions (including bleed): ${width.toFixed(3)}" wide x ${height.toFixed(3)}" high.
   - Bleed Zone: The outer ${bleed}" will be trimmed off. Extend background art to the very edge, but keep critical details out.
-  - Safe Margins: Keep all text and critical details at least ${safe}" away from the top, bottom, and outer edges.`;
+  - Safe Margins: Keep all text and critical details at least ${safe}" away from the top, bottom, and outer edges.
+  - CRITICAL: DO NOT draw visible bleed lines, margin lines, crop marks, or text describing the layout on the generated image. The layout instructions are for composition only.`;
   }
 
   const layoutRules = isSpread ? `
@@ -914,7 +918,8 @@ export const generateLayeredCover = async (
   - Exact Target Dimensions (including bleed and spine): ${coverDims.width.toFixed(3)}" wide x ${coverDims.height.toFixed(3)}" high.
   - Spine Width: ${coverDims.spine.toFixed(3)}".
   - Bleed Zone: The outer 0.125" will be trimmed off. Extend background art to the edges but keep critical details out.
-  - Safe Margins: Keep all critical details at least 0.5" away from the edges.`;
+  - Safe Margins: Keep all critical details at least 0.5" away from the edges.
+  - CRITICAL: DO NOT draw visible bleed lines, margin lines, crop marks, or text describing the layout on the generated image. The layout instructions are for composition only.`;
   }
 
   const coverRules = `
