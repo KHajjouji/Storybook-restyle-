@@ -174,7 +174,8 @@ export const generateBookCover = async (
   targetResolution: '1K' | '2K' | '4K' = '1K',
   targetAspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16",
   exportFormat?: ExportFormat,
-  estimatedPageCount?: number
+  estimatedPageCount?: number,
+  styleRefBase64?: string
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   
@@ -214,6 +215,12 @@ export const generateBookCover = async (
 
   const parts: any[] = [{ text: instruction }];
   
+  if (styleRefBase64) {
+    const data = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
+    parts.push({ text: "--- STRICT STYLE REFERENCE --- \nCRITICAL: You MUST exactly match the illustration style, brush strokes, medium, and color palette of this reference image." });
+    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+  }
+
   charRefs.forEach((ref) => {
     ref.images.forEach((img) => {
       if (img && img !== "LOADING") {
@@ -315,7 +322,8 @@ export const restyleIllustration = async (
   LAYOUT RULES FOR KDP 2-PAGE SPREAD: ${formatRules}
   - This is a WIDE SPREAD that will be folded in the middle (GUTTER).
   - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" (approx 5%) around the center fold.
-  - BALANCE: Ensure the composition works as two distinct halves while remaining a cohesive single image.` : `
+  - BALANCE: Ensure the composition works as two distinct halves while remaining a cohesive single image.
+  - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.` : `
   LAYOUT RULES FOR KDP SINGLE PAGE: ${formatRules}
   - GUTTER: The side that binds to the spine needs extra margin. Keep critical elements away from the binding edge.`;
 
@@ -340,6 +348,12 @@ export const restyleIllustration = async (
   if (originalImageBase64) {
     const data = originalImageBase64.includes(',') ? originalImageBase64.split(',')[1] : originalImageBase64;
     parts.push({ text: "--- ORIGINAL LAYOUT REFERENCE ---" });
+    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+  }
+
+  if (styleRefBase64) {
+    const data = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
+    parts.push({ text: "--- STRICT STYLE REFERENCE --- \nCRITICAL: You MUST exactly match the illustration style, brush strokes, medium, and color palette of this reference image." });
     parts.push({ inlineData: { data, mimeType: 'image/png' } });
   }
 
@@ -380,7 +394,8 @@ export const refineIllustration = async (
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   targetText?: string,
   exportFormat?: ExportFormat,
-  estimatedPageCount?: number
+  estimatedPageCount?: number,
+  styleRefBase64?: string
 ): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
@@ -404,7 +419,8 @@ export const refineIllustration = async (
   LAYOUT RULES FOR 2-PAGE SPREAD: ${formatRules}
   - This is a WIDE SPREAD that will be folded in the middle (GUTTER).
   - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold).
-  - SAFE MARGINS: Keep all text and critical details at least 10% away from the top, bottom, and outer edges.` : `
+  - SAFE MARGINS: Keep all text and critical details at least 10% away from the top, bottom, and outer edges.
+  - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.` : `
   LAYOUT RULES FOR SINGLE PAGE: ${formatRules}`;
 
   const textInstruction = targetText ? `
@@ -422,10 +438,17 @@ export const refineIllustration = async (
   GOAL: Modify the TARGET IMAGE to align with the FIX REQUEST while maintaining exact style and character features.`;
 
   const parts: any[] = [
-    { text: instruction },
-    { text: "--- TARGET IMAGE TO BE FIXED ---" },
-    { inlineData: { data: targetData, mimeType: 'image/png' } }
+    { text: instruction }
   ];
+
+  if (styleRefBase64) {
+    const data = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
+    parts.push({ text: "--- STRICT STYLE REFERENCE --- \nCRITICAL: You MUST exactly match the illustration style, brush strokes, medium, and color palette of this reference image." });
+    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+  }
+
+  parts.push({ text: "--- TARGET IMAGE TO BE FIXED ---" });
+  parts.push({ inlineData: { data: targetData, mimeType: 'image/png' } });
 
   charRefs.forEach((ref) => {
     ref.images.forEach((img) => {
@@ -799,7 +822,8 @@ export const generateLayeredIllustration = async (
   targetText?: string,
   isSpread: boolean = false,
   exportFormat?: ExportFormat,
-  estimatedPageCount?: number
+  estimatedPageCount?: number,
+  styleRefBase64?: string
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
   
@@ -820,21 +844,22 @@ export const generateLayeredIllustration = async (
 
   const layoutRules = isSpread ? `
   LAYOUT RULES FOR KDP 2-PAGE SPREAD: ${formatRules}
-  - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" around the center fold.` : `
+  - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" around the center fold.
+  - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.` : `
   LAYOUT RULES FOR KDP SINGLE PAGE: ${formatRules}`;
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment. ${layoutRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
 
   // 2. CHARACTER LAYER
   const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
+  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
   const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const propsRaw = await restyleIllustration(undefined, propsPrompt, undefined, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
+  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER (If applicable)
@@ -843,7 +868,7 @@ export const generateLayeredIllustration = async (
     const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. 
     IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${layoutRules}`;
-    const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
+    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
     textLayer = await removeWhiteBackground(textRaw);
   }
 
@@ -905,7 +930,8 @@ export const generateLayeredCover = async (
   title?: string,
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16",
   exportFormat?: ExportFormat,
-  estimatedPageCount?: number
+  estimatedPageCount?: number,
+  styleRefBase64?: string
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered cover generation...");
   
@@ -929,11 +955,11 @@ export const generateLayeredCover = async (
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `BOOK COVER BACKGROUND ONLY: ${context}. Style: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO TEXT. Just the environment and atmosphere. ${coverRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
 
   // 2. CHARACTER LAYER
   const charPrompt = `BOOK COVER CHARACTER LAYER: ${context}. Style: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO TEXT. Place them on a SOLID PURE WHITE BACKGROUND. ${coverRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, undefined, undefined, characters, [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
+  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, characters, [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. TEXT LAYER (If applicable)
@@ -942,7 +968,7 @@ export const generateLayeredCover = async (
     const textPrompt = `BOOK COVER TITLE LAYER: Render the title "${title}" in a bold, cinematic book cover font style. 
     IMPORTANT: Place the title in the UPPER THIRD of the frame, leaving at least 15% margin from all edges (SAFE MARGINS). 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${coverRules}`;
-    const textRaw = await restyleIllustration(undefined, textPrompt, undefined, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
+    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
     textLayer = await removeWhiteBackground(textRaw);
   }
 
