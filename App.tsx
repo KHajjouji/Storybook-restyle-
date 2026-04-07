@@ -718,7 +718,10 @@ const App: React.FC = () => {
     setIsProcessing(true);
     try {
       const p = pages.find(pg => pg.id === pageId)!;
-      const narrativeContext = p.originalText ? `SCENE SCRIPT: "${p.originalText}". ${globalFixPrompt}` : (p.overrideStylePrompt || settings.targetStyle);
+      const basePrompt = p.overrideStylePrompt || (p.originalText ? `SCENE SCRIPT: "${p.originalText}"` : "");
+      const narrativeContext = basePrompt.includes(settings.targetStyle) 
+        ? `${basePrompt}. ${globalFixPrompt}`
+        : `${basePrompt}. STYLE: ${settings.targetStyle}. ${globalFixPrompt}`;
       
       let result;
       let layers;
@@ -727,7 +730,7 @@ const App: React.FC = () => {
 
       if (settings.layeredMode && !p.originalImage) {
         const layeredResult = await generateLayeredIllustration(
-          p.overrideStylePrompt || narrativeContext,
+          narrativeContext,
           settings.characterReferences,
           settings.masterBible,
           projectContext,
@@ -748,8 +751,7 @@ const App: React.FC = () => {
         result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference);
       } else {
         // For activities, use the specific spread prompt as the primary instruction
-        const promptToUse = p.overrideStylePrompt || narrativeContext;
-        result = await restyleIllustration(undefined, promptToUse, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount);
+        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
     } catch (e) { 
