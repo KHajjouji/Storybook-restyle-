@@ -53,7 +53,8 @@ export const generateBookPDF = async (
   overlayText: boolean,
   totalEstimatedPages: number,
   spreadMode: SpreadExportMode = 'WIDE_SPREAD',
-  layeredMode: boolean = false
+  layeredMode: boolean = false,
+  textFont: string = 'Inter'
 ) => {
   const validation = validateProjectForKDP(pages, format, totalEstimatedPages);
   if (!validation.isValid) {
@@ -79,6 +80,52 @@ export const generateBookPDF = async (
   });
 
   let currentPageNum = 1;
+
+  const createTextImage = (text: string, widthIn: number, heightIn: number, safeLeftIn: number, safeRightIn: number, safeBottomIn: number): string => {
+    const dpi = 300;
+    const canvas = document.createElement('canvas');
+    canvas.width = widthIn * dpi;
+    canvas.height = heightIn * dpi;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = `bold ${24 * (dpi/72)}px ${textFont}, sans-serif`;
+    ctx.fillStyle = 'black';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    
+    const safeLeftPx = safeLeftIn * dpi;
+    const safeRightPx = safeRightIn * dpi;
+    const safeBottomPx = safeBottomIn * dpi;
+    const maxWidthPx = safeRightPx - safeLeftPx;
+    const centerXPx = safeLeftPx + (maxWidthPx / 2);
+    
+    // Simple word wrap
+    const words = text.split(' ');
+    let line = '';
+    const lines = [];
+    for (let n = 0; n < words.length; n++) {
+      const testLine = line + words[n] + ' ';
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > maxWidthPx && n > 0) {
+        lines.push(line);
+        line = words[n] + ' ';
+      } else {
+        line = testLine;
+      }
+    }
+    lines.push(line);
+    
+    const lineHeight = 30 * (dpi/72);
+    const startY = safeBottomPx - (lines.length - 1) * lineHeight;
+    
+    lines.forEach((l, i) => {
+      ctx.fillText(l.trim(), centerXPx, startY + i * lineHeight);
+    });
+    
+    return canvas.toDataURL('image/png');
+  };
 
   for (let i = 0; i < pages.length; i++) {
     const page = pages[i];
@@ -110,20 +157,21 @@ export const generateBookPDF = async (
         
         // Active Text (Dynamic)
         if (overlayText && page.originalText && !textLayer) {
-          pdf.setFontSize(18);
-          pdf.setTextColor(0, 0, 0);
-          
-          // Calculate safe area based on config
           const safeBottom = fullHeight - config.bottom - config.bleed;
           const safeLeft = config.outside + config.bleed;
           const safeRight = spreadWidth - config.outside - config.bleed;
-          const maxWidth = safeRight - safeLeft;
-          
-          // Center text in the safe area
-          pdf.text(page.originalText, spreadWidth / 2, safeBottom, { align: 'center', maxWidth: maxWidth });
+          const textImg = createTextImage(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom);
+          if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight);
         }
       } else {
         pdf.addImage(image, 'PNG', 0, 0, spreadWidth, fullHeight);
+        if (overlayText && page.originalText) {
+          const safeBottom = fullHeight - config.bottom - config.bleed;
+          const safeLeft = config.outside + config.bleed;
+          const safeRight = spreadWidth - config.outside - config.bleed;
+          const textImg = createTextImage(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom);
+          if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight);
+        }
       }
       currentPageNum += 2;
     } else if (page.isSpread && spreadMode === 'SPLIT_PAGES') {
@@ -137,13 +185,11 @@ export const generateBookPDF = async (
       
       // Active Text (Dynamic) for Left Page
       if (overlayText && page.originalText) {
-        pdf.setFontSize(16);
-        pdf.setTextColor(0, 0, 0);
         const safeBottom = fullHeight - config.bottom - config.bleed;
         const safeLeft = config.outside + config.bleed;
         const safeRight = singleFullWidth - gutter;
-        const maxWidth = safeRight - safeLeft;
-        pdf.text(page.originalText, safeLeft + (maxWidth / 2), safeBottom, { align: 'center', maxWidth: maxWidth });
+        const textImg = createTextImage(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom);
+        if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight);
       }
       currentPageNum++;
 
@@ -173,20 +219,21 @@ export const generateBookPDF = async (
 
         // Active Text (Dynamic)
         if (overlayText && page.originalText && !textLayer) {
-          pdf.setFontSize(16);
-          pdf.setTextColor(0, 0, 0);
-          
           const safeBottom = fullHeight - config.bottom - config.bleed;
-          // Gutter is on the left for right pages (odd), on the right for left pages (even)
           const safeLeft = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);
           const safeRight = isRightPage ? (singleFullWidth - config.outside - config.bleed) : (singleFullWidth - gutter - config.bleed);
-          const maxWidth = safeRight - safeLeft;
-          const centerX = safeLeft + (maxWidth / 2);
-
-          pdf.text(page.originalText, centerX, safeBottom, { align: 'center', maxWidth: maxWidth });
+          const textImg = createTextImage(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom);
+          if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight);
         }
       } else {
         pdf.addImage(image, 'PNG', 0, 0, singleFullWidth, fullHeight);
+        if (overlayText && page.originalText) {
+          const safeBottom = fullHeight - config.bottom - config.bleed;
+          const safeLeft = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);
+          const safeRight = isRightPage ? (singleFullWidth - config.outside - config.bleed) : (singleFullWidth - gutter - config.bleed);
+          const textImg = createTextImage(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom);
+          if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight);
+        }
       }
       currentPageNum++;
     }

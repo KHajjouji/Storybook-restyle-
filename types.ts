@@ -96,6 +96,7 @@ export interface AppSettings {
   embedTextInImage: boolean;
   layeredMode: boolean;
   overlayText: boolean;
+  textFont?: string;
   showSafeGuides: boolean;
   estimatedPageCount: number;
 }

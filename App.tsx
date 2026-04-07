@@ -360,6 +360,7 @@ const App: React.FC = () => {
     embedTextInImage: false,
     layeredMode: false,
     overlayText: false,
+    textFont: 'Inter',
     showSafeGuides: true,
     characterReferences: [],
     estimatedPageCount: 32,
@@ -593,7 +594,7 @@ const App: React.FC = () => {
       }
       setPages(prev => [...prev, ...result.pages.map(p => ({
         id: Math.random().toString(36).substring(7),
-        originalText: p.text,
+        originalText: p.pageText || p.text,
         status: 'idle' as const,
         assignments: p.mappedCharacterNames.map(name => ({ refId: name, description: "" })),
         isSpread: p.isSpread,
@@ -612,7 +613,7 @@ const App: React.FC = () => {
       setSettings(prev => ({ ...prev, masterBible: `${result.globalInstructions}\n\n${prev.masterBible}` }));
       setPages(prev => [...prev, ...result.spreads.map(s => ({
         id: Math.random().toString(36).substring(7),
-        originalText: s.title,
+        originalText: s.pageText || s.title,
         status: 'idle' as const,
         assignments: [],
         isSpread: true,
@@ -1224,6 +1225,22 @@ const App: React.FC = () => {
                       </div>
                     </div>
                     <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, the original text will be overlaid on the generated PDF pages.</p>
+                    {settings.overlayText && (
+                      <div className="px-4 mt-2">
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Font Family</label>
+                        <select 
+                          value={settings.textFont || 'Inter'} 
+                          onChange={(e) => setSettings({...settings, textFont: e.target.value})}
+                          className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
+                        >
+                          <option value="Inter">Inter (Sans)</option>
+                          <option value="Outfit">Outfit (Display)</option>
+                          <option value="Comic Sans MS">Comic Sans (Playful)</option>
+                          <option value="Georgia">Georgia (Serif)</option>
+                          <option value="Courier New">Courier (Mono)</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   {/* SAFE GUIDES CONTROL */}
@@ -1256,6 +1273,13 @@ const App: React.FC = () => {
                     <div className="aspect-[4/3] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner border-8 border-white relative">
                       {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
                       <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
+                      {settings.overlayText && p.originalText && (
+                        <div className="absolute inset-0 flex items-end justify-center pb-[10%] pointer-events-none">
+                          <p className="text-center text-black text-2xl font-bold whitespace-pre-wrap px-12" style={{ fontFamily: settings.textFont || 'Inter' }}>
+                            {p.originalText}
+                          </p>
+                        </div>
+                      )}
                     </div>
                     {p.originalText && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 italic leading-relaxed">"{p.originalText}"</p>}
                     
@@ -1749,7 +1773,7 @@ const App: React.FC = () => {
                       ))}
                   </div>
                   <div className="space-y-6">
-                    <button onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode)} className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8"><Download size={48} /> DOWNLOAD INTERIOR PDF</button>
+                    <button onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode, settings.textFont)} className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8"><Download size={48} /> DOWNLOAD INTERIOR PDF</button>
                     <button onClick={() => exportProjectAssetsForCanva(pages, projectName)} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-4"><Layers size={32} /> DOWNLOAD ASSETS FOR CANVA / PHOTOSHOP</button>
                     <button onClick={() => setCurrentStep('cover-master')} className="w-full py-8 bg-amber-50 text-amber-600 rounded-[3rem] font-black text-2xl shadow-sm hover:bg-amber-100 transition-all flex items-center justify-center gap-4">GO TO COVER DESIGNER <ChevronRight size={32} /></button>
                   </div>

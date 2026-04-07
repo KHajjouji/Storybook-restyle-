@@ -121,14 +121,17 @@ export const parsePromptPack = async (rawText: string): Promise<{
  */
 export const parseActivityPack = async (rawText: string): Promise<{ 
   globalInstructions: string,
-  spreads: { title: string, fullPrompt: string }[] 
+  spreads: { title: string, fullPrompt: string, pageText?: string }[] 
 }> => {
   const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Break down this Activity Master Prompt into individual spreads.
     Extract the "GLOBAL" section separately.
-    For each "SPREAD X", extract the specific scene/logic/text requirements.
+    For each "SPREAD X" or "ACTIVITY PAGE X":
+    1. Extract the specific visual scene/logic requirements into 'fullPrompt'. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the fullPrompt. ALSO CRITICAL: Strip out any specific text that is meant to be written on the page (e.g. "TEXT ON PAGE", "TEXT", "Top:", "Bottom:"). The image generator should NOT draw text.
+    2. Extract the exact text that is meant to be written on the page into 'pageText'. This includes titles, vocabulary words, instructions, etc.
+    3. Provide a short descriptive 'title'.
 
     Text:
     ${rawText}`,
@@ -144,7 +147,8 @@ export const parseActivityPack = async (rawText: string): Promise<{
               type: Type.OBJECT,
               properties: {
                 title: { type: Type.STRING },
-                fullPrompt: { type: Type.STRING }
+                fullPrompt: { type: Type.STRING },
+                pageText: { type: Type.STRING }
               },
               required: ['title', 'fullPrompt']
             }
@@ -533,7 +537,7 @@ export const analyzeStyleFromImage = async (imageBase64: string): Promise<string
 export const planStoryScenes = async (fullScript: string, characters: CharacterRef[], enableActivityDesigner: boolean = false): Promise<{
   globalInstructions?: string,
   characterIdentities?: { name: string, description: string }[],
-  pages: {text: string, isSpread: boolean, mappedCharacterNames: string[], fullPrompt?: string}[]
+  pages: {text: string, isSpread: boolean, mappedCharacterNames: string[], fullPrompt?: string, pageText?: string}[]
 }> => {
   const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const prompt = enableActivityDesigner 
@@ -541,15 +545,17 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
     Extract any "GLOBAL" style or layout instructions into 'globalInstructions'. 
     Extract all distinct characters and their descriptions into 'characterIdentities'.
     For each page or spread:
-    - Provide a visual description in 'text'. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description.
+    - Provide a visual description in 'text'. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description. ALSO CRITICAL: Strip out any specific text that is meant to be written on the page. The image generator should NOT draw text.
+    - Extract the exact text that is meant to be written on the page into 'pageText'. This includes titles, vocabulary words, dialogue, etc.
     - Set 'isSpread' to true if it spans 2 pages, false if 1 page.
     - List character names present in 'mappedCharacterNames'.
-    - If it's an activity or requires specific layout logic, provide a 'fullPrompt' with the detailed layout and style instructions. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the fullPrompt.
+    - If it's an activity or requires specific layout logic, provide a 'fullPrompt' with the detailed layout and style instructions. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the fullPrompt. ALSO CRITICAL: Strip out any specific text that is meant to be written on the page.
     Script: ${fullScript}`
     : `Break this script into distinct pages/spreads. 
     Extract all distinct characters and their descriptions into 'characterIdentities'. 
     For each page, provide a visual description (text), whether it's a 2-page spread (isSpread), and an array of character names present (mappedCharacterNames). 
-    CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description. The visual description should ONLY describe what is happening in the scene.
+    CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description. The visual description should ONLY describe what is happening in the scene. ALSO CRITICAL: Strip out any specific text that is meant to be written on the page.
+    Extract the exact text that is meant to be written on the page into 'pageText'.
     Script: ${fullScript}`;
 
   const response: GenerateContentResponse = await ai.models.generateContent({
@@ -580,7 +586,8 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
                 text: { type: Type.STRING },
                 isSpread: { type: Type.BOOLEAN },
                 mappedCharacterNames: { type: Type.ARRAY, items: { type: Type.STRING } },
-                fullPrompt: { type: Type.STRING }
+                fullPrompt: { type: Type.STRING },
+                pageText: { type: Type.STRING }
               },
               required: ['text', 'isSpread', 'mappedCharacterNames']
             }
