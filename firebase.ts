@@ -30,51 +30,37 @@ export const logout = async () => {
   }
 };
 
-export const checkUserAllowed = async (email: string | null): Promise<boolean> => {
-  if (!email) return false;
-  
-  // Default admin is always allowed
-  if (email === import.meta.env.VITE_ADMIN_EMAIL || email === 'hypocritic2002@gmail.com') {
-    return true;
-  }
-
-  try {
-    const docRef = doc(db, 'allowedEmails', email);
-    const docSnap = await getDoc(docRef);
-    return docSnap.exists();
-  } catch (error) {
-    console.error("Error checking user allowed status:", error);
-    return false;
-  }
+/**
+ * All authenticated Google users are allowed on the platform.
+ * Access is gated by subscription/credits, not an email allowlist.
+ * Admin status is still checked separately.
+ */
+export const checkUserAllowed = async (_email: string | null): Promise<boolean> => {
+  // Any signed-in Google user may access the platform.
+  // Credits / subscription tier control what they can actually do.
+  return true;
 };
 
 export const initializeUserProfile = async (user: any) => {
   if (!user || !user.email) return;
-  
+
   try {
     const userRef = doc(db, 'users', user.uid);
     const userSnap = await getDoc(userRef);
-    
+
     if (!userSnap.exists()) {
-      // Check if they are admin
+      // New user — give free trial credits
       const isAdmin = await checkIsAdmin(user.email);
-      
-      // Get tier from allowedEmails if it exists
-      let tierId = 'free';
-      if (!isAdmin && user.email !== import.meta.env.VITE_ADMIN_EMAIL && user.email !== 'hypocritic2002@gmail.com') {
-        const allowedRef = doc(db, 'allowedEmails', user.email);
-        const allowedSnap = await getDoc(allowedRef);
-        if (allowedSnap.exists() && allowedSnap.data().tierId) {
-          tierId = allowedSnap.data().tierId;
-        }
-      }
 
       await setDoc(userRef, {
         uid: user.uid,
         email: user.email,
-        tierId: tierId,
-        credits: 10, // Default credits, admin can update or they can buy
-        role: isAdmin ? 'admin' : 'user'
+        tierId: 'free',
+        credits: isAdmin ? 999 : 3, // 3 free trial books for new users
+        role: isAdmin ? 'admin' : 'user',
+        createdAt: Date.now(),
+        stripeCustomerId: null,
+        subscriptionStatus: 'free_trial',
       });
     }
   } catch (error) {
@@ -84,13 +70,13 @@ export const initializeUserProfile = async (user: any) => {
 
 export const checkIsAdmin = async (email: string | null): Promise<boolean> => {
   if (!email) return false;
-  
+
   if (email === import.meta.env.VITE_ADMIN_EMAIL || email === 'hypocritic2002@gmail.com') {
     return true;
   }
 
   try {
-    const docRef = doc(db, 'allowedEmails', email);
+    const docRef = doc(db, 'users', email);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       return docSnap.data().role === 'admin';
