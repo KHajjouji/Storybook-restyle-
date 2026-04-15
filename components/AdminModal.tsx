@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, ShieldCheck, User, Loader2, Layers, CreditCard, Settings } from 'lucide-react';
+import { X, Plus, Trash2, ShieldCheck, User, Loader2, Layers, CreditCard, Settings, BarChart3, Search } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { collection, getDocs, getDoc, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { UserProfile, Tier } from '../types';
@@ -12,7 +12,7 @@ interface AllowedEmail {
 }
 
 export const AdminModal = ({ onClose }: { onClose: () => void }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'tiers' | 'settings'>('users');
+  const [activeTab, setActiveTab] = useState<'platform' | 'users' | 'tiers' | 'settings'>('platform');
   
   const [emails, setEmails] = useState<AllowedEmail[]>([]);
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
@@ -24,7 +24,9 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
   const [newTierId, setNewTierId] = useState('free');
   
   const [newTier, setNewTier] = useState<Partial<Tier>>({ name: '', maxProjects: 10, monthlyCredits: 100 });
-  
+  const [userSearch, setUserSearch] = useState('');
+  const [grantAmounts, setGrantAmounts] = useState<Record<string, string>>({});
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +111,25 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
+  const handleGrantCredits = async (uid: string, currentCredits: number) => {
+    const amount = parseInt(grantAmounts[uid] || '0', 10);
+    if (!amount || amount <= 0) return;
+    await handleUpdateUserCredits(uid, currentCredits + amount);
+    setGrantAmounts(prev => ({ ...prev, [uid]: '' }));
+  };
+
+  const handleUpdateUserTier = async (uid: string, tierId: string) => {
+    try {
+      setLoading(true);
+      await updateDoc(doc(db, 'users', uid), { tierId });
+      await fetchData();
+    } catch (err: any) {
+      console.error("Error updating tier:", err);
+      setError("Failed to update tier.");
+      setLoading(false);
+    }
+  };
+
   const handleAddTier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTier.name) return;
@@ -180,25 +201,21 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
           </button>
         </div>
 
-        <div className="flex border-b border-slate-100 bg-slate-50 px-8">
-          <button 
-            onClick={() => setActiveTab('users')}
-            className={`px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'users' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-          >
-            Users & Access
-          </button>
-          <button 
-            onClick={() => setActiveTab('tiers')}
-            className={`px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'tiers' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-          >
-            Subscription Tiers
-          </button>
-          <button 
-            onClick={() => setActiveTab('settings')}
-            className={`px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'settings' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-          >
-            System Settings
-          </button>
+        <div className="flex border-b border-slate-100 bg-slate-50 px-8 overflow-x-auto">
+          {([
+            { id: 'platform', label: 'Platform' },
+            { id: 'users',    label: 'Users & Access' },
+            { id: 'tiers',    label: 'Tiers' },
+            { id: 'settings', label: 'Settings' },
+          ] as const).map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-shrink-0 px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === tab.id ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         <div className="p-8 overflow-y-auto flex-1 bg-slate-50/50">
@@ -207,6 +224,130 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
               {error}
             </div>
           )}
+
+          {activeTab === 'platform' && (() => {
+            const totalUsers = userProfiles.length;
+            const activeSubscriptions = userProfiles.filter(u =>
+              (u as any).subscriptionStatus === 'active' || (u as any).subscriptionStatus === 'trialing'
+            ).length;
+            const totalCredits = userProfiles.reduce((sum, u) => sum + (u.credits || 0), 0);
+            const tierCounts: Record<string, number> = {};
+            userProfiles.forEach(u => {
+              tierCounts[u.tierId || 'free'] = (tierCounts[u.tierId || 'free'] || 0) + 1;
+            });
+            const filtered = userProfiles.filter(u =>
+              !userSearch || u.email.toLowerCase().includes(userSearch.toLowerCase())
+            );
+
+            return (
+              <>
+                {/* Stats */}
+                <div className="grid grid-cols-3 gap-4 mb-8">
+                  {[
+                    { label: 'Total Users', value: totalUsers, icon: <User size={20} />, color: 'indigo' },
+                    { label: 'Active Subscribers', value: activeSubscriptions, icon: <CreditCard size={20} />, color: 'emerald' },
+                    { label: 'Credits in Circulation', value: totalCredits, icon: <BarChart3 size={20} />, color: 'amber' },
+                  ].map(stat => (
+                    <div key={stat.label} className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 text-center">
+                      <div className={`w-10 h-10 rounded-xl mx-auto mb-3 flex items-center justify-center bg-${stat.color}-100 text-${stat.color}-600`}>
+                        {stat.icon}
+                      </div>
+                      <div className="text-3xl font-black text-slate-900">{stat.value}</div>
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{stat.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tier breakdown */}
+                <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 mb-8">
+                  <h3 className="text-base font-black text-slate-800 mb-4">Users by Tier</h3>
+                  <div className="space-y-2">
+                    {Object.entries(tierCounts).map(([tierId, count]) => {
+                      const pct = totalUsers > 0 ? Math.round((count / totalUsers) * 100) : 0;
+                      return (
+                        <div key={tierId} className="flex items-center gap-4">
+                          <div className="w-24 text-sm font-bold text-slate-600 capitalize">{tierId}</div>
+                          <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                          </div>
+                          <div className="text-sm font-bold text-slate-500 w-16 text-right">{count} users</div>
+                        </div>
+                      );
+                    })}
+                    {Object.keys(tierCounts).length === 0 && (
+                      <p className="text-slate-400 text-sm font-medium">No users yet.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* User management with search */}
+                <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+                  <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-4">
+                    <h3 className="text-base font-black text-slate-800 flex-1">User Management</h3>
+                    <div className="relative">
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={userSearch}
+                        onChange={e => setUserSearch(e.target.value)}
+                        placeholder="Search by email…"
+                        className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-amber-400 transition-colors"
+                      />
+                    </div>
+                  </div>
+                  <div className="divide-y divide-slate-50">
+                    {filtered.length === 0 && (
+                      <div className="p-8 text-center text-slate-400 font-medium">No users match your search.</div>
+                    )}
+                    {filtered.map(user => (
+                      <div key={user.uid} className="p-5 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center flex-shrink-0">
+                            <User size={18} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-slate-800 text-sm truncate">{user.email}</div>
+                            <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                              {user.role} • {user.credits} credits
+                              {(user as any).subscriptionStatus ? ` • ${(user as any).subscriptionStatus}` : ''}
+                            </div>
+                          </div>
+                        </div>
+                        {/* Controls row */}
+                        <div className="flex items-center gap-2 flex-wrap ml-12">
+                          {/* Tier override */}
+                          <select
+                            value={user.tierId || 'free'}
+                            onChange={e => handleUpdateUserTier(user.uid, e.target.value)}
+                            className="text-xs font-bold bg-slate-100 border-none outline-none px-3 py-2 rounded-lg cursor-pointer text-slate-600"
+                            title="Change tier"
+                          >
+                            {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                          </select>
+                          {/* Credit grant */}
+                          <input
+                            type="number"
+                            min={1}
+                            value={grantAmounts[user.uid] || ''}
+                            onChange={e => setGrantAmounts(prev => ({ ...prev, [user.uid]: e.target.value }))}
+                            placeholder="Credits"
+                            className="w-24 text-xs font-bold bg-slate-100 border-none outline-none px-3 py-2 rounded-lg text-slate-600"
+                          />
+                          <button
+                            onClick={() => handleGrantCredits(user.uid, user.credits)}
+                            disabled={!grantAmounts[user.uid] || parseInt(grantAmounts[user.uid] || '0') <= 0}
+                            className="text-xs font-black bg-amber-500 text-white px-3 py-2 rounded-lg hover:bg-amber-600 disabled:opacity-40 transition-colors"
+                          >
+                            Grant
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
 
           {activeTab === 'users' && (
             <>

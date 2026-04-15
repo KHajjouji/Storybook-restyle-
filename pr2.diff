@@ -1,0 +1,2710 @@
+diff --git a/App.tsx b/App.tsx
+index 2cbcf96..81be954 100644
+--- App.tsx
++++ App.tsx
+@@ -6,7 +6,11 @@ import {
+   ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid, TrendingUp, Key, CreditCard
+ } from 'lucide-react';
+ import JSZip from 'jszip';
+-import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer } from './types';
++import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer, UserMode } from './types';
++import { SimpleWizard } from './components/SimpleWizard';
++import { SubscriptionPage } from './components/SubscriptionPage';
++import { UserDashboard } from './components/UserDashboard';
++import { CanvaExportModal } from './components/CanvaExportModal';
+ import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
+ import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+ import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+@@ -251,19 +255,32 @@ const App: React.FC = () => {
+   const [userProfile, setUserProfile] = useState<import('./types').UserProfile | null>(null);
+   const [showAdminModal, setShowAdminModal] = useState(false);
+ 
++  // ── Consumer SaaS platform state ──────────────────────────────────────────
++  const [userMode, setUserMode] = useState<UserMode>(() =>
++    (localStorage.getItem('storyflow_user_mode') as UserMode) ?? 'simple'
++  );
++  const [showSimpleWizard, setShowSimpleWizard] = useState(false);
++  const [showSubscriptionPage, setShowSubscriptionPage] = useState(false);
++  const [showUserDashboard, setShowUserDashboard] = useState(false);
++  const [showCanvaModal, setShowCanvaModal] = useState(false);
++  const [canvaModalPages, setCanvaModalPages] = useState<BookPage[]>([]);
++
++  const handleToggleUserMode = () => {
++    const next: UserMode = userMode === 'simple' ? 'professional' : 'simple';
++    setUserMode(next);
++    localStorage.setItem('storyflow_user_mode', next);
++    setShowUserDashboard(false);
++  };
++
++  const handleDeductCredit = () => {
++    if (!userProfile) return;
++    setUserProfile(prev => prev ? { ...prev, credits: Math.max(0, prev.credits - 1) } : prev);
++  };
++
+   useEffect(() => {
+     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+       if (currentUser) {
+-        const isAllowed = await checkUserAllowed(currentUser.email);
+-        if (!isAllowed) {
+-          await logout();
+-          setAuthError("Your email is not authorized to access this app. Please contact the administrator.");
+-          setUser(null);
+-          setIsAdmin(false);
+-          setIsAuthReady(true);
+-          return;
+-        }
+-        
++        // All signed-in Google users are welcome — no allowlist check needed
+         const adminStatus = await checkIsAdmin(currentUser.email);
+         setIsAdmin(adminStatus);
+         
+@@ -446,26 +463,49 @@ const App: React.FC = () => {
+ 
+   if (!user) {
+     return (
+-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+-        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-md w-full text-center space-y-8">
+-          <div className="w-24 h-24 bg-indigo-600 rounded-full mx-auto flex items-center justify-center text-white shadow-xl">
+-            <Lock size={40} />
++      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-8">
++        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-md w-full text-center space-y-8 border border-indigo-50">
++          {/* Logo */}
++          <div className="w-24 h-24 bg-indigo-600 rounded-[2rem] mx-auto flex items-center justify-center text-white shadow-2xl">
++            <Sparkles size={44} />
+           </div>
+-          <div>
+-            <h1 className="text-3xl font-black text-slate-900 mb-4">StoryFlow Pro</h1>
+-            <p className="text-slate-500 font-medium">Please sign in to access your projects and generate illustrations.</p>
++          <div className="space-y-3">
++            <h1 className="text-4xl font-black text-slate-900">StoryFlow AI</h1>
++            <p className="text-slate-500 font-medium text-lg">
++              Create beautifully illustrated children's books in minutes — no design skills needed.
++            </p>
++          </div>
++          {/* Feature highlights */}
++          <div className="grid grid-cols-3 gap-4 py-2">
++            {[
++              { label: 'Choose a style', icon: '🎨' },
++              { label: 'Write your story', icon: '✍️' },
++              { label: 'Print-ready PDF', icon: '📖' },
++            ].map(f => (
++              <div key={f.label} className="bg-slate-50 rounded-2xl p-4 space-y-2">
++                <div className="text-2xl">{f.icon}</div>
++                <p className="text-xs font-bold text-slate-600">{f.label}</p>
++              </div>
++            ))}
++          </div>
++          {/* Free trial nudge */}
++          <div className="bg-emerald-50 text-emerald-700 px-6 py-3 rounded-2xl text-sm font-bold border border-emerald-100">
++            🎁 Start free — 3 illustrated books included
+           </div>
+           {authError && (
+             <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm font-medium border border-red-100">
+               {authError}
+             </div>
+           )}
+-          <button 
++          <button
+             onClick={handleSignIn}
+-            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-3 shadow-lg"
++            className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-xl hover:scale-[1.02]"
+           >
+             <LogIn size={24} /> Sign in with Google
+           </button>
++          <p className="text-slate-400 text-xs font-medium">
++            By signing in you agree to our terms of service. No credit card required to start.
++          </p>
+         </div>
+       </div>
+     );
+@@ -941,11 +981,145 @@ const App: React.FC = () => {
+   const renderStep = () => {
+     switch (currentStep) {
+       case 'landing':
++        // ── Simple / Consumer Mode Landing ────────────────────────────────────
++        if (userMode === 'simple') {
++          return (
++            <div className="max-w-5xl mx-auto py-16 px-8 space-y-16 animate-in fade-in duration-700">
++
++              {/* Hero */}
++              <div className="text-center space-y-6">
++                <div className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-600 px-5 py-2 rounded-full font-bold text-sm border border-indigo-100">
++                  <Sparkles size={16} /> AI-powered storybook maker
++                </div>
++                <h2 className="text-6xl font-black text-slate-900 tracking-tight leading-tight">
++                  Create your child's<br />
++                  <span className="text-indigo-600">illustrated storybook</span>
++                </h2>
++                <p className="text-slate-500 text-xl max-w-xl mx-auto font-medium leading-relaxed">
++                  Write a story, pick an art style, and get a print-ready illustrated book in minutes.
++                  No design skills needed.
++                </p>
++
++                {/* Credits status */}
++                {userProfile && (
++                  <div className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm border ${
++                    userProfile.credits > 0
++                      ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
++                      : 'bg-red-50 text-red-600 border-red-100'
++                  }`}>
++                    {userProfile.credits > 0
++                      ? `✨ ${userProfile.credits} free book${userProfile.credits !== 1 ? 's' : ''} remaining`
++                      : '⚠️ No credits left — subscribe to continue'}
++                  </div>
++                )}
++
++                {/* Main CTA */}
++                {userProfile && userProfile.credits > 0 ? (
++                  <button
++                    onClick={() => setShowSimpleWizard(true)}
++                    className="inline-flex items-center gap-3 px-12 py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-2xl shadow-2xl hover:bg-indigo-700 hover:scale-[1.02] transition-all"
++                  >
++                    <Sparkles size={28} /> Create a Book
++                  </button>
++                ) : (
++                  <button
++                    onClick={() => setShowSubscriptionPage(true)}
++                    className="inline-flex items-center gap-3 px-12 py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-2xl shadow-2xl hover:bg-indigo-700 hover:scale-[1.02] transition-all"
++                  >
++                    <CreditCard size={28} /> Subscribe to Create
++                  </button>
++                )}
++              </div>
++
++              {/* My Books */}
++              {savedProjects.length === 0 && (
++                <div className="text-center py-8 text-slate-300 space-y-4">
++                  <BookOpen size={64} className="mx-auto" />
++                  <p className="font-bold text-xl">Your books will appear here</p>
++                  <p className="text-slate-400 font-medium">Create your first book above to get started!</p>
++                </div>
++              )}
++
++              {savedProjects.length > 0 && (
++                <div className="space-y-6">
++                  <div className="flex justify-between items-center">
++                    <h3 className="text-2xl font-black text-slate-900">My Books</h3>
++                    <button onClick={handleOpenProjects} className="text-indigo-600 font-bold text-sm hover:text-indigo-800 transition-colors">
++                      See all →
++                    </button>
++                  </div>
++                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
++                    {savedProjects.slice(0, 4).map(proj => (
++                      <button
++                        key={proj.id}
++                        onClick={() => handleLoadProject(proj)}
++                        className="group bg-white border-2 border-slate-100 rounded-[2rem] overflow-hidden hover:border-indigo-300 hover:shadow-xl transition-all text-left"
++                      >
++                        <div className="aspect-square bg-slate-100 overflow-hidden">
++                          {proj.thumbnail ? (
++                            <img src={proj.thumbnail} alt={proj.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
++                          ) : (
++                            <div className="w-full h-full flex items-center justify-center text-slate-300">
++                              <BookOpen size={40} />
++                            </div>
++                          )}
++                        </div>
++                        <div className="p-4">
++                          <p className="font-black text-slate-900 text-sm truncate">{proj.name}</p>
++                          <p className="text-slate-400 text-xs font-medium mt-1">
++                            {new Date(proj.lastModified).toLocaleDateString()}
++                          </p>
++                        </div>
++                      </button>
++                    ))}
++                  </div>
++                </div>
++              )}
++
++              {/* How it works */}
++              <div className="bg-white border-2 border-slate-100 rounded-[3rem] p-12 space-y-8 shadow-sm">
++                <h3 className="text-2xl font-black text-slate-900 text-center">How it works</h3>
++                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
++                  {[
++                    { step: '1', icon: '✍️', title: 'Write your story', desc: 'A few sentences is all you need' },
++                    { step: '2', icon: '🎨', title: 'Pick a style', desc: 'Choose from 4 beautiful art styles' },
++                    { step: '3', icon: '✨', title: 'AI illustrates', desc: 'Every page drawn automatically' },
++                    { step: '4', icon: '📖', title: 'Download & print', desc: 'Print-ready PDF in seconds' },
++                  ].map(item => (
++                    <div key={item.step} className="text-center space-y-3">
++                      <div className="text-4xl">{item.icon}</div>
++                      <p className="font-black text-slate-900">{item.title}</p>
++                      <p className="text-slate-500 text-sm font-medium">{item.desc}</p>
++                    </div>
++                  ))}
++                </div>
++              </div>
++
++              {/* Professional mode link */}
++              <div className="text-center">
++                <button
++                  onClick={handleToggleUserMode}
++                  className="text-slate-400 font-bold text-sm hover:text-slate-600 underline transition-colors"
++                >
++                  Switch to Professional Mode
++                </button>
++              </div>
++            </div>
++          );
++        }
++
++        // ── Professional Mode Landing (existing 10-mode grid) ─────────────────
+         return (
+           <div className="max-w-6xl mx-auto py-24 px-8 space-y-24 animate-in fade-in duration-700">
+-            <div className="text-center space-y-6">
++            <div className="text-center space-y-4">
++              <div className="inline-flex items-center gap-2 bg-amber-50 text-amber-600 px-5 py-2 rounded-full font-bold text-sm border border-amber-100">
++                <Settings2 size={16} /> Professional Mode
++              </div>
+               <h2 className="text-8xl font-black text-slate-900 tracking-tighter">Series <span className="text-indigo-600">Master</span></h2>
+               <p className="text-slate-500 text-2xl max-w-2xl mx-auto font-medium">Professional Children's Book Production & Consistency Lab.</p>
++              <button onClick={handleToggleUserMode} className="text-slate-400 font-bold text-sm hover:text-slate-600 underline transition-colors">
++                ← Back to Simple Mode
++              </button>
+             </div>
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+               {recentProject && (
+diff --git a/components/AdminModal.tsx b/components/AdminModal.tsx
+index 0a03126..883df65 100644
+--- components/AdminModal.tsx
++++ components/AdminModal.tsx
+@@ -1,5 +1,5 @@
+ import React, { useState, useEffect } from 'react';
+-import { X, Plus, Trash2, ShieldCheck, User, Loader2, Layers, CreditCard, Settings } from 'lucide-react';
++import { X, Plus, Trash2, ShieldCheck, User, Loader2, Layers, CreditCard, Settings, BarChart3, Search } from 'lucide-react';
+ import { db, auth } from '../firebase';
+ import { collection, getDocs, getDoc, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+ import { UserProfile, Tier } from '../types';
+@@ -12,7 +12,7 @@ interface AllowedEmail {
+ }
+ 
+ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
+-  const [activeTab, setActiveTab] = useState<'users' | 'tiers' | 'settings'>('users');
++  const [activeTab, setActiveTab] = useState<'platform' | 'users' | 'tiers' | 'settings'>('platform');
+   
+   const [emails, setEmails] = useState<AllowedEmail[]>([]);
+   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
+@@ -24,7 +24,9 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
+   const [newTierId, setNewTierId] = useState('free');
+   
+   const [newTier, setNewTier] = useState<Partial<Tier>>({ name: '', maxProjects: 10, monthlyCredits: 100 });
+-  
++  const [userSearch, setUserSearch] = useState('');
++  const [grantAmounts, setGrantAmounts] = useState<Record<string, string>>({});
++
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState<string | null>(null);
+ 
+@@ -109,6 +111,25 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
+     }
+   };
+ 
++  const handleGrantCredits = async (uid: string, currentCredits: number) => {
++    const amount = parseInt(grantAmounts[uid] || '0', 10);
++    if (!amount || amount <= 0) return;
++    await handleUpdateUserCredits(uid, currentCredits + amount);
++    setGrantAmounts(prev => ({ ...prev, [uid]: '' }));
++  };
++
++  const handleUpdateUserTier = async (uid: string, tierId: string) => {
++    try {
++      setLoading(true);
++      await updateDoc(doc(db, 'users', uid), { tierId });
++      await fetchData();
++    } catch (err: any) {
++      console.error("Error updating tier:", err);
++      setError("Failed to update tier.");
++      setLoading(false);
++    }
++  };
++
+   const handleAddTier = async (e: React.FormEvent) => {
+     e.preventDefault();
+     if (!newTier.name) return;
+@@ -180,25 +201,21 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
+           </button>
+         </div>
+ 
+-        <div className="flex border-b border-slate-100 bg-slate-50 px-8">
+-          <button 
+-            onClick={() => setActiveTab('users')}
+-            className={`px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'users' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+-          >
+-            Users & Access
+-          </button>
+-          <button 
+-            onClick={() => setActiveTab('tiers')}
+-            className={`px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'tiers' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+-          >
+-            Subscription Tiers
+-          </button>
+-          <button 
+-            onClick={() => setActiveTab('settings')}
+-            className={`px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === 'settings' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+-          >
+-            System Settings
+-          </button>
++        <div className="flex border-b border-slate-100 bg-slate-50 px-8 overflow-x-auto">
++          {([
++            { id: 'platform', label: 'Platform' },
++            { id: 'users',    label: 'Users & Access' },
++            { id: 'tiers',    label: 'Tiers' },
++            { id: 'settings', label: 'Settings' },
++          ] as const).map(tab => (
++            <button
++              key={tab.id}
++              onClick={() => setActiveTab(tab.id)}
++              className={`flex-shrink-0 px-6 py-4 font-bold text-sm uppercase tracking-widest border-b-2 transition-colors ${activeTab === tab.id ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
++            >
++              {tab.label}
++            </button>
++          ))}
+         </div>
+ 
+         <div className="p-8 overflow-y-auto flex-1 bg-slate-50/50">
+@@ -208,6 +225,130 @@ export const AdminModal = ({ onClose }: { onClose: () => void }) => {
+             </div>
+           )}
+ 
++          {activeTab === 'platform' && (() => {
++            const totalUsers = userProfiles.length;
++            const activeSubscriptions = userProfiles.filter(u =>
++              (u as any).subscriptionStatus === 'active' || (u as any).subscriptionStatus === 'trialing'
++            ).length;
++            const totalCredits = userProfiles.reduce((sum, u) => sum + (u.credits || 0), 0);
++            const tierCounts: Record<string, number> = {};
++            userProfiles.forEach(u => {
++              tierCounts[u.tierId || 'free'] = (tierCounts[u.tierId || 'free'] || 0) + 1;
++            });
++            const filtered = userProfiles.filter(u =>
++              !userSearch || u.email.toLowerCase().includes(userSearch.toLowerCase())
++            );
++
++            return (
++              <>
++                {/* Stats */}
++                <div className="grid grid-cols-3 gap-4 mb-8">
++                  {[
++                    { label: 'Total Users', value: totalUsers, icon: <User size={20} />, color: 'indigo' },
++                    { label: 'Active Subscribers', value: activeSubscriptions, icon: <CreditCard size={20} />, color: 'emerald' },
++                    { label: 'Credits in Circulation', value: totalCredits, icon: <BarChart3 size={20} />, color: 'amber' },
++                  ].map(stat => (
++                    <div key={stat.label} className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 text-center">
++                      <div className={`w-10 h-10 rounded-xl mx-auto mb-3 flex items-center justify-center bg-${stat.color}-100 text-${stat.color}-600`}>
++                        {stat.icon}
++                      </div>
++                      <div className="text-3xl font-black text-slate-900">{stat.value}</div>
++                      <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{stat.label}</div>
++                    </div>
++                  ))}
++                </div>
++
++                {/* Tier breakdown */}
++                <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 mb-8">
++                  <h3 className="text-base font-black text-slate-800 mb-4">Users by Tier</h3>
++                  <div className="space-y-2">
++                    {Object.entries(tierCounts).map(([tierId, count]) => {
++                      const pct = totalUsers > 0 ? Math.round((count / totalUsers) * 100) : 0;
++                      return (
++                        <div key={tierId} className="flex items-center gap-4">
++                          <div className="w-24 text-sm font-bold text-slate-600 capitalize">{tierId}</div>
++                          <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
++                            <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
++                          </div>
++                          <div className="text-sm font-bold text-slate-500 w-16 text-right">{count} users</div>
++                        </div>
++                      );
++                    })}
++                    {Object.keys(tierCounts).length === 0 && (
++                      <p className="text-slate-400 text-sm font-medium">No users yet.</p>
++                    )}
++                  </div>
++                </div>
++
++                {/* User management with search */}
++                <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
++                  <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center gap-4">
++                    <h3 className="text-base font-black text-slate-800 flex-1">User Management</h3>
++                    <div className="relative">
++                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
++                      <input
++                        type="text"
++                        value={userSearch}
++                        onChange={e => setUserSearch(e.target.value)}
++                        placeholder="Search by email…"
++                        className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-amber-400 transition-colors"
++                      />
++                    </div>
++                  </div>
++                  <div className="divide-y divide-slate-50">
++                    {filtered.length === 0 && (
++                      <div className="p-8 text-center text-slate-400 font-medium">No users match your search.</div>
++                    )}
++                    {filtered.map(user => (
++                      <div key={user.uid} className="p-5 hover:bg-slate-50 transition-colors">
++                        <div className="flex items-center gap-3 mb-3">
++                          <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center flex-shrink-0">
++                            <User size={18} />
++                          </div>
++                          <div className="flex-1 min-w-0">
++                            <div className="font-bold text-slate-800 text-sm truncate">{user.email}</div>
++                            <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">
++                              {user.role} • {user.credits} credits
++                              {(user as any).subscriptionStatus ? ` • ${(user as any).subscriptionStatus}` : ''}
++                            </div>
++                          </div>
++                        </div>
++                        {/* Controls row */}
++                        <div className="flex items-center gap-2 flex-wrap ml-12">
++                          {/* Tier override */}
++                          <select
++                            value={user.tierId || 'free'}
++                            onChange={e => handleUpdateUserTier(user.uid, e.target.value)}
++                            className="text-xs font-bold bg-slate-100 border-none outline-none px-3 py-2 rounded-lg cursor-pointer text-slate-600"
++                            title="Change tier"
++                          >
++                            {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
++                          </select>
++                          {/* Credit grant */}
++                          <input
++                            type="number"
++                            min={1}
++                            value={grantAmounts[user.uid] || ''}
++                            onChange={e => setGrantAmounts(prev => ({ ...prev, [user.uid]: e.target.value }))}
++                            placeholder="Credits"
++                            className="w-24 text-xs font-bold bg-slate-100 border-none outline-none px-3 py-2 rounded-lg text-slate-600"
++                          />
++                          <button
++                            onClick={() => handleGrantCredits(user.uid, user.credits)}
++                            disabled={!grantAmounts[user.uid] || parseInt(grantAmounts[user.uid] || '0') <= 0}
++                            className="text-xs font-black bg-amber-500 text-white px-3 py-2 rounded-lg hover:bg-amber-600 disabled:opacity-40 transition-colors"
++                          >
++                            Grant
++                          </button>
++                        </div>
++                      </div>
++                    ))}
++                  </div>
++                </div>
++              </>
++            );
++          })()}
++
+           {activeTab === 'users' && (
+             <>
+               <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 mb-8">
+diff --git a/components/CanvaExportModal.tsx b/components/CanvaExportModal.tsx
+new file mode 100644
+index 0000000..e806387
+--- /dev/null
++++ components/CanvaExportModal.tsx
+@@ -0,0 +1,128 @@
++import React, { useState } from 'react';
++import { X, Download, ExternalLink, Loader2, CheckCircle2, BookOpen } from 'lucide-react';
++import { BookPage } from '../types';
++import { exportProjectAssetsForCanva } from '../utils/exportUtils';
++
++interface CanvaExportModalProps {
++  pages: BookPage[];
++  projectName: string;
++  onClose: () => void;
++}
++
++export const CanvaExportModal: React.FC<CanvaExportModalProps> = ({
++  pages,
++  projectName,
++  onClose,
++}) => {
++  const [isExporting, setIsExporting] = useState(false);
++  const [exported, setExported] = useState(false);
++
++  const handleExportZip = async () => {
++    setIsExporting(true);
++    try {
++      await exportProjectAssetsForCanva(pages, projectName);
++      setExported(true);
++    } catch (e) {
++      console.error('Export failed', e);
++      alert('Export failed. Please try again.');
++    } finally {
++      setIsExporting(false);
++    }
++  };
++
++  const handleOpenInCanva = () => {
++    // Canva Connect API — opens a new blank design in Canva
++    // Users can then import the ZIP file downloaded above
++    const canvaUrl = 'https://www.canva.com/design/new';
++    window.open(canvaUrl, '_blank', 'noopener noreferrer');
++  };
++
++  return (
++    <div className="fixed inset-0 z-[300] flex items-center justify-center p-8">
++      {/* Backdrop */}
++      <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
++
++      {/* Modal */}
++      <div className="relative z-10 bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
++
++        {/* Header */}
++        <div className="px-10 pt-10 pb-6 space-y-2">
++          <div className="flex justify-between items-center">
++            <h3 className="text-3xl font-black text-slate-900">Edit your book</h3>
++            <button onClick={onClose} className="text-slate-300 hover:text-slate-700 transition-colors">
++              <X size={28} />
++            </button>
++          </div>
++          <p className="text-slate-500 font-medium">
++            Export your illustrations and open them in Canva, Photoshop, or any design tool.
++          </p>
++        </div>
++
++        <div className="px-10 pb-10 space-y-4">
++
++          {/* Step 1: Download ZIP */}
++          <div className={`p-6 rounded-[2rem] border-2 transition-all ${exported ? 'border-emerald-200 bg-emerald-50' : 'border-slate-100 bg-slate-50'}`}>
++            <div className="flex items-start gap-4">
++              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${exported ? 'bg-emerald-500' : 'bg-slate-200'}`}>
++                {exported ? <CheckCircle2 size={20} className="text-white" /> : <span className="text-slate-600 font-black text-sm">1</span>}
++              </div>
++              <div className="flex-1 space-y-3">
++                <p className="font-black text-slate-800">Download your illustrations</p>
++                <p className="text-slate-500 text-sm font-medium">
++                  All {pages.length} pages are saved as PNG images in an organised ZIP folder.
++                </p>
++                <button
++                  onClick={handleExportZip}
++                  disabled={isExporting}
++                  className="w-full py-3 bg-slate-900 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors disabled:opacity-60"
++                >
++                  {isExporting ? (
++                    <Loader2 size={18} className="animate-spin" />
++                  ) : exported ? (
++                    <><CheckCircle2 size={18} className="text-emerald-400" /> Downloaded!</>
++                  ) : (
++                    <><Download size={18} /> Download ZIP</>
++                  )}
++                </button>
++              </div>
++            </div>
++          </div>
++
++          {/* Step 2: Open in Canva */}
++          <div className={`p-6 rounded-[2rem] border-2 transition-all ${exported ? 'border-indigo-200 bg-indigo-50' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
++            <div className="flex items-start gap-4">
++              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${exported ? 'bg-indigo-600' : 'bg-slate-200'}`}>
++                <span className={`font-black text-sm ${exported ? 'text-white' : 'text-slate-500'}`}>2</span>
++              </div>
++              <div className="flex-1 space-y-3">
++                <p className="font-black text-slate-800">Open in your design tool</p>
++                <p className="text-slate-500 text-sm font-medium">
++                  Upload the ZIP to Canva, Photoshop, or any editing tool to add text, adjust layouts, and finalise your book.
++                </p>
++                <button
++                  onClick={handleOpenInCanva}
++                  disabled={!exported}
++                  className="w-full py-3 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors disabled:opacity-40"
++                >
++                  <ExternalLink size={18} /> Open Canva
++                </button>
++              </div>
++            </div>
++          </div>
++
++          {/* Other tools hint */}
++          <p className="text-center text-slate-400 text-xs font-medium">
++            Works with Canva, Adobe Express, Photoshop, Figma, and more.
++          </p>
++
++          <button
++            onClick={onClose}
++            className="w-full py-3 bg-slate-100 text-slate-500 rounded-2xl font-bold hover:bg-slate-200 transition-colors"
++          >
++            Done
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++};
+diff --git a/components/ExportModal.tsx b/components/ExportModal.tsx
+new file mode 100644
+index 0000000..8c5adea
+--- /dev/null
++++ components/ExportModal.tsx
+@@ -0,0 +1,256 @@
++import React, { useState } from 'react';
++import {
++  X, Download, ExternalLink, Loader2, CheckCircle2,
++  FileText, Presentation, Image as ImageIcon,
++} from 'lucide-react';
++import { BookPage } from '../types';
++import {
++  exportForCanva,
++  exportForAdobeExpress,
++  exportForGoogleSlides,
++} from '../utils/exportUtils';
++
++// ─── Types ────────────────────────────────────────────────────────────────────
++
++type ExportStatus = 'idle' | 'loading' | 'done' | 'error';
++
++interface ExportOption {
++  id: 'pdf' | 'canva' | 'adobe' | 'slides';
++  label: string;
++  subLabel: string;
++  icon: React.ReactNode;
++  accentColor: string;
++  badgeColor: string;
++  actionLabel: string;
++  openUrl?: string;
++  openLabel?: string;
++}
++
++interface ExportModalProps {
++  pages: BookPage[];
++  projectName: string;
++  onDownloadPdf: () => Promise<void>;
++  onClose: () => void;
++}
++
++// ─── Export option definitions ────────────────────────────────────────────────
++
++const OPTIONS: ExportOption[] = [
++  {
++    id: 'pdf',
++    label: 'Print-Ready PDF',
++    subLabel: 'High-quality PDF formatted for home printing or publishing (Amazon KDP, Lulu, etc.)',
++    icon: <FileText size={22} />,
++    accentColor: 'indigo',
++    badgeColor: 'bg-indigo-600',
++    actionLabel: 'Download PDF',
++  },
++  {
++    id: 'canva',
++    label: 'Edit in Canva',
++    subLabel: 'Download your pages as PNGs in an organized folder, then import into Canva to add text, stickers, and more.',
++    icon: <ImageIcon size={22} />,
++    accentColor: 'violet',
++    badgeColor: 'bg-violet-600',
++    actionLabel: 'Download for Canva',
++    openUrl: 'https://www.canva.com/design/new',
++    openLabel: 'Open Canva',
++  },
++  {
++    id: 'adobe',
++    label: 'Edit in Adobe Express',
++    subLabel: 'Export page images and import them into Adobe Express for professional-looking layouts and finishing.',
++    icon: <ImageIcon size={22} />,
++    accentColor: 'rose',
++    badgeColor: 'bg-rose-600',
++    actionLabel: 'Download for Adobe Express',
++    openUrl: 'https://express.adobe.com',
++    openLabel: 'Open Adobe Express',
++  },
++  {
++    id: 'slides',
++    label: 'Edit in Google Slides',
++    subLabel: 'Export as a PowerPoint file (.pptx) — open it in Google Slides to arrange pages, add text, and share easily.',
++    icon: <Presentation size={22} />,
++    accentColor: 'amber',
++    badgeColor: 'bg-amber-500',
++    actionLabel: 'Download for Google Slides',
++    openUrl: 'https://slides.google.com',
++    openLabel: 'Open Google Slides',
++  },
++];
++
++// ─── Component ────────────────────────────────────────────────────────────────
++
++export const ExportModal: React.FC<ExportModalProps> = ({
++  pages,
++  projectName,
++  onDownloadPdf,
++  onClose,
++}) => {
++  const [statuses, setStatuses] = useState<Record<string, ExportStatus>>({
++    pdf: 'idle',
++    canva: 'idle',
++    adobe: 'idle',
++    slides: 'idle',
++  });
++
++  const setStatus = (id: string, status: ExportStatus) =>
++    setStatuses(prev => ({ ...prev, [id]: status }));
++
++  const handleExport = async (option: ExportOption) => {
++    if (statuses[option.id] === 'loading') return;
++    setStatus(option.id, 'loading');
++    try {
++      if (option.id === 'pdf') {
++        await onDownloadPdf();
++      } else if (option.id === 'canva') {
++        await exportForCanva(pages, projectName);
++      } else if (option.id === 'adobe') {
++        await exportForAdobeExpress(pages, projectName);
++      } else if (option.id === 'slides') {
++        await exportForGoogleSlides(pages, projectName);
++      }
++      setStatus(option.id, 'done');
++    } catch (err) {
++      console.error(`Export failed for ${option.id}:`, err);
++      setStatus(option.id, 'error');
++    }
++  };
++
++  const handleOpen = (url: string) => {
++    window.open(url, '_blank', 'noopener,noreferrer');
++  };
++
++  // ─── Accent class helpers ──────────────────────────────────────────────────
++
++  const buttonBg: Record<string, string> = {
++    indigo: 'bg-indigo-600 hover:bg-indigo-700',
++    violet: 'bg-violet-600 hover:bg-violet-700',
++    rose:   'bg-rose-600 hover:bg-rose-700',
++    amber:  'bg-amber-500 hover:bg-amber-600',
++  };
++
++  const iconBg: Record<string, string> = {
++    indigo: 'bg-indigo-100 text-indigo-600',
++    violet: 'bg-violet-100 text-violet-600',
++    rose:   'bg-rose-100 text-rose-600',
++    amber:  'bg-amber-100 text-amber-600',
++  };
++
++  const borderDone: Record<string, string> = {
++    indigo: 'border-indigo-200 bg-indigo-50',
++    violet: 'border-violet-200 bg-violet-50',
++    rose:   'border-rose-200 bg-rose-50',
++    amber:  'border-amber-200 bg-amber-50',
++  };
++
++  // ─── Render ───────────────────────────────────────────────────────────────
++
++  return (
++    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-0 sm:p-8">
++      {/* Backdrop */}
++      <div
++        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
++        onClick={onClose}
++      />
++
++      {/* Panel */}
++      <div className="relative z-10 bg-white w-full sm:max-w-xl rounded-t-[3rem] sm:rounded-[3rem] shadow-2xl overflow-hidden">
++
++        {/* Header */}
++        <div className="px-8 pt-8 pb-4 flex items-center justify-between">
++          <div>
++            <h3 className="text-2xl font-black text-slate-900">Export your book</h3>
++            <p className="text-slate-500 font-medium text-sm mt-1">
++              Choose how you'd like to download or continue editing.
++            </p>
++          </div>
++          <button
++            onClick={onClose}
++            className="p-3 text-slate-300 hover:text-slate-600 hover:bg-slate-100 rounded-2xl transition-colors"
++          >
++            <X size={22} />
++          </button>
++        </div>
++
++        {/* Options list */}
++        <div className="px-8 pb-8 space-y-3 max-h-[70vh] overflow-y-auto">
++          {OPTIONS.map(option => {
++            const status = statuses[option.id];
++            const isDone = status === 'done';
++            const isLoading = status === 'loading';
++            const isError = status === 'error';
++
++            return (
++              <div
++                key={option.id}
++                className={`p-5 rounded-[2rem] border-2 transition-all ${isDone ? borderDone[option.accentColor] : 'border-slate-100 bg-slate-50'}`}
++              >
++                <div className="flex items-start gap-4">
++                  {/* Icon */}
++                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${isDone ? option.badgeColor + ' text-white' : iconBg[option.accentColor]}`}>
++                    {isDone ? <CheckCircle2 size={20} /> : option.icon}
++                  </div>
++
++                  {/* Content */}
++                  <div className="flex-1 min-w-0 space-y-2">
++                    <div>
++                      <p className="font-black text-slate-800 leading-tight">{option.label}</p>
++                      <p className="text-slate-500 text-xs font-medium mt-0.5 leading-relaxed">
++                        {option.subLabel}
++                      </p>
++                    </div>
++
++                    {isError && (
++                      <p className="text-red-500 text-xs font-medium">
++                        Export failed — please try again.
++                      </p>
++                    )}
++
++                    <div className="flex gap-2 flex-wrap">
++                      {/* Primary export button */}
++                      <button
++                        onClick={() => handleExport(option)}
++                        disabled={isLoading}
++                        className={`px-4 py-2.5 rounded-xl font-black text-sm text-white flex items-center gap-2 transition-all disabled:opacity-60 ${buttonBg[option.accentColor]}`}
++                      >
++                        {isLoading ? (
++                          <Loader2 size={15} className="animate-spin" />
++                        ) : isDone ? (
++                          <CheckCircle2 size={15} />
++                        ) : (
++                          <Download size={15} />
++                        )}
++                        {isDone ? 'Downloaded!' : isLoading ? 'Exporting…' : option.actionLabel}
++                      </button>
++
++                      {/* Open-in-tool button (shown after download) */}
++                      {option.openUrl && isDone && (
++                        <button
++                          onClick={() => handleOpen(option.openUrl!)}
++                          className="px-4 py-2.5 rounded-xl font-black text-sm bg-white border-2 border-slate-200 text-slate-700 flex items-center gap-2 hover:border-slate-300 hover:bg-slate-50 transition-all"
++                        >
++                          <ExternalLink size={15} />
++                          {option.openLabel}
++                        </button>
++                      )}
++                    </div>
++                  </div>
++                </div>
++              </div>
++            );
++          })}
++
++          {/* Close */}
++          <button
++            onClick={onClose}
++            className="w-full py-4 bg-slate-100 text-slate-500 rounded-[2rem] font-bold hover:bg-slate-200 transition-colors mt-2"
++          >
++            Done
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++};
+diff --git a/components/SimpleWizard.tsx b/components/SimpleWizard.tsx
+new file mode 100644
+index 0000000..dbcf288
+--- /dev/null
++++ components/SimpleWizard.tsx
+@@ -0,0 +1,646 @@
++import React, { useState, useRef } from 'react';
++import {
++  BookOpen, Sparkles, ChevronRight, ChevronLeft, Plus, Trash2,
++  Loader2, Download, ExternalLink, Check, User, Image as ImageIcon,
++  FileText, Palette,
++} from 'lucide-react';
++import { StylePicker } from './StylePicker';
++import { ExportModal } from './ExportModal';
++import {
++  WizardState, WizardBookFormat, WizardCharacter,
++  AppSettings, BookPage, Project, ExportFormat,
++} from '../types';
++import { PREDEFINED_STYLES, GLOBAL_STYLE_LOCK } from '../seriesData';
++import {
++  parsePromptPack,
++  identifyAndDesignCharacters,
++  generateLayeredIllustration,
++  generateBookCover,
++} from '../geminiService';
++import { analyzeStyleFromImage } from '../geminiService';
++import { generateBookPDF } from '../utils/pdfGenerator';
++import { persistenceService } from '../persistenceService';
++
++// ─── Format mapping (friendly label → KDP format key) ─────────────────────
++const FORMAT_OPTIONS: { key: WizardBookFormat; label: string; subLabel: string; exportFormat: ExportFormat; aspectRatio: '1:1' | '4:3' | '9:16' }[] = [
++  {
++    key: 'square',
++    label: 'Square',
++    subLabel: '8.25" × 8.25" — most popular for children',
++    exportFormat: 'KDP_8_25x8_25',
++    aspectRatio: '1:1',
++  },
++  {
++    key: 'portrait',
++    label: 'Portrait',
++    subLabel: '8.5" × 11" — tall storybook style',
++    exportFormat: 'KDP_8_5x11',
++    aspectRatio: '9:16',
++  },
++  {
++    key: 'landscape',
++    label: 'Landscape',
++    subLabel: '8.25" × 6" — wide picture book',
++    exportFormat: 'KDP_8_25x6',
++    aspectRatio: '4:3',
++  },
++];
++
++const PROGRESS_MESSAGES = [
++  'Reading your story…',
++  'Planning the illustrations…',
++  'Designing your characters…',
++  'Drawing the pages…',
++  'Adding the finishing touches…',
++  'Putting your book together…',
++];
++
++interface SimpleWizardProps {
++  userCredits: number;
++  userId: string;
++  onClose: () => void;
++  onDeductCredit: () => void;
++  onShowSubscription: () => void;
++  onProjectCreated: (project: Project) => void;
++}
++
++export const SimpleWizard: React.FC<SimpleWizardProps> = ({
++  userCredits,
++  userId,
++  onClose,
++  onDeductCredit,
++  onShowSubscription,
++  onProjectCreated,
++}) => {
++  const [wizardState, setWizardState] = useState<WizardState>({
++    step: 1,
++    storyText: '',
++    selectedStyleIndex: null,
++    characters: [{ name: '', description: '' }],
++    bookFormat: 'square',
++  });
++
++  const [isGenerating, setIsGenerating] = useState(false);
++  const [generationStep, setGenerationStep] = useState(0);
++  const [generatedProject, setGeneratedProject] = useState<Project | null>(null);
++  const [showExportModal, setShowExportModal] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  const charPhotoInputRef = useRef<HTMLInputElement>(null);
++  const [activeCharPhotoIndex, setActiveCharPhotoIndex] = useState<number | null>(null);
++
++  // ─── Helpers ────────────────────────────────────────────────────────────
++  const updateWizard = (patch: Partial<WizardState>) =>
++    setWizardState(prev => ({ ...prev, ...patch }));
++
++  const canProceed = (): boolean => {
++    switch (wizardState.step) {
++      case 1: return wizardState.storyText.trim().length > 20;
++      case 2: return wizardState.selectedStyleIndex !== null || !!wizardState.customStyleImage;
++      case 3: return wizardState.characters.some(c => c.name.trim().length > 0);
++      case 4: return true;
++      default: return false;
++    }
++  };
++
++  const handleNext = () => {
++    if (wizardState.step < 4) updateWizard({ step: (wizardState.step + 1) as WizardState['step'] });
++    else handleGenerate();
++  };
++
++  const handleBack = () => {
++    if (wizardState.step > 1) updateWizard({ step: (wizardState.step - 1) as WizardState['step'] });
++    else onClose();
++  };
++
++  // ─── Character photo upload ──────────────────────────────────────────────
++  const handleCharPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
++    const file = e.target.files?.[0];
++    if (!file || activeCharPhotoIndex === null) return;
++    const reader = new FileReader();
++    reader.onload = () => {
++      const updated = [...wizardState.characters];
++      updated[activeCharPhotoIndex] = { ...updated[activeCharPhotoIndex], photo: reader.result as string };
++      updateWizard({ characters: updated });
++    };
++    reader.readAsDataURL(file);
++    e.target.value = '';
++  };
++
++  // ─── Generation pipeline ─────────────────────────────────────────────────
++  const handleGenerate = async () => {
++    if (userCredits < 1) {
++      onShowSubscription();
++      return;
++    }
++
++    setIsGenerating(true);
++    setError(null);
++    setGenerationStep(0);
++
++    const formatOption = FORMAT_OPTIONS.find(f => f.key === wizardState.bookFormat) ?? FORMAT_OPTIONS[0];
++
++    // Style prompt
++    const stylePrompt =
++      wizardState.customStylePrompt ||
++      (wizardState.selectedStyleIndex !== null
++        ? PREDEFINED_STYLES[wizardState.selectedStyleIndex].prompt
++        : PREDEFINED_STYLES[0].prompt);
++
++    const styleReference =
++      wizardState.customStyleImage ||
++      (wizardState.selectedStyleIndex !== null
++        ? undefined
++        : undefined);
++
++    try {
++      // Step 1 — Parse script into scenes
++      setGenerationStep(1);
++      const validChars = wizardState.characters.filter(c => c.name.trim());
++      const charList = validChars.map(c => `${c.name}: ${c.description || 'a friendly character'}`).join('\n');
++      const enrichedScript = `CHARACTERS:\n${charList}\n\nSTORY:\n${wizardState.storyText}`;
++
++      const parsed = await parsePromptPack(enrichedScript);
++
++      // Step 2 — Design character references
++      setGenerationStep(2);
++      const charRefs = await identifyAndDesignCharacters(
++        parsed.characterIdentities.map(ci => ({
++          id: Math.random().toString(36).substring(7),
++          name: ci.name,
++          description: ci.description,
++          images: validChars.find(c => c.name.toLowerCase() === ci.name.toLowerCase())?.photo
++            ? [validChars.find(c => c.name.toLowerCase() === ci.name.toLowerCase())!.photo!]
++            : [],
++        })),
++        `${GLOBAL_STYLE_LOCK}\n${stylePrompt}`,
++        styleReference
++      );
++
++      // Build AppSettings for the project
++      const appSettings: AppSettings = {
++        mode: 'create',
++        targetStyle: stylePrompt,
++        styleReference,
++        masterBible: `${GLOBAL_STYLE_LOCK}\n${parsed.masterBible || ''}`,
++        targetLanguage: 'NONE_CLEAN_BG',
++        exportFormat: formatOption.exportFormat,
++        spreadExportMode: 'SPLIT_PAGES',
++        useProModel: false,
++        embedTextInImage: true,
++        layeredMode: true,
++        overlayText: false,
++        textFont: 'Inter',
++        showSafeGuides: false,
++        characterReferences: charRefs,
++        estimatedPageCount: parsed.scenes.length,
++      };
++
++      // Step 3 — Generate illustrations page by page
++      setGenerationStep(3);
++      const pages: BookPage[] = [];
++
++      for (let i = 0; i < parsed.scenes.length; i++) {
++        const scene = parsed.scenes[i];
++        setGenerationStep(3); // keep on "Drawing pages"
++
++        let processedImage: string | undefined;
++        try {
++          const result = await generateLayeredIllustration(
++            scene.prompt || scene.text,
++            appSettings.masterBible,
++            stylePrompt,
++            charRefs,
++            scene.characters?.map((name: string) => ({ refId: name, description: '' })) || [],
++            formatOption.aspectRatio,
++            '2K',
++            styleReference
++          );
++          processedImage = result.composite;
++        } catch (e) {
++          console.warn(`Page ${i + 1} generation failed, using placeholder`, e);
++        }
++
++        pages.push({
++          id: Math.random().toString(36).substring(7),
++          originalText: scene.text || '',
++          processedImage,
++          status: processedImage ? 'completed' : 'error',
++          assignments: (scene.characters || []).map((name: string) => ({ refId: name, description: '' })),
++          isSpread: scene.isSpread || false,
++          overrideStylePrompt: scene.prompt || scene.text,
++        });
++      }
++
++      // Step 4 — Generate cover
++      setGenerationStep(4);
++      let coverImage: string | null = null;
++      try {
++        coverImage = await generateBookCover(
++          `A beautiful children's book cover. Story: ${wizardState.storyText.substring(0, 200)}`,
++          stylePrompt,
++          charRefs,
++          Array.from({ length: charRefs.length }, (_, i) => i.toString()),
++          formatOption.exportFormat,
++          pages.length,
++          styleReference
++        );
++      } catch (e) {
++        console.warn('Cover generation failed', e);
++      }
++
++      // Step 5 — Save project
++      setGenerationStep(5);
++      onDeductCredit();
++
++      const projectId = Math.random().toString(36).substring(7);
++      const projectName = wizardState.storyText.trim().split(/\s+/).slice(0, 5).join(' ') + '…';
++
++      const project: Project = {
++        id: projectId,
++        name: projectName,
++        lastModified: Date.now(),
++        settings: appSettings,
++        pages,
++        coverImage,
++        fullScript: wizardState.storyText,
++        currentStep: 'generate',
++      };
++
++      await persistenceService.saveProject(project);
++      setGeneratedProject(project);
++      onProjectCreated(project);
++      updateWizard({ step: 5 });
++    } catch (err: any) {
++      console.error('Generation failed:', err);
++      setError(err.message || 'Something went wrong. Please try again.');
++    } finally {
++      setIsGenerating(false);
++    }
++  };
++
++  // ─── Download PDF ────────────────────────────────────────────────────────
++  const handleDownloadPdf = async () => {
++    if (!generatedProject) return;
++    const format = FORMAT_OPTIONS.find(f => f.key === wizardState.bookFormat) ?? FORMAT_OPTIONS[0];
++    await generateBookPDF(
++      generatedProject.pages,
++      format.exportFormat,
++      generatedProject.name,
++      'SPLIT_PAGES',
++      false,
++      'Inter',
++      generatedProject.pages.length
++    );
++  };
++
++  // ─── Step labels ─────────────────────────────────────────────────────────
++  const STEPS = [
++    { icon: FileText, label: 'Your Story' },
++    { icon: Palette, label: 'Art Style' },
++    { icon: User, label: 'Characters' },
++    { icon: BookOpen, label: 'Book Format' },
++  ];
++
++  // ─── Render ──────────────────────────────────────────────────────────────
++
++  // Generating screen
++  if (isGenerating) {
++    return (
++      <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-8 gap-12">
++        <div className="w-24 h-24 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center shadow-2xl">
++          <Sparkles size={48} className="text-white animate-pulse" />
++        </div>
++        <div className="text-center space-y-4">
++          <h2 className="text-4xl font-black text-slate-900">Creating your book…</h2>
++          <p className="text-2xl text-indigo-600 font-bold animate-pulse">
++            {PROGRESS_MESSAGES[generationStep] || PROGRESS_MESSAGES[0]}
++          </p>
++          <p className="text-slate-400 font-medium">This usually takes 2–4 minutes. Please don't close this page.</p>
++        </div>
++        {/* Progress bar */}
++        <div className="w-full max-w-md bg-slate-100 rounded-full h-3 overflow-hidden">
++          <div
++            className="h-full bg-indigo-600 rounded-full transition-all duration-1000"
++            style={{ width: `${Math.round((generationStep / (PROGRESS_MESSAGES.length - 1)) * 100)}%` }}
++          />
++        </div>
++      </div>
++    );
++  }
++
++  // Success / Download screen
++  if (wizardState.step === 5 && generatedProject) {
++    const completedPages = generatedProject.pages.filter(p => p.status === 'completed');
++    return (
++      <div className="fixed inset-0 z-[200] bg-white overflow-y-auto">
++        <div className="max-w-3xl mx-auto py-20 px-8 space-y-12">
++          {/* Header */}
++          <div className="text-center space-y-4">
++            <div className="w-20 h-20 bg-emerald-500 rounded-full mx-auto flex items-center justify-center shadow-xl">
++              <Check size={40} className="text-white" />
++            </div>
++            <h2 className="text-5xl font-black text-slate-900">Your book is ready!</h2>
++            <p className="text-slate-500 text-xl font-medium">
++              {completedPages.length} of {generatedProject.pages.length} pages illustrated
++            </p>
++          </div>
++
++          {/* Page preview strip */}
++          <div className="flex gap-4 overflow-x-auto pb-4">
++            {generatedProject.pages.map((page, i) => (
++              <div
++                key={page.id}
++                className="flex-shrink-0 w-32 h-32 rounded-2xl overflow-hidden bg-slate-100 shadow-sm border-2 border-slate-100"
++              >
++                {page.processedImage ? (
++                  <img src={page.processedImage} alt={`Page ${i + 1}`} className="w-full h-full object-cover" />
++                ) : (
++                  <div className="w-full h-full flex items-center justify-center text-slate-300">
++                    <ImageIcon size={32} />
++                  </div>
++                )}
++              </div>
++            ))}
++          </div>
++
++          {/* Download actions */}
++          <div className="space-y-4">
++            <button
++              onClick={handleDownloadPdf}
++              className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-2xl flex items-center justify-center gap-4 shadow-2xl hover:bg-indigo-700 hover:scale-[1.02] transition-all"
++            >
++              <Download size={32} /> Download Print-Ready PDF
++            </button>
++
++            <button
++              onClick={() => setShowExportModal(true)}
++              className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-2xl flex items-center justify-center gap-4 shadow-xl hover:scale-[1.02] transition-all"
++            >
++              <ExternalLink size={32} /> Edit in Canva, Slides &amp; More
++            </button>
++
++            <button
++              onClick={onClose}
++              className="w-full py-4 bg-slate-100 text-slate-500 rounded-[2rem] font-bold text-lg hover:bg-slate-200 transition-colors"
++            >
++              Back to My Books
++            </button>
++          </div>
++
++          {error && (
++            <div className="p-4 bg-red-50 text-red-600 rounded-2xl text-sm font-medium border border-red-100">
++              Some pages may not have generated correctly: {error}
++            </div>
++          )}
++        </div>
++
++        {showExportModal && (
++          <ExportModal
++            pages={generatedProject.pages}
++            projectName={generatedProject.name}
++            onDownloadPdf={handleDownloadPdf}
++            onClose={() => setShowExportModal(false)}
++          />
++        )}
++      </div>
++    );
++  }
++
++  // ─── Wizard steps 1–4 ───────────────────────────────────────────────────
++  return (
++    <div className="fixed inset-0 z-[200] bg-white overflow-y-auto">
++      <div className="max-w-2xl mx-auto py-12 px-6 min-h-screen flex flex-col">
++
++        {/* Step indicator */}
++        <div className="flex items-center gap-2 mb-10">
++          {STEPS.map((s, idx) => {
++            const num = idx + 1;
++            const active = wizardState.step === num;
++            const done = wizardState.step > num;
++            const Icon = s.icon;
++            return (
++              <React.Fragment key={s.label}>
++                <div className={`flex items-center gap-2 px-3 py-2 rounded-full transition-all ${active ? 'bg-indigo-600 text-white' : done ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
++                  {done ? <Check size={14} /> : <Icon size={14} />}
++                  <span className="text-xs font-black hidden sm:inline">{s.label}</span>
++                </div>
++                {idx < STEPS.length - 1 && <div className={`flex-1 h-0.5 ${done ? 'bg-indigo-300' : 'bg-slate-100'}`} />}
++              </React.Fragment>
++            );
++          })}
++        </div>
++
++        {/* Step content */}
++        <div className="flex-1 space-y-8">
++
++          {/* Step 1: Story */}
++          {wizardState.step === 1 && (
++            <div className="space-y-6">
++              <div className="text-center space-y-2">
++                <h2 className="text-4xl font-black text-slate-900">Tell us your story</h2>
++                <p className="text-slate-500 font-medium">Write a few sentences about what happens in the book. The AI will turn it into a full illustrated story.</p>
++              </div>
++              <textarea
++                className="w-full h-56 bg-slate-50 border-2 border-slate-100 rounded-[2rem] p-8 text-lg font-medium outline-none resize-none focus:border-indigo-400 transition-colors leading-relaxed"
++                placeholder="E.g. A little girl named Layla finds a magical seed in the garden. She plants it and waters it every day. When it grows, it turns out to be a talking sunflower that takes her on adventures..."
++                value={wizardState.storyText}
++                onChange={e => updateWizard({ storyText: e.target.value })}
++              />
++              <p className="text-slate-400 text-sm font-medium text-right">
++                {wizardState.storyText.trim().split(/\s+/).filter(Boolean).length} words
++              </p>
++            </div>
++          )}
++
++          {/* Step 2: Art Style */}
++          {wizardState.step === 2 && (
++            <div className="space-y-6">
++              <div className="text-center space-y-2">
++                <h2 className="text-4xl font-black text-slate-900">Pick an art style</h2>
++              </div>
++              <StylePicker
++                selectedIndex={wizardState.selectedStyleIndex}
++                customStyleImage={wizardState.customStyleImage}
++                onSelect={idx => updateWizard({ selectedStyleIndex: idx, customStyleImage: undefined, customStylePrompt: undefined })}
++                onCustomStyleUpload={async (base64) => {
++                  updateWizard({ customStyleImage: base64, selectedStyleIndex: null });
++                  try {
++                    const prompt = await analyzeStyleFromImage(base64);
++                    updateWizard({ customStylePrompt: prompt });
++                  } catch { /* ignore */ }
++                }}
++              />
++            </div>
++          )}
++
++          {/* Step 3: Characters */}
++          {wizardState.step === 3 && (
++            <div className="space-y-6">
++              <div className="text-center space-y-2">
++                <h2 className="text-4xl font-black text-slate-900">Who's in your story?</h2>
++                <p className="text-slate-500 font-medium">Add your main characters. A name is enough — a short description helps make them unique.</p>
++              </div>
++
++              <div className="space-y-4">
++                {wizardState.characters.map((char, idx) => (
++                  <div key={idx} className="bg-slate-50 rounded-[2rem] p-6 space-y-4 border-2 border-slate-100">
++                    <div className="flex items-center gap-4">
++                      {/* Photo upload */}
++                      <button
++                        onClick={() => { setActiveCharPhotoIndex(idx); charPhotoInputRef.current?.click(); }}
++                        className="w-16 h-16 rounded-2xl bg-white border-2 border-dashed border-slate-200 flex items-center justify-center flex-shrink-0 hover:border-indigo-400 transition-colors overflow-hidden"
++                      >
++                        {char.photo ? (
++                          <img src={char.photo} alt="" className="w-full h-full object-cover" />
++                        ) : (
++                          <User size={24} className="text-slate-300" />
++                        )}
++                      </button>
++
++                      <div className="flex-1 space-y-2">
++                        <input
++                          className="w-full bg-white border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-900 outline-none focus:border-indigo-400 transition-colors"
++                          placeholder="Character name (e.g. Layla)"
++                          value={char.name}
++                          onChange={e => {
++                            const updated = [...wizardState.characters];
++                            updated[idx] = { ...updated[idx], name: e.target.value };
++                            updateWizard({ characters: updated });
++                          }}
++                        />
++                        <input
++                          className="w-full bg-white border-2 border-slate-100 rounded-xl px-4 py-3 font-medium text-slate-700 outline-none focus:border-indigo-400 transition-colors text-sm"
++                          placeholder="Short description (e.g. a curious 6-year-old girl with curly hair)"
++                          value={char.description}
++                          onChange={e => {
++                            const updated = [...wizardState.characters];
++                            updated[idx] = { ...updated[idx], description: e.target.value };
++                            updateWizard({ characters: updated });
++                          }}
++                        />
++                      </div>
++
++                      {wizardState.characters.length > 1 && (
++                        <button
++                          onClick={() => updateWizard({ characters: wizardState.characters.filter((_, i) => i !== idx) })}
++                          className="p-2 text-red-400 hover:text-red-600 transition-colors"
++                        >
++                          <Trash2 size={18} />
++                        </button>
++                      )}
++                    </div>
++                  </div>
++                ))}
++
++                {wizardState.characters.length < 4 && (
++                  <button
++                    onClick={() => updateWizard({ characters: [...wizardState.characters, { name: '', description: '' }] })}
++                    className="w-full py-4 border-2 border-dashed border-slate-200 rounded-[2rem] text-slate-400 font-bold flex items-center justify-center gap-2 hover:border-indigo-400 hover:text-indigo-600 transition-colors"
++                  >
++                    <Plus size={18} /> Add another character
++                  </button>
++                )}
++              </div>
++
++              <input ref={charPhotoInputRef} type="file" accept="image/*" className="hidden" onChange={handleCharPhotoUpload} />
++            </div>
++          )}
++
++          {/* Step 4: Book Format */}
++          {wizardState.step === 4 && (
++            <div className="space-y-6">
++              <div className="text-center space-y-2">
++                <h2 className="text-4xl font-black text-slate-900">Choose your book size</h2>
++                <p className="text-slate-500 font-medium">All sizes are print-ready for publishing.</p>
++              </div>
++
++              <div className="space-y-4">
++                {FORMAT_OPTIONS.map(fmt => (
++                  <button
++                    key={fmt.key}
++                    onClick={() => updateWizard({ bookFormat: fmt.key })}
++                    className={`w-full p-6 rounded-[2rem] border-4 text-left flex items-center gap-6 transition-all ${
++                      wizardState.bookFormat === fmt.key
++                        ? 'border-indigo-600 bg-indigo-50 shadow-lg'
++                        : 'border-slate-100 bg-white hover:border-indigo-200 hover:bg-slate-50'
++                    }`}
++                  >
++                    {/* Shape preview */}
++                    <div className="flex-shrink-0 flex items-center justify-center w-16 h-16">
++                      <div className={`bg-indigo-200 rounded-md ${
++                        fmt.key === 'square' ? 'w-12 h-12' :
++                        fmt.key === 'portrait' ? 'w-8 h-14' :
++                        'w-14 h-10'
++                      } ${wizardState.bookFormat === fmt.key ? 'bg-indigo-500' : ''}`} />
++                    </div>
++                    <div>
++                      <p className="font-black text-xl text-slate-900">{fmt.label}</p>
++                      <p className="text-slate-500 font-medium text-sm">{fmt.subLabel}</p>
++                    </div>
++                    {wizardState.bookFormat === fmt.key && (
++                      <div className="ml-auto w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center">
++                        <Check size={16} className="text-white" />
++                      </div>
++                    )}
++                  </button>
++                ))}
++              </div>
++
++              {/* Credit notice */}
++              <div className={`p-4 rounded-2xl text-sm font-medium ${userCredits > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
++                {userCredits > 0
++                  ? `You have ${userCredits} book credit${userCredits !== 1 ? 's' : ''} — this will use 1 credit.`
++                  : 'You\'re out of credits. Subscribe to create more books!'}
++              </div>
++            </div>
++          )}
++        </div>
++
++        {/* Navigation */}
++        <div className="flex gap-4 mt-12 pt-6 border-t border-slate-100">
++          <button
++            onClick={handleBack}
++            className="px-8 py-5 bg-slate-100 text-slate-500 rounded-[2rem] font-black flex items-center gap-2 hover:bg-slate-200 transition-colors"
++          >
++            <ChevronLeft size={20} />
++            {wizardState.step === 1 ? 'Cancel' : 'Back'}
++          </button>
++
++          <button
++            onClick={handleNext}
++            disabled={!canProceed() || isGenerating || (wizardState.step === 4 && userCredits < 1)}
++            className="flex-1 py-5 bg-indigo-600 text-white rounded-[2rem] font-black text-xl flex items-center justify-center gap-3 shadow-2xl hover:bg-indigo-700 hover:scale-[1.01] transition-all disabled:opacity-50 disabled:hover:scale-100"
++          >
++            {wizardState.step === 4 ? (
++              <>
++                <Sparkles size={24} />
++                Create My Book
++              </>
++            ) : (
++              <>
++                Next
++                <ChevronRight size={20} />
++              </>
++            )}
++          </button>
++
++          {wizardState.step === 4 && userCredits < 1 && (
++            <button
++              onClick={onShowSubscription}
++              className="px-8 py-5 bg-emerald-600 text-white rounded-[2rem] font-black hover:bg-emerald-700 transition-colors shadow-xl"
++            >
++              Subscribe
++            </button>
++          )}
++        </div>
++
++        {error && !isGenerating && (
++          <div className="mt-4 p-4 bg-red-50 text-red-600 rounded-2xl text-sm font-medium border border-red-100">
++            {error}
++          </div>
++        )}
++      </div>
++    </div>
++  );
++};
+diff --git a/components/StylePicker.tsx b/components/StylePicker.tsx
+new file mode 100644
+index 0000000..eb4b219
+--- /dev/null
++++ components/StylePicker.tsx
+@@ -0,0 +1,143 @@
++import React, { useRef } from 'react';
++import { Upload, Check } from 'lucide-react';
++import { PREDEFINED_STYLES } from '../seriesData';
++
++// Friendly display names and descriptions (no technical prompt text shown)
++const STYLE_META: { name: string; description: string }[] = [
++  {
++    name: 'Soft Pastel',
++    description: 'Warm, gentle colours with a dreamy, cozy feel — perfect for bedtime stories.',
++  },
++  {
++    name: 'Watercolour',
++    description: 'Delicate brushstrokes and translucent hues, like a hand-painted picture book.',
++  },
++  {
++    name: 'Bold & Bright',
++    description: 'Vibrant flat colours and clean lines — modern, fun, and easy to read.',
++  },
++  {
++    name: '3D Storybook',
++    description: 'Rich 3D characters with cinematic lighting, like a Pixar movie.',
++  },
++];
++
++interface StylePickerProps {
++  selectedIndex: number | null;
++  customStyleImage?: string;
++  onSelect: (index: number) => void;
++  onCustomStyleUpload: (base64: string) => void;
++}
++
++export const StylePicker: React.FC<StylePickerProps> = ({
++  selectedIndex,
++  customStyleImage,
++  onSelect,
++  onCustomStyleUpload,
++}) => {
++  const fileInputRef = useRef<HTMLInputElement>(null);
++
++  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
++    const file = e.target.files?.[0];
++    if (!file) return;
++    const reader = new FileReader();
++    reader.onload = () => onCustomStyleUpload(reader.result as string);
++    reader.readAsDataURL(file);
++    e.target.value = '';
++  };
++
++  return (
++    <div className="space-y-6">
++      <p className="text-slate-500 text-center font-medium">
++        Choose the illustration style for your book. You can always change it later.
++      </p>
++
++      {/* Predefined styles grid */}
++      <div className="grid grid-cols-2 gap-5">
++        {PREDEFINED_STYLES.map((style, idx) => {
++          const meta = STYLE_META[idx];
++          const isSelected = selectedIndex === idx;
++
++          return (
++            <button
++              key={style.id}
++              onClick={() => onSelect(idx)}
++              className={`relative group rounded-[2rem] overflow-hidden border-4 transition-all text-left shadow-sm hover:shadow-xl ${
++                isSelected
++                  ? 'border-indigo-600 shadow-indigo-200 shadow-xl scale-[1.02]'
++                  : 'border-transparent hover:border-indigo-200'
++              }`}
++            >
++              {/* Thumbnail */}
++              <div className="aspect-square bg-slate-100 overflow-hidden">
++                <img
++                  src={style.image}
++                  alt={meta.name}
++                  className="w-full h-full object-cover transition-transform group-hover:scale-105"
++                />
++              </div>
++
++              {/* Label */}
++              <div className="p-4 bg-white">
++                <h4 className="font-black text-slate-900 text-lg">{meta.name}</h4>
++                <p className="text-slate-500 text-sm font-medium mt-1 leading-snug">{meta.description}</p>
++              </div>
++
++              {/* Selected checkmark */}
++              {isSelected && (
++                <div className="absolute top-3 right-3 w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg">
++                  <Check size={16} className="text-white" />
++                </div>
++              )}
++            </button>
++          );
++        })}
++      </div>
++
++      {/* Custom style upload */}
++      <div className="mt-4">
++        <p className="text-center text-xs font-black uppercase tracking-widest text-slate-400 mb-4">
++          Or upload a picture with a style you love
++        </p>
++        <button
++          onClick={() => fileInputRef.current?.click()}
++          className={`w-full rounded-[2rem] border-4 border-dashed transition-all p-6 flex flex-col items-center gap-3 ${
++            customStyleImage
++              ? 'border-indigo-400 bg-indigo-50'
++              : 'border-slate-200 hover:border-indigo-300 bg-slate-50 hover:bg-indigo-50'
++          }`}
++        >
++          {customStyleImage ? (
++            <div className="flex items-center gap-4">
++              <img
++                src={customStyleImage}
++                alt="Custom style"
++                className="w-16 h-16 rounded-xl object-cover shadow"
++              />
++              <div className="text-left">
++                <p className="font-black text-indigo-600">Custom style uploaded!</p>
++                <p className="text-slate-500 text-sm">Click to change</p>
++              </div>
++              <div className="ml-auto w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center">
++                <Check size={16} className="text-white" />
++              </div>
++            </div>
++          ) : (
++            <>
++              <Upload size={32} className="text-slate-400" />
++              <p className="font-bold text-slate-500">Upload a reference image</p>
++              <p className="text-slate-400 text-sm">JPG, PNG — We'll match its style</p>
++            </>
++          )}
++        </button>
++        <input
++          ref={fileInputRef}
++          type="file"
++          accept="image/*"
++          className="hidden"
++          onChange={handleFileChange}
++        />
++      </div>
++    </div>
++  );
++};
+diff --git a/components/SubscriptionPage.tsx b/components/SubscriptionPage.tsx
+new file mode 100644
+index 0000000..9eea2d1
+--- /dev/null
++++ components/SubscriptionPage.tsx
+@@ -0,0 +1,235 @@
++import React, { useState } from 'react';
++import { Check, X, Zap, CreditCard, ArrowLeft, Loader2 } from 'lucide-react';
++import { SUBSCRIPTION_TIERS, TOPUP_PACKS, SubscriptionTier } from '../types';
++
++interface SubscriptionPageProps {
++  currentTierId: string;
++  credits: number;
++  userId: string;
++  stripeCustomerId?: string | null;
++  onBack: () => void;
++}
++
++export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
++  currentTierId,
++  credits,
++  userId,
++  stripeCustomerId,
++  onBack,
++}) => {
++  const [loadingId, setLoadingId] = useState<string | null>(null);
++
++  const handleSubscribe = async (tier: SubscriptionTier) => {
++    setLoadingId(tier.id);
++    try {
++      const res = await fetch('/api/create-checkout-session', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({
++          userId,
++          credits: tier.monthlyCredits,
++          priceId: tier.stripePriceId,
++          tierId: tier.id,
++          mode: 'subscription',
++        }),
++      });
++      const data = await res.json();
++      if (data.url) window.location.href = data.url;
++    } catch {
++      alert('Something went wrong. Please try again.');
++    } finally {
++      setLoadingId(null);
++    }
++  };
++
++  const handleTopUp = async (pack: typeof TOPUP_PACKS[number]) => {
++    setLoadingId(`topup-${pack.credits}`);
++    try {
++      const res = await fetch('/api/create-checkout-session', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({
++          userId,
++          credits: pack.credits,
++          priceId: pack.stripePriceId,
++          mode: 'payment',
++        }),
++      });
++      const data = await res.json();
++      if (data.url) window.location.href = data.url;
++    } catch {
++      alert('Something went wrong. Please try again.');
++    } finally {
++      setLoadingId(null);
++    }
++  };
++
++  const handleManageSubscription = async () => {
++    if (!stripeCustomerId) {
++      alert('No active subscription found.');
++      return;
++    }
++    setLoadingId('portal');
++    try {
++      const res = await fetch('/api/create-portal-session', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ stripeCustomerId }),
++      });
++      const data = await res.json();
++      if (data.url) window.location.href = data.url;
++    } catch {
++      alert('Could not open subscription management. Please try again.');
++    } finally {
++      setLoadingId(null);
++    }
++  };
++
++  const isSubscribed = currentTierId !== 'free';
++
++  return (
++    <div className="min-h-screen bg-slate-50 py-16 px-6">
++      <div className="max-w-4xl mx-auto space-y-16">
++
++        {/* Header */}
++        <div className="text-center space-y-4">
++          <button
++            onClick={onBack}
++            className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 transition-colors mx-auto"
++          >
++            <ArrowLeft size={18} /> Back
++          </button>
++          <h1 className="text-5xl font-black text-slate-900">
++            Create unlimited storybooks
++          </h1>
++          <p className="text-slate-500 text-xl font-medium max-w-xl mx-auto">
++            Subscribe and start creating illustrated children's books in minutes — no design or writing skills needed.
++          </p>
++          {credits > 0 && (
++            <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-6 py-3 rounded-full font-bold border border-emerald-100">
++              <Zap size={18} /> You have {credits} free book credit{credits !== 1 ? 's' : ''} remaining
++            </div>
++          )}
++        </div>
++
++        {/* Subscription tiers */}
++        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
++          {SUBSCRIPTION_TIERS.map(tier => {
++            const isCurrent = currentTierId === tier.id;
++            const isLoading = loadingId === tier.id;
++
++            return (
++              <div
++                key={tier.id}
++                className={`relative bg-white rounded-[2.5rem] p-8 space-y-6 border-4 transition-all shadow-sm ${
++                  tier.highlighted
++                    ? 'border-indigo-600 shadow-indigo-100 shadow-2xl scale-[1.02]'
++                    : 'border-slate-100'
++                }`}
++              >
++                {tier.highlighted && (
++                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-6 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-lg">
++                    Most Popular
++                  </div>
++                )}
++                {isCurrent && (
++                  <div className="absolute -top-4 right-6 bg-emerald-500 text-white px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-lg">
++                    Your Plan
++                  </div>
++                )}
++
++                <div>
++                  <h3 className="text-2xl font-black text-slate-900">{tier.name}</h3>
++                  <div className="flex items-baseline gap-1 mt-2">
++                    <span className="text-4xl font-black text-slate-900">
++                      ${(tier.price / 100).toFixed(2)}
++                    </span>
++                    <span className="text-slate-500 font-bold">/month</span>
++                  </div>
++                  <p className="text-indigo-600 font-bold mt-1">
++                    {tier.monthlyCredits} books per month
++                  </p>
++                </div>
++
++                <ul className="space-y-3">
++                  {tier.features.map(feature => (
++                    <li key={feature} className="flex items-start gap-3 text-slate-700 font-medium text-sm">
++                      <Check size={16} className="text-emerald-500 mt-0.5 flex-shrink-0" />
++                      {feature}
++                    </li>
++                  ))}
++                </ul>
++
++                <button
++                  onClick={() => !isCurrent && handleSubscribe(tier)}
++                  disabled={isCurrent || isLoading}
++                  className={`w-full py-4 rounded-[1.5rem] font-black text-lg flex items-center justify-center gap-2 transition-all ${
++                    isCurrent
++                      ? 'bg-slate-100 text-slate-400 cursor-default'
++                      : tier.highlighted
++                      ? 'bg-indigo-600 text-white shadow-xl hover:bg-indigo-700 hover:scale-[1.02]'
++                      : 'bg-slate-900 text-white hover:bg-slate-800 hover:scale-[1.02]'
++                  }`}
++                >
++                  {isLoading ? (
++                    <Loader2 size={20} className="animate-spin" />
++                  ) : isCurrent ? (
++                    'Current Plan'
++                  ) : (
++                    'Get Started'
++                  )}
++                </button>
++              </div>
++            );
++          })}
++        </div>
++
++        {/* Top-up section */}
++        <div className="bg-white rounded-[2.5rem] p-10 border-2 border-slate-100 space-y-6 shadow-sm">
++          <div>
++            <h3 className="text-2xl font-black text-slate-900">Need more credits?</h3>
++            <p className="text-slate-500 font-medium mt-1">Buy extra books at any time — they never expire.</p>
++          </div>
++          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
++            {TOPUP_PACKS.map(pack => {
++              const isLoading = loadingId === `topup-${pack.credits}`;
++              return (
++                <button
++                  key={pack.credits}
++                  onClick={() => handleTopUp(pack)}
++                  disabled={!!isLoading}
++                  className="p-6 bg-slate-50 rounded-[2rem] border-2 border-slate-100 hover:border-indigo-300 hover:bg-indigo-50 text-left transition-all group"
++                >
++                  <p className="font-black text-2xl text-slate-900 group-hover:text-indigo-600">
++                    {pack.credits} books
++                  </p>
++                  <p className="text-slate-500 font-bold text-sm mt-1">
++                    ${(pack.price / 100).toFixed(2)} one-time
++                  </p>
++                  {isLoading && <Loader2 size={18} className="animate-spin text-indigo-600 mt-3" />}
++                </button>
++              );
++            })}
++          </div>
++        </div>
++
++        {/* Manage subscription */}
++        {isSubscribed && (
++          <div className="text-center">
++            <button
++              onClick={handleManageSubscription}
++              disabled={loadingId === 'portal'}
++              className="inline-flex items-center gap-2 px-8 py-4 bg-slate-100 text-slate-600 rounded-[2rem] font-bold hover:bg-slate-200 transition-colors"
++            >
++              {loadingId === 'portal' ? <Loader2 size={18} className="animate-spin" /> : <CreditCard size={18} />}
++              Manage Subscription
++            </button>
++            <p className="text-slate-400 text-sm font-medium mt-2">
++              Cancel, upgrade, or update payment method anytime.
++            </p>
++          </div>
++        )}
++      </div>
++    </div>
++  );
++};
+diff --git a/components/UserDashboard.tsx b/components/UserDashboard.tsx
+new file mode 100644
+index 0000000..02dbf76
+--- /dev/null
++++ components/UserDashboard.tsx
+@@ -0,0 +1,170 @@
++import React from 'react';
++import {
++  X, BookOpen, CreditCard, Zap, Settings, LogOut, ShieldCheck,
++  ArrowRight, User, ToggleLeft, ToggleRight
++} from 'lucide-react';
++import { UserProfile, UserMode, SUBSCRIPTION_TIERS } from '../types';
++
++interface UserDashboardProps {
++  userProfile: UserProfile;
++  userMode: UserMode;
++  isAdmin: boolean;
++  onClose: () => void;
++  onToggleMode: () => void;
++  onShowSubscription: () => void;
++  onShowAdmin: () => void;
++  onSignOut: () => void;
++}
++
++export const UserDashboard: React.FC<UserDashboardProps> = ({
++  userProfile,
++  userMode,
++  isAdmin,
++  onClose,
++  onToggleMode,
++  onShowSubscription,
++  onShowAdmin,
++  onSignOut,
++}) => {
++  const currentTier = SUBSCRIPTION_TIERS.find(t => t.id === userProfile.tierId);
++  const maxCredits = currentTier?.monthlyCredits ?? 3;
++  const creditPct = Math.min(100, Math.round((userProfile.credits / maxCredits) * 100));
++
++  const creditColor =
++    creditPct > 50 ? 'bg-emerald-500' :
++    creditPct > 20 ? 'bg-amber-400' :
++    'bg-red-500';
++
++  return (
++    <div className="fixed inset-0 z-[150] flex items-start justify-end p-6">
++      {/* Backdrop */}
++      <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" onClick={onClose} />
++
++      {/* Panel */}
++      <div className="relative z-10 bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-right duration-300">
++
++        {/* Header */}
++        <div className="bg-indigo-600 px-8 py-8 text-white space-y-3">
++          <div className="flex justify-between items-start">
++            <div className="flex items-center gap-3">
++              <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
++                <User size={24} className="text-white" />
++              </div>
++              <div>
++                <p className="font-black text-lg leading-tight">{userProfile.email.split('@')[0]}</p>
++                <p className="text-indigo-200 text-xs font-medium">{userProfile.email}</p>
++              </div>
++            </div>
++            <button onClick={onClose} className="text-white/60 hover:text-white transition-colors">
++              <X size={24} />
++            </button>
++          </div>
++
++          {/* Plan badge */}
++          <div className="flex items-center gap-2">
++            <span className="bg-white/20 text-white text-xs font-black px-3 py-1 rounded-full uppercase tracking-widest">
++              {currentTier?.name ?? 'Free Trial'}
++            </span>
++          </div>
++        </div>
++
++        {/* Credits */}
++        <div className="px-8 py-6 border-b border-slate-100 space-y-3">
++          <div className="flex justify-between items-baseline">
++            <span className="text-sm font-black uppercase tracking-widest text-slate-500">Book Credits</span>
++            <span className="text-2xl font-black text-slate-900">{userProfile.credits}</span>
++          </div>
++          {/* Progress bar */}
++          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
++            <div
++              className={`h-full rounded-full transition-all ${creditColor}`}
++              style={{ width: `${creditPct}%` }}
++            />
++          </div>
++          <p className="text-slate-400 text-xs font-medium">
++            {userProfile.credits === 0
++              ? 'No credits remaining — subscribe to create more books'
++              : `${userProfile.credits} of ${maxCredits} credits remaining this month`}
++          </p>
++          <button
++            onClick={onShowSubscription}
++            className="w-full py-3 bg-indigo-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-md hover:bg-indigo-700 transition-colors"
++          >
++            <Zap size={16} />
++            {userProfile.tierId === 'free' ? 'Subscribe for More' : 'Buy More Credits'}
++          </button>
++        </div>
++
++        {/* Settings */}
++        <div className="px-8 py-4 space-y-1">
++
++          {/* Mode toggle */}
++          <button
++            onClick={onToggleMode}
++            className="w-full flex items-center justify-between py-4 px-4 rounded-2xl hover:bg-slate-50 transition-colors group"
++          >
++            <div className="flex items-center gap-3">
++              <Settings size={18} className="text-slate-400 group-hover:text-indigo-600 transition-colors" />
++              <span className="font-bold text-slate-700 group-hover:text-slate-900">Professional Mode</span>
++            </div>
++            <div className={`flex items-center gap-2 ${userMode === 'professional' ? 'text-indigo-600' : 'text-slate-300'}`}>
++              <span className="text-xs font-bold uppercase">{userMode === 'professional' ? 'ON' : 'OFF'}</span>
++              {userMode === 'professional'
++                ? <ToggleRight size={24} className="text-indigo-600" />
++                : <ToggleLeft size={24} className="text-slate-300" />}
++            </div>
++          </button>
++
++          {/* My books */}
++          <button
++            onClick={onClose}
++            className="w-full flex items-center justify-between py-4 px-4 rounded-2xl hover:bg-slate-50 transition-colors group"
++          >
++            <div className="flex items-center gap-3">
++              <BookOpen size={18} className="text-slate-400 group-hover:text-indigo-600 transition-colors" />
++              <span className="font-bold text-slate-700 group-hover:text-slate-900">My Books</span>
++            </div>
++            <ArrowRight size={16} className="text-slate-300 group-hover:text-slate-500" />
++          </button>
++
++          {/* Subscription */}
++          <button
++            onClick={onShowSubscription}
++            className="w-full flex items-center justify-between py-4 px-4 rounded-2xl hover:bg-slate-50 transition-colors group"
++          >
++            <div className="flex items-center gap-3">
++              <CreditCard size={18} className="text-slate-400 group-hover:text-indigo-600 transition-colors" />
++              <span className="font-bold text-slate-700 group-hover:text-slate-900">Subscription & Billing</span>
++            </div>
++            <ArrowRight size={16} className="text-slate-300 group-hover:text-slate-500" />
++          </button>
++
++          {/* Admin */}
++          {isAdmin && (
++            <button
++              onClick={() => { onShowAdmin(); onClose(); }}
++              className="w-full flex items-center justify-between py-4 px-4 rounded-2xl hover:bg-amber-50 transition-colors group"
++            >
++              <div className="flex items-center gap-3">
++                <ShieldCheck size={18} className="text-amber-500" />
++                <span className="font-bold text-amber-600">Admin Panel</span>
++              </div>
++              <ArrowRight size={16} className="text-amber-300" />
++            </button>
++          )}
++        </div>
++
++        {/* Sign out */}
++        <div className="px-8 py-6 border-t border-slate-100">
++          <button
++            onClick={onSignOut}
++            className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-500 rounded-2xl font-bold hover:bg-red-100 transition-colors"
++          >
++            <LogOut size={18} />
++            Sign Out
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++};
+diff --git a/firebase.ts b/firebase.ts
+index b9b540e..b3f8d84 100644
+--- firebase.ts
++++ firebase.ts
+@@ -30,51 +30,37 @@ export const logout = async () => {
+   }
+ };
+ 
+-export const checkUserAllowed = async (email: string | null): Promise<boolean> => {
+-  if (!email) return false;
+-  
+-  // Default admin is always allowed
+-  if (email === import.meta.env.VITE_ADMIN_EMAIL || email === 'hypocritic2002@gmail.com') {
+-    return true;
+-  }
+-
+-  try {
+-    const docRef = doc(db, 'allowedEmails', email);
+-    const docSnap = await getDoc(docRef);
+-    return docSnap.exists();
+-  } catch (error) {
+-    console.error("Error checking user allowed status:", error);
+-    return false;
+-  }
++/**
++ * All authenticated Google users are allowed on the platform.
++ * Access is gated by subscription/credits, not an email allowlist.
++ * Admin status is still checked separately.
++ */
++export const checkUserAllowed = async (_email: string | null): Promise<boolean> => {
++  // Any signed-in Google user may access the platform.
++  // Credits / subscription tier control what they can actually do.
++  return true;
+ };
+ 
+ export const initializeUserProfile = async (user: any) => {
+   if (!user || !user.email) return;
+-  
++
+   try {
+     const userRef = doc(db, 'users', user.uid);
+     const userSnap = await getDoc(userRef);
+-    
++
+     if (!userSnap.exists()) {
+-      // Check if they are admin
++      // New user — give free trial credits
+       const isAdmin = await checkIsAdmin(user.email);
+-      
+-      // Get tier from allowedEmails if it exists
+-      let tierId = 'free';
+-      if (!isAdmin && user.email !== import.meta.env.VITE_ADMIN_EMAIL && user.email !== 'hypocritic2002@gmail.com') {
+-        const allowedRef = doc(db, 'allowedEmails', user.email);
+-        const allowedSnap = await getDoc(allowedRef);
+-        if (allowedSnap.exists() && allowedSnap.data().tierId) {
+-          tierId = allowedSnap.data().tierId;
+-        }
+-      }
+ 
+       await setDoc(userRef, {
+         uid: user.uid,
+         email: user.email,
+-        tierId: tierId,
+-        credits: 10, // Default credits, admin can update or they can buy
+-        role: isAdmin ? 'admin' : 'user'
++        tierId: 'free',
++        credits: isAdmin ? 999 : 3, // 3 free trial books for new users
++        role: isAdmin ? 'admin' : 'user',
++        createdAt: Date.now(),
++        stripeCustomerId: null,
++        subscriptionStatus: 'free_trial',
+       });
+     }
+   } catch (error) {
+@@ -84,13 +70,13 @@ export const initializeUserProfile = async (user: any) => {
+ 
+ export const checkIsAdmin = async (email: string | null): Promise<boolean> => {
+   if (!email) return false;
+-  
++
+   if (email === import.meta.env.VITE_ADMIN_EMAIL || email === 'hypocritic2002@gmail.com') {
+     return true;
+   }
+ 
+   try {
+-    const docRef = doc(db, 'allowedEmails', email);
++    const docRef = doc(db, 'users', email);
+     const docSnap = await getDoc(docRef);
+     if (docSnap.exists()) {
+       return docSnap.data().role === 'admin';
+diff --git a/package.json b/package.json
+index 014186c..9e115dc 100644
+--- package.json
++++ package.json
+@@ -24,6 +24,7 @@
+     "react": "^19.2.3",
+     "react-dom": "^19.2.3",
+     "react-markdown": "^10.1.0",
++    "pptxgenjs": "^3.12.0",
+     "stripe": "^21.0.1"
+   },
+   "devDependencies": {
+diff --git a/server.ts b/server.ts
+index 8ccae06..6a15d17 100644
+--- server.ts
++++ server.ts
+@@ -17,8 +17,8 @@ async function startServer() {
+ 
+   app.use(cors());
+ 
+-  // Stripe webhook must use raw body
+-  app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, res) => {
++  // ─── Stripe Webhook (must receive raw body) ───────────────────────────────
++  app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+     const sig = req.headers['stripe-signature'];
+     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+ 
+@@ -28,7 +28,7 @@ async function startServer() {
+       return;
+     }
+ 
+-    let event;
++    let event: Stripe.Event;
+ 
+     try {
+       event = stripe.webhooks.constructEvent(req.body, sig as string, endpointSecret);
+@@ -37,49 +37,112 @@ async function startServer() {
+       return;
+     }
+ 
+-    // Handle the event
++    // ── One-time payment completed (top-up or first subscription checkout) ──
+     if (event.type === 'checkout.session.completed') {
+       const session = event.data.object as Stripe.Checkout.Session;
+       const userId = session.client_reference_id;
+       const creditsToAdd = session.metadata?.credits ? parseInt(session.metadata.credits) : 0;
+-      
+-      if (userId && creditsToAdd > 0) {
+-        // Here we would use Firebase Admin SDK to update the user's credits.
+-        // Since we don't have Firebase Admin configured yet, we'll just log it.
+-        // In a real scenario, you'd need the service account key.
+-        console.log(`[WEBHOOK] Added ${creditsToAdd} credits to user ${userId}`);
+-      }
++      const tierId = session.metadata?.tierId;
++
++      console.log(`[WEBHOOK] checkout.session.completed — user=${userId} credits=${creditsToAdd} tier=${tierId}`);
++
++      // TODO: Use Firebase Admin SDK to update Firestore when available
++      // Example:
++      // const userRef = adminDb.collection('users').doc(userId);
++      // await userRef.update({ credits: FieldValue.increment(creditsToAdd), tierId });
++    }
++
++    // ── Recurring subscription payment succeeded (monthly renewal) ───────────
++    if (event.type === 'invoice.payment_succeeded') {
++      const invoice = event.data.object as Stripe.Invoice;
++      const customerId = invoice.customer as string;
++      const subscriptionId = invoice.subscription as string;
++
++      console.log(`[WEBHOOK] invoice.payment_succeeded — customer=${customerId} subscription=${subscriptionId}`);
++
++      // TODO: Reset monthly credits for the customer via Firebase Admin SDK
++      // 1. Look up user by stripeCustomerId in Firestore
++      // 2. Get their tier's monthlyCredits
++      // 3. Set credits = monthlyCredits (reset, not increment)
++    }
++
++    // ── Subscription updated (upgrade / downgrade) ───────────────────────────
++    if (event.type === 'customer.subscription.updated') {
++      const subscription = event.data.object as Stripe.Subscription;
++      const customerId = subscription.customer as string;
++      const status = subscription.status; // 'active' | 'canceled' | 'past_due' etc.
++      const tierId = subscription.metadata?.tierId;
++
++      console.log(`[WEBHOOK] customer.subscription.updated — customer=${customerId} status=${status} tier=${tierId}`);
++
++      // TODO: Update user tierId and subscription status in Firestore via Admin SDK
++    }
++
++    // ── Subscription cancelled ───────────────────────────────────────────────
++    if (event.type === 'customer.subscription.deleted') {
++      const subscription = event.data.object as Stripe.Subscription;
++      const customerId = subscription.customer as string;
++
++      console.log(`[WEBHOOK] customer.subscription.deleted — customer=${customerId}`);
++
++      // TODO: Downgrade user to free tier via Firebase Admin SDK
++      // await adminDb.collection('users').where('stripeCustomerId', '==', customerId).get()
++      //   .then(snap => snap.docs[0].ref.update({ tierId: 'free', subscriptionStatus: 'cancelled' }));
+     }
+ 
+     res.send();
+   });
+ 
+-  // Standard JSON parsing for other routes
++  // ─── Standard JSON parsing for all other routes ───────────────────────────
+   app.use(express.json());
+ 
++  // ── Create Stripe Checkout Session (new subscription or top-up) ──────────
+   app.post('/api/create-checkout-session', async (req, res) => {
+     try {
+-      const { userId, credits, priceId } = req.body;
+-      
+-      if (!process.env.STRIPE_SECRET_KEY) {
+-        throw new Error("Stripe is not configured.");
++      const { userId, credits, priceId, tierId, mode = 'payment' } = req.body;
++
++      if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY === 'sk_test_placeholder') {
++        throw new Error("Stripe is not configured. Please add your STRIPE_SECRET_KEY to .env");
+       }
+ 
+       const session = await stripe.checkout.sessions.create({
+         payment_method_types: ['card'],
+-        line_items: [
+-          {
+-            price: priceId,
+-            quantity: 1,
+-          },
+-        ],
+-        mode: 'payment',
++        line_items: [{ price: priceId, quantity: 1 }],
++        mode: mode === 'subscription' ? 'subscription' : 'payment',
+         success_url: `${req.headers.origin}?success=true&session_id={CHECKOUT_SESSION_ID}`,
+         cancel_url: `${req.headers.origin}?canceled=true`,
+         client_reference_id: userId,
+         metadata: {
+-          credits: credits.toString()
+-        }
++          credits: credits?.toString() ?? '0',
++          tierId: tierId ?? '',
++        },
++      });
++
++      res.json({ url: session.url });
++    } catch (error: any) {
++      res.status(500).json({ error: error.message });
++    }
++  });
++
++  // ── Create Stripe Billing Portal Session (manage / cancel subscription) ──
++  app.post('/api/create-portal-session', async (req, res) => {
++    try {
++      const { stripeCustomerId } = req.body;
++
++      if (!stripeCustomerId) {
++        res.status(400).json({ error: 'stripeCustomerId is required' });
++        return;
++      }
++
++      if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY === 'sk_test_placeholder') {
++        throw new Error("Stripe is not configured.");
++      }
++
++      const returnUrl = process.env.STRIPE_PORTAL_RETURN_URL || req.headers.origin as string;
++
++      const session = await stripe.billingPortal.sessions.create({
++        customer: stripeCustomerId,
++        return_url: returnUrl,
+       });
+ 
+       res.json({ url: session.url });
+@@ -88,7 +151,7 @@ async function startServer() {
+     }
+   });
+ 
+-  // Vite middleware for development
++  // ─── Vite Dev / Static Production Serving ────────────────────────────────
+   if (process.env.NODE_ENV !== "production") {
+     const vite = await createViteServer({
+       server: { middlewareMode: true },
+diff --git a/types.ts b/types.ts
+index cd97f91..a34b4c3 100644
+--- types.ts
++++ types.ts
+@@ -122,6 +122,92 @@ export interface Project {
+   targetResolution?: '1K' | '2K' | '4K';
+ }
+ 
++// ─── Consumer / SaaS platform types ───────────────────────────────────────────
++
++export type UserMode = 'simple' | 'professional';
++
++export type WizardBookFormat = 'square' | 'portrait' | 'landscape';
++
++export interface WizardCharacter {
++  name: string;
++  description: string;
++  photo?: string; // base64
++}
++
++export interface WizardState {
++  step: 1 | 2 | 3 | 4 | 5;
++  storyText: string;
++  selectedStyleIndex: number | null;
++  customStyleImage?: string; // base64
++  customStylePrompt?: string;
++  characters: WizardCharacter[];
++  bookFormat: WizardBookFormat;
++  generatedProject?: Project;
++}
++
++export interface SubscriptionTier {
++  id: string;
++  name: string; // "Starter" | "Creator" | "Pro"
++  price: number; // monthly USD cents (e.g. 999 = $9.99)
++  monthlyCredits: number;
++  stripePriceId: string;
++  features: string[]; // plain-language feature list
++  highlighted?: boolean; // show as "most popular"
++}
++
++export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
++  {
++    id: 'starter',
++    name: 'Starter',
++    price: 999,
++    monthlyCredits: 10,
++    stripePriceId: 'price_starter_placeholder',
++    features: [
++      '10 illustrated books per month',
++      '4 art styles to choose from',
++      'Print-ready PDF download',
++      'Export to Canva',
++    ],
++  },
++  {
++    id: 'creator',
++    name: 'Creator',
++    price: 2499,
++    monthlyCredits: 30,
++    stripePriceId: 'price_creator_placeholder',
++    highlighted: true,
++    features: [
++      '30 illustrated books per month',
++      'All art styles + custom style upload',
++      'Print-ready PDF download',
++      'Export to Canva',
++      'Professional mode access',
++    ],
++  },
++  {
++    id: 'pro',
++    name: 'Pro',
++    price: 5999,
++    monthlyCredits: 100,
++    stripePriceId: 'price_pro_placeholder',
++    features: [
++      '100 illustrated books per month',
++      'All styles + custom uploads',
++      'High-res 4K exports',
++      'Full professional workflow',
++      'Priority generation',
++    ],
++  },
++];
++
++export const TOPUP_PACKS = [
++  { credits: 5, price: 299, label: '5 books — $2.99', stripePriceId: 'price_topup_5_placeholder' },
++  { credits: 20, price: 999, label: '20 books — $9.99', stripePriceId: 'price_topup_20_placeholder' },
++  { credits: 50, price: 1999, label: '50 books — $19.99', stripePriceId: 'price_topup_50_placeholder' },
++];
++
++// ─── Print Formats ────────────────────────────────────────────────────────────
++
+ export const PRINT_FORMATS: Record<ExportFormat, { name: string, width: number, height: number, bleed: number, baseGutter: number, outside: number, top: number, bottom: number }> = {
+   KDP_5x8: { name: 'KDP 5" x 8"', width: 5, height: 8, bleed: 0.125, baseGutter: 0.375, outside: 0.375, top: 0.375, bottom: 0.375 },
+   KDP_5_06x7_81: { name: 'KDP 5.06" x 7.81"', width: 5.06, height: 7.81, bleed: 0.125, baseGutter: 0.375, outside: 0.375, top: 0.375, bottom: 0.375 },
+diff --git a/utils/exportUtils.ts b/utils/exportUtils.ts
+index 32f39e4..0032eba 100644
+--- utils/exportUtils.ts
++++ utils/exportUtils.ts
+@@ -1,50 +1,200 @@
+ import JSZip from 'jszip';
+ import { BookPage } from '../types';
+ 
+-export const exportProjectAssetsForCanva = async (pages: BookPage[], projectName: string) => {
++// ─── Helper ────────────────────────────────────────────────────────────────────
++
++const triggerDownload = (blob: Blob, filename: string) => {
++  const url = URL.createObjectURL(blob);
++  const a = document.createElement('a');
++  a.href = url;
++  a.download = filename;
++  document.body.appendChild(a);
++  a.click();
++  document.body.removeChild(a);
++  URL.revokeObjectURL(url);
++};
++
++const stripDataPrefix = (base64: string) =>
++  base64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
++
++// ─── Canva export ─────────────────────────────────────────────────────────────
++
++export const exportProjectAssetsForCanva = async (
++  pages: BookPage[],
++  projectName: string
++): Promise<void> => {
++  return exportForCanva(pages, projectName);
++};
++
++export const exportForCanva = async (
++  pages: BookPage[],
++  projectName: string
++): Promise<void> => {
+   const zip = new JSZip();
+-  const projectFolder = zip.folder(projectName || 'StoryFlow_Project');
+-  
+-  if (!projectFolder) return;
++  const name = (projectName || 'StoryFlow_Book').replace(/[^a-z0-9_\- ]/gi, '_');
++  const folder = zip.folder(name);
++  if (!folder) return;
++
++  const instructions = `HOW TO IMPORT YOUR BOOK INTO CANVA
++====================================
++
++1. Unzip this folder on your computer.
++2. Go to https://www.canva.com and sign in.
++3. Click "Create a design" and choose your book size (e.g. A4 or custom).
++4. In the left sidebar, click "Uploads" then "Upload files".
++5. Select all the PNG images from the "${name}" folder.
++6. Drag each image onto a new page in your Canva design.
++7. Add text, stickers, or any finishing touches.
++8. Download your finished book as PDF (Print) from Canva.
++
++TIP: Each page is in its own sub-folder. If layers are available,
++you'll find them inside a "layers" sub-folder for extra flexibility.
++
++Happy creating!
++`;
++
++  folder.file('HOW_TO_IMPORT_CANVA.txt', instructions);
+ 
+   for (let i = 0; i < pages.length; i++) {
+     const page = pages[i];
+-    const pageNum = i + 1;
+-    const pageFolder = projectFolder.folder(`Page_${pageNum}`);
+-    
++    const pageNum = String(i + 1).padStart(2, '0');
++    const pageFolder = folder.folder(`page_${pageNum}`);
+     if (!pageFolder) continue;
+ 
+-    // Add composite image
+-    const compositeImage = page.processedImage || page.originalImage;
+-    if (compositeImage) {
+-      const base64Data = compositeImage.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
+-      pageFolder.file(`Page_${pageNum}_Composite.png`, base64Data, { base64: true });
++    // Composite image (primary)
++    const composite = page.processedImage || page.originalImage;
++    if (composite) {
++      pageFolder.file(`page_${pageNum}_composite.png`, stripDataPrefix(composite), {
++        base64: true,
++      });
+     }
+ 
+-    // Add individual layers if they exist
++    // Individual layers (if available)
+     if (page.layers && page.layers.length > 0) {
+-      const layersFolder = pageFolder.folder('Layers');
++      const layersFolder = pageFolder.folder('layers');
+       if (layersFolder) {
+-        page.layers.forEach((layer, layerIdx) => {
++        page.layers.forEach((layer, li) => {
+           if (layer.image) {
+-            const base64Data = layer.image.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
+-            layersFolder.file(`${layer.type}_${layerIdx}.png`, base64Data, { base64: true });
++            const layerName = layer.type || `layer_${li}`;
++            layersFolder.file(`${layerName}.png`, stripDataPrefix(layer.image), {
++              base64: true,
++            });
+           }
+         });
+       }
+     }
+   }
+ 
+-  // Generate the zip file
+-  const content = await zip.generateAsync({ type: 'blob' });
+-  
+-  // Trigger download
+-  const url = URL.createObjectURL(content);
+-  const a = document.createElement('a');
+-  a.href = url;
+-  a.download = `${projectName || 'StoryFlow_Project'}_Canva_Assets.zip`;
+-  document.body.appendChild(a);
+-  a.click();
+-  document.body.removeChild(a);
+-  URL.revokeObjectURL(url);
++  const blob = await zip.generateAsync({ type: 'blob' });
++  triggerDownload(blob, `${name}_canva.zip`);
++};
++
++// ─── Adobe Express export ─────────────────────────────────────────────────────
++
++export const exportForAdobeExpress = async (
++  pages: BookPage[],
++  projectName: string
++): Promise<void> => {
++  const zip = new JSZip();
++  const name = (projectName || 'StoryFlow_Book').replace(/[^a-z0-9_\- ]/gi, '_');
++  const folder = zip.folder(name);
++  if (!folder) return;
++
++  const instructions = `HOW TO IMPORT YOUR BOOK INTO ADOBE EXPRESS
++===========================================
++
++1. Unzip this folder on your computer.
++2. Go to https://express.adobe.com and sign in.
++3. Click "Create" and start a new project (choose your book size).
++4. Click "Add media" or the "+" button and upload the PNG images.
++5. Place each page image as a full-page background.
++6. Add text, effects, and your personal touches.
++7. Download your finished book as a PDF or image set.
++
++Your pages are numbered and ready to drop in order:
++${pages.map((_, i) => `  page_${String(i + 1).padStart(2, '0')}.png`).join('\n')}
++
++Happy creating!
++`;
++
++  folder.file('HOW_TO_IMPORT_ADOBE_EXPRESS.txt', instructions);
++
++  for (let i = 0; i < pages.length; i++) {
++    const page = pages[i];
++    const pageNum = String(i + 1).padStart(2, '0');
++    const composite = page.processedImage || page.originalImage;
++    if (composite) {
++      folder.file(`page_${pageNum}.png`, stripDataPrefix(composite), { base64: true });
++    }
++  }
++
++  const blob = await zip.generateAsync({ type: 'blob' });
++  triggerDownload(blob, `${name}_adobe_express.zip`);
++};
++
++// ─── Google Slides export (PPTX) ─────────────────────────────────────────────
++
++export const exportForGoogleSlides = async (
++  pages: BookPage[],
++  projectName: string
++): Promise<void> => {
++  // Dynamically import pptxgenjs to avoid adding it to the initial bundle
++  const PptxGenJSModule = await import('pptxgenjs');
++  const PptxGenJS = PptxGenJSModule.default ?? PptxGenJSModule;
++
++  const pptx = new (PptxGenJS as any)();
++  const name = (projectName || 'StoryFlow_Book').replace(/[^a-z0-9_\- ]/gi, '_');
++
++  // Use a square-ish layout suitable for children's books
++  // Standard Google Slides is 10" x 7.5"; we use a close approximation
++  pptx.defineLayout({ name: 'BOOK', width: 8.5, height: 8.5 });
++  pptx.layout = 'BOOK';
++  pptx.title = projectName || 'My Storybook';
++  pptx.subject = 'Children\'s book created with StoryFlow AI';
++
++  for (let i = 0; i < pages.length; i++) {
++    const page = pages[i];
++    const slide = pptx.addSlide();
++    slide.background = { color: 'FFFFFF' };
++
++    const composite = page.processedImage || page.originalImage;
++    if (composite) {
++      slide.addImage({
++        data: composite,
++        x: 0,
++        y: 0,
++        w: '100%',
++        h: '100%',
++        sizing: { type: 'cover', w: 8.5, h: 8.5 },
++      });
++    }
++
++    // Optional page text overlay at the bottom
++    if (page.originalText && page.originalText.trim()) {
++      const text = page.originalText.trim();
++      slide.addText(text, {
++        x: 0.4,
++        y: 6.2,
++        w: 7.7,
++        h: 2.0,
++        fontSize: 18,
++        color: 'FFFFFF',
++        bold: false,
++        align: 'center',
++        valign: 'middle',
++        wrap: true,
++        shadow: {
++          type: 'outer',
++          angle: 45,
++          blur: 8,
++          color: '000000',
++          opacity: 0.85,
++          offset: 2,
++        },
++      });
++    }
++  }
++
++  // writeFile triggers browser download automatically
++  await pptx.writeFile({ fileName: `${name}_google_slides.pptx` });
+ };

@@ -6,7 +6,11 @@ import {
   ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid, TrendingUp, Key, CreditCard
 } from 'lucide-react';
 import JSZip from 'jszip';
-import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer } from './types';
+import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer, UserMode } from './types';
+import { SimpleWizard } from './components/SimpleWizard';
+import { SubscriptionPage } from './components/SubscriptionPage';
+import { UserDashboard } from './components/UserDashboard';
+import { CanvaExportModal } from './components/CanvaExportModal';
 import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
@@ -251,19 +255,32 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<import('./types').UserProfile | null>(null);
   const [showAdminModal, setShowAdminModal] = useState(false);
 
+  // ── Consumer SaaS platform state ──────────────────────────────────────────
+  const [userMode, setUserMode] = useState<UserMode>(() =>
+    (localStorage.getItem('storyflow_user_mode') as UserMode) ?? 'simple'
+  );
+  const [showSimpleWizard, setShowSimpleWizard] = useState(false);
+  const [showSubscriptionPage, setShowSubscriptionPage] = useState(false);
+  const [showUserDashboard, setShowUserDashboard] = useState(false);
+  const [showCanvaModal, setShowCanvaModal] = useState(false);
+  const [canvaModalPages, setCanvaModalPages] = useState<BookPage[]>([]);
+
+  const handleToggleUserMode = () => {
+    const next: UserMode = userMode === 'simple' ? 'professional' : 'simple';
+    setUserMode(next);
+    localStorage.setItem('storyflow_user_mode', next);
+    setShowUserDashboard(false);
+  };
+
+  const handleDeductCredit = () => {
+    if (!userProfile) return;
+    setUserProfile(prev => prev ? { ...prev, credits: Math.max(0, prev.credits - 1) } : prev);
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-        const isAllowed = await checkUserAllowed(currentUser.email);
-        if (!isAllowed) {
-          await logout();
-          setAuthError("Your email is not authorized to access this app. Please contact the administrator.");
-          setUser(null);
-          setIsAdmin(false);
-          setIsAuthReady(true);
-          return;
-        }
-        
+        // All signed-in Google users are welcome — no allowlist check needed
         const adminStatus = await checkIsAdmin(currentUser.email);
         setIsAdmin(adminStatus);
         
@@ -446,26 +463,49 @@ const App: React.FC = () => {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
-        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-md w-full text-center space-y-8">
-          <div className="w-24 h-24 bg-indigo-600 rounded-full mx-auto flex items-center justify-center text-white shadow-xl">
-            <Lock size={40} />
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-8">
+        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-md w-full text-center space-y-8 border border-indigo-50">
+          {/* Logo */}
+          <div className="w-24 h-24 bg-indigo-600 rounded-[2rem] mx-auto flex items-center justify-center text-white shadow-2xl">
+            <Sparkles size={44} />
           </div>
-          <div>
-            <h1 className="text-3xl font-black text-slate-900 mb-4">StoryFlow Pro</h1>
-            <p className="text-slate-500 font-medium">Please sign in to access your projects and generate illustrations.</p>
+          <div className="space-y-3">
+            <h1 className="text-4xl font-black text-slate-900">StoryFlow AI</h1>
+            <p className="text-slate-500 font-medium text-lg">
+              Create beautifully illustrated children's books in minutes — no design skills needed.
+            </p>
+          </div>
+          {/* Feature highlights */}
+          <div className="grid grid-cols-3 gap-4 py-2">
+            {[
+              { label: 'Choose a style', icon: '🎨' },
+              { label: 'Write your story', icon: '✍️' },
+              { label: 'Print-ready PDF', icon: '📖' },
+            ].map(f => (
+              <div key={f.label} className="bg-slate-50 rounded-2xl p-4 space-y-2">
+                <div className="text-2xl">{f.icon}</div>
+                <p className="text-xs font-bold text-slate-600">{f.label}</p>
+              </div>
+            ))}
+          </div>
+          {/* Free trial nudge */}
+          <div className="bg-emerald-50 text-emerald-700 px-6 py-3 rounded-2xl text-sm font-bold border border-emerald-100">
+            🎁 Start free — 3 illustrated books included
           </div>
           {authError && (
             <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm font-medium border border-red-100">
               {authError}
             </div>
           )}
-          <button 
+          <button
             onClick={handleSignIn}
-            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-3 shadow-lg"
+            className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-xl hover:scale-[1.02]"
           >
             <LogIn size={24} /> Sign in with Google
           </button>
+          <p className="text-slate-400 text-xs font-medium">
+            By signing in you agree to our terms of service. No credit card required to start.
+          </p>
         </div>
       </div>
     );
@@ -941,11 +981,145 @@ const App: React.FC = () => {
   const renderStep = () => {
     switch (currentStep) {
       case 'landing':
+        // ── Simple / Consumer Mode Landing ────────────────────────────────────
+        if (userMode === 'simple') {
+          return (
+            <div className="max-w-5xl mx-auto py-16 px-8 space-y-16 animate-in fade-in duration-700">
+
+              {/* Hero */}
+              <div className="text-center space-y-6">
+                <div className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-600 px-5 py-2 rounded-full font-bold text-sm border border-indigo-100">
+                  <Sparkles size={16} /> AI-powered storybook maker
+                </div>
+                <h2 className="text-6xl font-black text-slate-900 tracking-tight leading-tight">
+                  Create your child's<br />
+                  <span className="text-indigo-600">illustrated storybook</span>
+                </h2>
+                <p className="text-slate-500 text-xl max-w-xl mx-auto font-medium leading-relaxed">
+                  Write a story, pick an art style, and get a print-ready illustrated book in minutes.
+                  No design skills needed.
+                </p>
+
+                {/* Credits status */}
+                {userProfile && (
+                  <div className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-sm border ${
+                    userProfile.credits > 0
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                      : 'bg-red-50 text-red-600 border-red-100'
+                  }`}>
+                    {userProfile.credits > 0
+                      ? `✨ ${userProfile.credits} free book${userProfile.credits !== 1 ? 's' : ''} remaining`
+                      : '⚠️ No credits left — subscribe to continue'}
+                  </div>
+                )}
+
+                {/* Main CTA */}
+                {userProfile && userProfile.credits > 0 ? (
+                  <button
+                    onClick={() => setShowSimpleWizard(true)}
+                    className="inline-flex items-center gap-3 px-12 py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-2xl shadow-2xl hover:bg-indigo-700 hover:scale-[1.02] transition-all"
+                  >
+                    <Sparkles size={28} /> Create a Book
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowSubscriptionPage(true)}
+                    className="inline-flex items-center gap-3 px-12 py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-2xl shadow-2xl hover:bg-indigo-700 hover:scale-[1.02] transition-all"
+                  >
+                    <CreditCard size={28} /> Subscribe to Create
+                  </button>
+                )}
+              </div>
+
+              {/* My Books */}
+              {savedProjects.length === 0 && (
+                <div className="text-center py-8 text-slate-300 space-y-4">
+                  <BookOpen size={64} className="mx-auto" />
+                  <p className="font-bold text-xl">Your books will appear here</p>
+                  <p className="text-slate-400 font-medium">Create your first book above to get started!</p>
+                </div>
+              )}
+
+              {savedProjects.length > 0 && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-2xl font-black text-slate-900">My Books</h3>
+                    <button onClick={handleOpenProjects} className="text-indigo-600 font-bold text-sm hover:text-indigo-800 transition-colors">
+                      See all →
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                    {savedProjects.slice(0, 4).map(proj => (
+                      <button
+                        key={proj.id}
+                        onClick={() => handleLoadProject(proj)}
+                        className="group bg-white border-2 border-slate-100 rounded-[2rem] overflow-hidden hover:border-indigo-300 hover:shadow-xl transition-all text-left"
+                      >
+                        <div className="aspect-square bg-slate-100 overflow-hidden">
+                          {proj.thumbnail ? (
+                            <img src={proj.thumbnail} alt={proj.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-300">
+                              <BookOpen size={40} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-4">
+                          <p className="font-black text-slate-900 text-sm truncate">{proj.name}</p>
+                          <p className="text-slate-400 text-xs font-medium mt-1">
+                            {new Date(proj.lastModified).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* How it works */}
+              <div className="bg-white border-2 border-slate-100 rounded-[3rem] p-12 space-y-8 shadow-sm">
+                <h3 className="text-2xl font-black text-slate-900 text-center">How it works</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  {[
+                    { step: '1', icon: '✍️', title: 'Write your story', desc: 'A few sentences is all you need' },
+                    { step: '2', icon: '🎨', title: 'Pick a style', desc: 'Choose from 4 beautiful art styles' },
+                    { step: '3', icon: '✨', title: 'AI illustrates', desc: 'Every page drawn automatically' },
+                    { step: '4', icon: '📖', title: 'Download & print', desc: 'Print-ready PDF in seconds' },
+                  ].map(item => (
+                    <div key={item.step} className="text-center space-y-3">
+                      <div className="text-4xl">{item.icon}</div>
+                      <p className="font-black text-slate-900">{item.title}</p>
+                      <p className="text-slate-500 text-sm font-medium">{item.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Professional mode link */}
+              <div className="text-center">
+                <button
+                  onClick={handleToggleUserMode}
+                  className="text-slate-400 font-bold text-sm hover:text-slate-600 underline transition-colors"
+                >
+                  Switch to Professional Mode
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        // ── Professional Mode Landing (existing 10-mode grid) ─────────────────
         return (
           <div className="max-w-6xl mx-auto py-24 px-8 space-y-24 animate-in fade-in duration-700">
-            <div className="text-center space-y-6">
+            <div className="text-center space-y-4">
+              <div className="inline-flex items-center gap-2 bg-amber-50 text-amber-600 px-5 py-2 rounded-full font-bold text-sm border border-amber-100">
+                <Settings2 size={16} /> Professional Mode
+              </div>
               <h2 className="text-8xl font-black text-slate-900 tracking-tighter">Series <span className="text-indigo-600">Master</span></h2>
               <p className="text-slate-500 text-2xl max-w-2xl mx-auto font-medium">Professional Children's Book Production & Consistency Lab.</p>
+              <button onClick={handleToggleUserMode} className="text-slate-400 font-bold text-sm hover:text-slate-600 underline transition-colors">
+                ← Back to Simple Mode
+              </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
               {recentProject && (
@@ -2118,45 +2292,64 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
-      <header className="h-36 bg-white/80 backdrop-blur-3xl border-b border-slate-100 sticky top-0 z-[60] px-20 flex items-center justify-between shadow-sm">
-        <div onClick={() => setCurrentStep('landing')} className="flex items-center gap-8 cursor-pointer group">
-          <div className="w-20 h-20 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center text-white shadow-2xl group-hover:rotate-6 transition-all"><Sparkles size={40} /></div>
-          <h1 className="text-5xl font-black tracking-tighter text-slate-900">StoryFlow <span className="text-indigo-600">Pro</span></h1>
-        </div>
-        <div className="flex items-center gap-10">
-           <div className="bg-slate-50 border border-slate-100 rounded-[2rem] px-12 py-5 flex items-center gap-12 shadow-inner">
-              <input className="bg-transparent border-none outline-none font-black text-slate-800 text-2xl w-96" value={projectName} onChange={e => setProjectName(e.target.value)} />
-              <div className="flex gap-4">
-                 <button onClick={handleSaveProject} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Save Project"><Save size={28} /></button>
-                 <button onClick={handleOpenProjects} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Load Project"><FolderOpen size={28} /></button>
-                 <button onClick={handleExportProjectFile} className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Export Project"><FileDown size={28} /></button>
-                 <label className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform cursor-pointer" title="Import Project">
-                   <FileUp size={28} />
-                   <input type="file" accept=".storyflow,.json" className="hidden" onChange={handleImportProjectFile} />
-                 </label>
-              </div>
-           </div>
-           <button onClick={async () => { await (window as any).aistudio?.openSelectKey(); }} className="px-10 py-5 bg-emerald-50 text-emerald-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm" title="Manage API Key"><Key size={24} /> API KEY</button>
-           {userProfile && (
-             <div className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-6 py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest border border-emerald-100 shadow-sm">
-               <CreditCard size={24} />
-               {userProfile.credits} Credits
-               <button 
-                 onClick={handleBuyCredits}
-                 className="ml-4 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs hover:bg-emerald-700 transition-colors shadow-md"
-               >
-                 BUY
-               </button>
+      {userMode === 'professional' ? (
+        <header className="h-36 bg-white/80 backdrop-blur-3xl border-b border-slate-100 sticky top-0 z-[60] px-20 flex items-center justify-between shadow-sm">
+          <div onClick={() => setCurrentStep('landing')} className="flex items-center gap-8 cursor-pointer group">
+            <div className="w-20 h-20 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center text-white shadow-2xl group-hover:rotate-6 transition-all"><Sparkles size={40} /></div>
+            <h1 className="text-5xl font-black tracking-tighter text-slate-900">StoryFlow <span className="text-indigo-600">Pro</span></h1>
+          </div>
+          <div className="flex items-center gap-10">
+             <div className="bg-slate-50 border border-slate-100 rounded-[2rem] px-12 py-5 flex items-center gap-12 shadow-inner">
+                <input className="bg-transparent border-none outline-none font-black text-slate-800 text-2xl w-96" value={projectName} onChange={e => setProjectName(e.target.value)} />
+                <div className="flex gap-4">
+                   <button onClick={handleSaveProject} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Save Project"><Save size={28} /></button>
+                   <button onClick={handleOpenProjects} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Load Project"><FolderOpen size={28} /></button>
+                   <button onClick={handleExportProjectFile} className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Export Project"><FileDown size={28} /></button>
+                   <label className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform cursor-pointer" title="Import Project">
+                     <FileUp size={28} />
+                     <input type="file" accept=".storyflow,.json" className="hidden" onChange={handleImportProjectFile} />
+                   </label>
+                </div>
              </div>
-           )}
-           {isAdmin && (
-             <button onClick={() => setShowAdminModal(true)} className="px-10 py-5 bg-amber-50 text-amber-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-amber-100 hover:bg-amber-600 hover:text-white transition-all shadow-sm" title="Manage Users"><ShieldCheck size={24} /> ADMIN</button>
-           )}
-           <button onClick={() => setCurrentStep('characters')} className="px-10 py-5 bg-indigo-50 text-indigo-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"><UserCheck size={24} /> SERIES CAST</button>
-           <button onClick={() => setShowBibleEditor(!showBibleEditor)} className="p-5 bg-slate-900 text-white rounded-[2rem] shadow-2xl hover:scale-110 transition-all"><Book size={32} /></button>
-           <button onClick={logout} className="p-5 bg-rose-50 text-rose-600 rounded-[2rem] shadow-sm hover:bg-rose-600 hover:text-white transition-all" title="Sign Out"><LogOut size={32} /></button>
-        </div>
-      </header>
+             <button onClick={async () => { await (window as any).aistudio?.openSelectKey(); }} className="px-10 py-5 bg-emerald-50 text-emerald-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm" title="Manage API Key"><Key size={24} /> API KEY</button>
+             {userProfile && (
+               <div className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-6 py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest border border-emerald-100 shadow-sm">
+                 <CreditCard size={24} />
+                 {userProfile.credits} Credits
+                 <button 
+                   onClick={handleBuyCredits}
+                   className="ml-4 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs hover:bg-emerald-700 transition-colors shadow-md"
+                 >
+                   BUY
+                 </button>
+               </div>
+             )}
+             {isAdmin && (
+               <button onClick={() => setShowAdminModal(true)} className="px-10 py-5 bg-amber-50 text-amber-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-amber-100 hover:bg-amber-600 hover:text-white transition-all shadow-sm" title="Manage Users"><ShieldCheck size={24} /> ADMIN</button>
+             )}
+             <button onClick={() => setCurrentStep('characters')} className="px-10 py-5 bg-indigo-50 text-indigo-600 rounded-[2rem] font-black text-sm uppercase tracking-widest flex items-center gap-4 border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"><UserCheck size={24} /> SERIES CAST</button>
+             <button onClick={() => setShowBibleEditor(!showBibleEditor)} className="p-5 bg-slate-900 text-white rounded-[2rem] shadow-2xl hover:scale-110 transition-all"><Book size={32} /></button>
+             <button onClick={() => setShowUserDashboard(true)} className="p-5 bg-indigo-50 text-indigo-600 rounded-[2rem] shadow-sm hover:bg-indigo-600 hover:text-white transition-all" title="User Profile"><User size={32} /></button>
+             <button onClick={logout} className="p-5 bg-rose-50 text-rose-600 rounded-[2rem] shadow-sm hover:bg-rose-600 hover:text-white transition-all" title="Sign Out"><LogOut size={32} /></button>
+          </div>
+        </header>
+      ) : (
+        <header className="h-24 bg-white/80 backdrop-blur-3xl border-b border-slate-100 sticky top-0 z-[60] px-8 flex items-center justify-between shadow-sm">
+          <div onClick={() => setCurrentStep('landing')} className="flex items-center gap-4 cursor-pointer group">
+            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg group-hover:rotate-6 transition-all"><Sparkles size={24} /></div>
+            <h1 className="text-2xl font-black tracking-tighter text-slate-900">StoryFlow <span className="text-indigo-600">AI</span></h1>
+          </div>
+          <div className="flex items-center gap-6">
+             {userProfile && (
+               <div className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl font-bold text-sm border border-emerald-100">
+                 <CreditCard size={18} />
+                 {userProfile.credits} Credits
+               </div>
+             )}
+             <button onClick={() => setShowUserDashboard(true)} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all" title="User Profile"><User size={20} /></button>
+          </div>
+        </header>
+      )}
       
       {currentStep !== 'landing' && getAvailableSteps(settings.mode).length > 0 && (
         <div className="bg-white border-b border-slate-100 py-4 px-20 flex items-center gap-4 overflow-x-auto sticky top-36 z-[50] shadow-sm">
@@ -2236,6 +2429,59 @@ const App: React.FC = () => {
         <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[200] bg-slate-900 text-white px-8 py-4 rounded-full font-bold shadow-2xl animate-in slide-in-from-bottom-10 fade-in duration-300">
           {toastMessage}
         </div>
+      )}
+
+      {showSimpleWizard && userProfile && (
+        <SimpleWizard
+          userCredits={userProfile.credits}
+          userId={userProfile.uid}
+          onClose={() => setShowSimpleWizard(false)}
+          onDeductCredit={handleDeductCredit}
+          onShowSubscription={() => {
+            setShowSimpleWizard(false);
+            setShowSubscriptionPage(true);
+          }}
+          onProjectCreated={(proj) => {
+            setSavedProjects([proj, ...savedProjects]);
+          }}
+        />
+      )}
+
+      {showSubscriptionPage && userProfile && (
+        <SubscriptionPage
+          currentTierId={userProfile.tierId || 'free'}
+          credits={userProfile.credits}
+          userId={userProfile.uid}
+          stripeCustomerId={(userProfile as any).stripeCustomerId}
+          onBack={() => setShowSubscriptionPage(false)}
+        />
+      )}
+
+      {showUserDashboard && userProfile && (
+        <UserDashboard
+          userProfile={userProfile}
+          userMode={userMode}
+          isAdmin={isAdmin}
+          onClose={() => setShowUserDashboard(false)}
+          onToggleMode={handleToggleUserMode}
+          onShowSubscription={() => {
+            setShowUserDashboard(false);
+            setShowSubscriptionPage(true);
+          }}
+          onShowAdmin={() => {
+            setShowUserDashboard(false);
+            setShowAdminModal(true);
+          }}
+          onSignOut={handleSignOut}
+        />
+      )}
+
+      {showCanvaModal && (
+        <CanvaExportModal
+          pages={canvaModalPages}
+          projectName={projectName}
+          onClose={() => setShowCanvaModal(false)}
+        />
       )}
 
       {showAdminModal && (

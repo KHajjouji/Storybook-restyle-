@@ -122,6 +122,92 @@ export interface Project {
   targetResolution?: '1K' | '2K' | '4K';
 }
 
+// ─── Consumer / SaaS platform types ───────────────────────────────────────────
+
+export type UserMode = 'simple' | 'professional';
+
+export type WizardBookFormat = 'square' | 'portrait' | 'landscape';
+
+export interface WizardCharacter {
+  name: string;
+  description: string;
+  photo?: string; // base64
+}
+
+export interface WizardState {
+  step: 1 | 2 | 3 | 4 | 5;
+  storyText: string;
+  selectedStyleIndex: number | null;
+  customStyleImage?: string; // base64
+  customStylePrompt?: string;
+  characters: WizardCharacter[];
+  bookFormat: WizardBookFormat;
+  generatedProject?: Project;
+}
+
+export interface SubscriptionTier {
+  id: string;
+  name: string; // "Starter" | "Creator" | "Pro"
+  price: number; // monthly USD cents (e.g. 999 = $9.99)
+  monthlyCredits: number;
+  stripePriceId: string;
+  features: string[]; // plain-language feature list
+  highlighted?: boolean; // show as "most popular"
+}
+
+export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
+  {
+    id: 'starter',
+    name: 'Starter',
+    price: 999,
+    monthlyCredits: 10,
+    stripePriceId: 'price_starter_placeholder',
+    features: [
+      '10 illustrated books per month',
+      '4 art styles to choose from',
+      'Print-ready PDF download',
+      'Export to Canva',
+    ],
+  },
+  {
+    id: 'creator',
+    name: 'Creator',
+    price: 2499,
+    monthlyCredits: 30,
+    stripePriceId: 'price_creator_placeholder',
+    highlighted: true,
+    features: [
+      '30 illustrated books per month',
+      'All art styles + custom style upload',
+      'Print-ready PDF download',
+      'Export to Canva',
+      'Professional mode access',
+    ],
+  },
+  {
+    id: 'pro',
+    name: 'Pro',
+    price: 5999,
+    monthlyCredits: 100,
+    stripePriceId: 'price_pro_placeholder',
+    features: [
+      '100 illustrated books per month',
+      'All styles + custom uploads',
+      'High-res 4K exports',
+      'Full professional workflow',
+      'Priority generation',
+    ],
+  },
+];
+
+export const TOPUP_PACKS = [
+  { credits: 5, price: 299, label: '5 books — $2.99', stripePriceId: 'price_topup_5_placeholder' },
+  { credits: 20, price: 999, label: '20 books — $9.99', stripePriceId: 'price_topup_20_placeholder' },
+  { credits: 50, price: 1999, label: '50 books — $19.99', stripePriceId: 'price_topup_50_placeholder' },
+];
+
+// ─── Print Formats ────────────────────────────────────────────────────────────
+
 export const PRINT_FORMATS: Record<ExportFormat, { name: string, width: number, height: number, bleed: number, baseGutter: number, outside: number, top: number, bottom: number }> = {
   KDP_5x8: { name: 'KDP 5" x 8"', width: 5, height: 8, bleed: 0.125, baseGutter: 0.375, outside: 0.375, top: 0.375, bottom: 0.375 },
   KDP_5_06x7_81: { name: 'KDP 5.06" x 7.81"', width: 5.06, height: 7.81, bleed: 0.125, baseGutter: 0.375, outside: 0.375, top: 0.375, bottom: 0.375 },
