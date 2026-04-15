@@ -5,7 +5,7 @@ import {
   FileText, Palette,
 } from 'lucide-react';
 import { StylePicker } from './StylePicker';
-import { CanvaExportModal } from './CanvaExportModal';
+import { ExportModal } from './ExportModal';
 import {
   WizardState, WizardBookFormat, WizardCharacter,
   AppSettings, BookPage, Project, ExportFormat,
@@ -83,7 +83,7 @@ export const SimpleWizard: React.FC<SimpleWizardProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStep, setGenerationStep] = useState(0);
   const [generatedProject, setGeneratedProject] = useState<Project | null>(null);
-  const [showCanvaModal, setShowCanvaModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const charPhotoInputRef = useRef<HTMLInputElement>(null);
@@ -374,10 +374,10 @@ export const SimpleWizard: React.FC<SimpleWizardProps> = ({
             </button>
 
             <button
-              onClick={() => setShowCanvaModal(true)}
+              onClick={() => setShowExportModal(true)}
               className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-2xl flex items-center justify-center gap-4 shadow-xl hover:scale-[1.02] transition-all"
             >
-              <ExternalLink size={32} /> Edit in Canva or Design Tool
+              <ExternalLink size={32} /> Edit in Canva, Slides &amp; More
             </button>
 
             <button
@@ -395,8 +395,13 @@ export const SimpleWizard: React.FC<SimpleWizardProps> = ({
           )}
         </div>
 
-        {showCanvaModal && (
-          <CanvaExportModal pages={generatedProject.pages} projectName={generatedProject.name} onClose={() => setShowCanvaModal(false)} />
+        {showExportModal && (
+          <ExportModal
+            pages={generatedProject.pages}
+            projectName={generatedProject.name}
+            onDownloadPdf={handleDownloadPdf}
+            onClose={() => setShowExportModal(false)}
+          />
         )}
       </div>
     );
