@@ -5,6 +5,16 @@ import Stripe from "stripe";
 import cors from "cors";
 import dotenv from "dotenv";
 
+import { createJob, getJob, geminiQueue } from "./lib/generationQueue.js";
+import { getUserCredits, deductCredit } from "./lib/firebaseServer.js";
+import {
+  parsePromptPack,
+  identifyAndDesignCharacters,
+  restyleIllustration,
+  generateBookCover,
+} from "./geminiService.js";
+import { GLOBAL_STYLE_LOCK } from "./seriesData.js";
+
 dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
@@ -47,9 +57,6 @@ async function startServer() {
       console.log(`[WEBHOOK] checkout.session.completed — user=${userId} credits=${creditsToAdd} tier=${tierId}`);
 
       // TODO: Use Firebase Admin SDK to update Firestore when available
-      // Example:
-      // const userRef = adminDb.collection('users').doc(userId);
-      // await userRef.update({ credits: FieldValue.increment(creditsToAdd), tierId });
     }
 
     // ── Recurring subscription payment succeeded (monthly renewal) ───────────
@@ -60,22 +67,17 @@ async function startServer() {
 
       console.log(`[WEBHOOK] invoice.payment_succeeded — customer=${customerId} subscription=${subscriptionId}`);
 
-      // TODO: Reset monthly credits for the customer via Firebase Admin SDK
-      // 1. Look up user by stripeCustomerId in Firestore
-      // 2. Get their tier's monthlyCredits
-      // 3. Set credits = monthlyCredits (reset, not increment)
+      // TODO: Reset monthly credits via Firebase Admin SDK
     }
 
     // ── Subscription updated (upgrade / downgrade) ───────────────────────────
     if (event.type === 'customer.subscription.updated') {
       const subscription = event.data.object as Stripe.Subscription;
       const customerId = subscription.customer as string;
-      const status = subscription.status; // 'active' | 'canceled' | 'past_due' etc.
+      const status = subscription.status;
       const tierId = subscription.metadata?.tierId;
 
       console.log(`[WEBHOOK] customer.subscription.updated — customer=${customerId} status=${status} tier=${tierId}`);
-
-      // TODO: Update user tierId and subscription status in Firestore via Admin SDK
     }
 
     // ── Subscription cancelled ───────────────────────────────────────────────
@@ -84,17 +86,13 @@ async function startServer() {
       const customerId = subscription.customer as string;
 
       console.log(`[WEBHOOK] customer.subscription.deleted — customer=${customerId}`);
-
-      // TODO: Downgrade user to free tier via Firebase Admin SDK
-      // await adminDb.collection('users').where('stripeCustomerId', '==', customerId).get()
-      //   .then(snap => snap.docs[0].ref.update({ tierId: 'free', subscriptionStatus: 'cancelled' }));
     }
 
     res.send();
   });
 
-  // ─── Standard JSON parsing for all other routes ───────────────────────────
-  app.use(express.json());
+  // ─── Standard JSON parsing (50 MB to handle base64 image payloads) ────────
+  app.use(express.json({ limit: '50mb' }));
 
   // ── Create Stripe Checkout Session (new subscription or top-up) ──────────
   app.post('/api/create-checkout-session', async (req, res) => {
@@ -149,6 +147,258 @@ async function startServer() {
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ─── Generation Endpoints ─────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/jobs/book
+   *
+   * Creates a server-side generation job and immediately returns the job ID.
+   * The client then polls /api/jobs/:jobId/stream (SSE) for progress.
+   *
+   * Body:
+   *   userId          string
+   *   storyText       string
+   *   stylePrompt     string
+   *   styleRefBase64  string | undefined   (custom style reference image, base64)
+   *   characters      Array<{ name: string; description: string; photoBase64?: string }>
+   *   exportFormat    ExportFormat          (e.g. 'KDP_8_25x8_25')
+   *   aspectRatio     '1:1' | '4:3' | '9:16'
+   */
+  app.post('/api/jobs/book', async (req, res) => {
+    const {
+      userId,
+      storyText,
+      stylePrompt,
+      styleRefBase64,
+      characters = [],
+      exportFormat,
+      aspectRatio = '1:1',
+    } = req.body;
+
+    if (!userId || !storyText) {
+      res.status(400).json({ error: 'userId and storyText are required' });
+      return;
+    }
+
+    if (!process.env.GEMINI_API_KEY && !process.env.API_KEY) {
+      res.status(500).json({ error: 'AI service is not configured on the server.' });
+      return;
+    }
+
+    // ── Credit check ────────────────────────────────────────────────────────
+    const credits = await getUserCredits(userId);
+    if (credits < 1) {
+      res.status(402).json({ error: 'Insufficient credits. Please subscribe or buy more credits.' });
+      return;
+    }
+
+    // ── Create job and respond immediately ─────────────────────────────────
+    const job = createJob(userId);
+    res.json({ jobId: job.id });
+
+    // ── Enqueue the generation pipeline (runs async, not awaited) ──────────
+    geminiQueue.run(async () => {
+      const emit = (event: string, data: object) => {
+        job.emitter.emit('sse', { event, data });
+      };
+
+      try {
+        job.status = 'running';
+
+        // Deduct credit before starting so it can't be replayed on network retry
+        await deductCredit(userId);
+
+        // ── Step 1: Parse story into scenes ──────────────────────────────
+        job.message = 'Planning your story…';
+        emit('status', { status: 'running', message: job.message });
+
+        const validChars = (characters as any[]).filter((c: any) => c.name?.trim());
+        const charList = validChars
+          .map((c: any) => `${c.name}: ${c.description || 'a friendly character'}`)
+          .join('\n');
+        const enrichedScript = validChars.length
+          ? `CHARACTERS:\n${charList}\n\nSTORY:\n${storyText}`
+          : storyText;
+
+        const parsed = await parsePromptPack(enrichedScript);
+
+        if (!parsed.scenes || parsed.scenes.length === 0) {
+          throw new Error('Could not extract scenes from your story. Please try with more detail.');
+        }
+
+        // ── Step 2: Design character reference sheets ─────────────────────
+        job.message = 'Designing your characters…';
+        emit('status', { status: 'running', message: job.message });
+
+        const charDescription = parsed.characterIdentities
+          .map((ci: any) => `${ci.name}: ${ci.description}`)
+          .join('\n');
+
+        let charRefs: any[] = [];
+        if (charDescription.trim()) {
+          // Photos uploaded by user take priority over AI-generated sheets
+          const photoRefs = validChars
+            .filter((c: any) => c.photoBase64)
+            .map((c: any) => ({
+              id: Math.random().toString(36).substring(7),
+              name: c.name,
+              description: c.description || '',
+              images: [c.photoBase64 as string],
+            }));
+
+          if (photoRefs.length > 0) {
+            charRefs = photoRefs;
+          } else {
+            charRefs = await identifyAndDesignCharacters(
+              charDescription,
+              `${GLOBAL_STYLE_LOCK}\n${stylePrompt}`,
+            );
+          }
+        }
+
+        // ── Step 3: Illustrate each scene ─────────────────────────────────
+        const totalPages = parsed.scenes.length;
+
+        for (let i = 0; i < totalPages; i++) {
+          const scene = parsed.scenes[i];
+          const scenePrompt = scene.prompt || scene.text || '';
+          const sceneText = scene.text || '';
+
+          job.message = `Drawing page ${i + 1} of ${totalPages}…`;
+          emit('status', { status: 'running', message: job.message });
+
+          try {
+            const image = await restyleIllustration(
+              /* originalImageBase64 */ undefined,
+              /* stylePrompt         */ `${GLOBAL_STYLE_LOCK}\n${stylePrompt}\n\nSCENE: ${scenePrompt}`,
+              /* styleRefBase64      */ styleRefBase64,
+              /* targetText          */ sceneText || undefined,
+              /* charRefs            */ charRefs,
+              /* assignments         */ [],
+              /* usePro              */ false,
+              /* cleanBackground     */ false,
+              /* isSpread            */ scene.isSpread ?? false,
+              /* masterBible         */ `${GLOBAL_STYLE_LOCK}\n${parsed.masterBible || ''}`,
+              /* imageSize           */ '2K',
+              /* projectContext      */ `A children's book. ${storyText.substring(0, 200)}`,
+              /* aspectRatio         */ aspectRatio as any,
+              /* exportFormat        */ exportFormat,
+              /* estimatedPageCount  */ totalPages,
+            );
+
+            const page = { index: i, image, text: sceneText, status: 'completed' as const };
+            job.pages.push(page);
+            emit('page_ready', page);
+          } catch (pageErr: any) {
+            console.error(`[job ${job.id}] page ${i + 1} failed:`, pageErr);
+            const page = { index: i, image: '', text: sceneText, status: 'error' as const };
+            job.pages.push(page);
+            emit('page_error', { index: i, message: pageErr.message });
+          }
+        }
+
+        // ── Step 4: Generate cover ─────────────────────────────────────────
+        job.message = 'Designing your cover…';
+        emit('status', { status: 'running', message: job.message });
+
+        try {
+          const coverImage = await generateBookCover(
+            /* projectContext    */ `A children's book cover. Story: ${storyText.substring(0, 300)}`,
+            /* charRefs          */ charRefs,
+            /* stylePrompt       */ `${GLOBAL_STYLE_LOCK}\n${stylePrompt}`,
+            /* masterBible       */ `${GLOBAL_STYLE_LOCK}\n${parsed.masterBible || ''}`,
+            /* targetResolution  */ '2K',
+            /* targetAspectRatio */ aspectRatio as any,
+            /* exportFormat      */ exportFormat,
+            /* estimatedPageCount*/ totalPages,
+            /* styleRefBase64    */ styleRefBase64,
+          );
+          job.coverImage = coverImage;
+          emit('cover_ready', { image: coverImage });
+        } catch (coverErr: any) {
+          console.warn(`[job ${job.id}] cover generation failed:`, coverErr);
+          emit('cover_error', { message: coverErr.message });
+        }
+
+        // ── Done ──────────────────────────────────────────────────────────
+        job.status = 'done';
+        job.message = 'Your book is ready!';
+        emit('done', { totalPages });
+      } catch (err: any) {
+        console.error(`[job ${job.id}] fatal error:`, err);
+        job.status = 'failed';
+        job.error = err.message || 'Generation failed';
+        job.emitter.emit('sse', {
+          event: 'error',
+          data: { message: job.error },
+        });
+      }
+    }).catch(err => {
+      console.error(`[job ${job.id}] queue error:`, err);
+    });
+  });
+
+  /**
+   * GET /api/jobs/:jobId/stream
+   *
+   * Server-Sent Events stream for a generation job.
+   * Events:
+   *   status      { status, message }
+   *   page_ready  { index, image, text, status }
+   *   page_error  { index, message }
+   *   cover_ready { image }
+   *   cover_error { message }
+   *   done        { totalPages }
+   *   error       { message }
+   */
+  app.get('/api/jobs/:jobId/stream', (req, res) => {
+    const job = getJob(req.params.jobId);
+
+    if (!job) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+
+    // ── SSE headers ─────────────────────────────────────────────────────────
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const send = (event: string, data: object) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // ── If the job is already finished, replay its state immediately ────────
+    if (job.status === 'done' || job.status === 'failed') {
+      send('status', { status: job.status, message: job.message });
+      for (const page of job.pages) {
+        if (page.status === 'completed') send('page_ready', page);
+        else send('page_error', { index: page.index, message: 'Page failed' });
+      }
+      if (job.coverImage) send('cover_ready', { image: job.coverImage });
+      if (job.status === 'done') send('done', { totalPages: job.pages.length });
+      else send('error', { message: job.error ?? 'Unknown error' });
+      res.end();
+      return;
+    }
+
+    // ── Forward live events from the job's emitter ──────────────────────────
+    const onSse = ({ event, data }: { event: string; data: object }) => {
+      send(event, data);
+      if (event === 'done' || event === 'error') res.end();
+    };
+
+    job.emitter.on('sse', onSse);
+
+    // Clean up when client disconnects
+    req.on('close', () => {
+      job.emitter.off('sse', onSse);
+    });
   });
 
   // ─── Vite Dev / Static Production Serving ────────────────────────────────
