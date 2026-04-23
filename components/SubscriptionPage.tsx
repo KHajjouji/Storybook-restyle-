@@ -121,10 +121,10 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
             return (
               <div
                 key={tier.id}
-                className={`relative bg-white rounded-[2.5rem] p-8 space-y-6 border-4 transition-all shadow-sm ${
+                className={`relative bg-white rounded-[2.5rem] p-8 space-y-6 transition-all shadow-sm ${
                   tier.highlighted
-                    ? 'border-indigo-600 shadow-indigo-100 shadow-2xl scale-[1.02]'
-                    : 'border-slate-100'
+                    ? 'border-4 border-indigo-600 shadow-indigo-100 shadow-2xl scale-[1.02]'
+                    : 'border-2 border-slate-100'
                 }`}
               >
                 {tier.highlighted && (
@@ -153,8 +153,8 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
 
                 <ul className="space-y-3">
                   {tier.features.map(feature => (
-                    <li key={feature} className="flex items-start gap-3 text-slate-700 font-medium text-sm">
-                      <Check size={16} className="text-emerald-500 mt-0.5 flex-shrink-0" />
+                    <li key={feature} className="flex items-start gap-3 text-slate-700 font-medium text-base leading-relaxed">
+                      <Check size={16} className="text-emerald-500 mt-1 flex-shrink-0" />
                       {feature}
                     </li>
                   ))}
@@ -198,9 +198,9 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
                   key={pack.credits}
                   onClick={() => handleTopUp(pack)}
                   disabled={!!isLoading}
-                  className="p-6 bg-slate-50 rounded-[2rem] border-2 border-slate-100 hover:border-indigo-300 hover:bg-indigo-50 text-left transition-all group"
+                  className="p-6 bg-white rounded-[2rem] border-2 border-slate-200 hover:border-indigo-400 hover:shadow-md text-left transition-all group"
                 >
-                  <p className="font-black text-2xl text-slate-900 group-hover:text-indigo-600">
+                  <p className="font-black text-2xl text-slate-900 group-hover:text-indigo-600 transition-colors">
                     {pack.credits} books
                   </p>
                   <p className="text-slate-500 font-bold text-sm mt-1">
@@ -219,7 +219,7 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
             <button
               onClick={handleManageSubscription}
               disabled={loadingId === 'portal'}
-              className="inline-flex items-center gap-2 px-8 py-4 bg-slate-100 text-slate-600 rounded-[2rem] font-bold hover:bg-slate-200 transition-colors"
+              className="inline-flex items-center gap-2 px-8 py-4 bg-slate-200 text-slate-600 rounded-[2rem] font-bold hover:bg-slate-300 transition-colors"
             >
               {loadingId === 'portal' ? <Loader2 size={18} className="animate-spin" /> : <CreditCard size={18} />}
               Manage Subscription
@@ -229,6 +229,11 @@ export const SubscriptionPage: React.FC<SubscriptionPageProps> = ({
             </p>
           </div>
         )}
+
+        {/* Trust footer */}
+        <p className="text-center text-slate-400 text-sm font-medium pb-4">
+          🔒 Secure payment via Stripe · Cancel anytime, no questions asked · Credits never expire
+        </p>
       </div>
     </div>
   );

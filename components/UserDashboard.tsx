@@ -62,7 +62,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
           {/* Plan badge */}
           <div className="flex items-center gap-2">
-            <span className="bg-white/20 text-white text-xs font-black px-3 py-1 rounded-full uppercase tracking-widest">
+            <span className="bg-white/30 border border-white/40 text-white text-xs font-black px-3 py-1 rounded-full uppercase tracking-widest">
               {currentTier?.name ?? 'Free Trial'}
             </span>
           </div>
@@ -71,7 +71,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         {/* Credits */}
         <div className="px-8 py-6 border-b border-slate-100 space-y-3">
           <div className="flex justify-between items-baseline">
-            <span className="text-sm font-black uppercase tracking-widest text-slate-500">Book Credits</span>
+            <div>
+              <span className="text-sm font-black uppercase tracking-widest text-slate-500">Book Credits</span>
+              <p className="text-slate-400 text-xs font-medium mt-0.5">1 credit = 1 illustrated book</p>
+            </div>
             <span className="text-2xl font-black text-slate-900">{userProfile.credits}</span>
           </div>
           {/* Progress bar */}
@@ -146,7 +149,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               className="w-full flex items-center justify-between py-4 px-4 rounded-2xl hover:bg-amber-50 transition-colors group"
             >
               <div className="flex items-center gap-3">
-                <ShieldCheck size={18} className="text-amber-500" />
+                <ShieldCheck size={18} className="text-amber-600" />
                 <span className="font-bold text-amber-600">Admin Panel</span>
               </div>
               <ArrowRight size={16} className="text-amber-300" />
@@ -158,7 +161,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         <div className="px-8 py-6 border-t border-slate-100">
           <button
             onClick={onSignOut}
-            className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-500 rounded-2xl font-bold hover:bg-red-100 transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-4 bg-red-50 text-red-500 rounded-2xl font-bold hover:bg-red-500 hover:text-white transition-colors"
           >
             <LogOut size={18} />
             Sign Out
