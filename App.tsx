@@ -1824,6 +1824,21 @@ const App: React.FC = () => {
                          </>
                        )}
                        <button onClick={() => renderScene(p.id)} className="p-7 bg-slate-100 text-slate-400 rounded-[2rem] hover:text-indigo-600 transition-all" title="Regenerate Page"><RefreshCw size={32} /></button>
+                       <label className="p-7 bg-amber-50 text-amber-600 rounded-[2rem] hover:bg-amber-600 hover:text-white transition-all cursor-pointer flex flex-col items-center justify-center" title="Restore Image from PDF">
+                         <Upload size={32} />
+                         <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                           const file = e.target.files?.[0];
+                           if (file) {
+                             const reader = new FileReader();
+                             reader.onload = (ev) => {
+                               const base64 = ev.target?.result as string;
+                               setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, processedImage: base64, originalImage: base64, status: 'completed' } : pg));
+                             };
+                             reader.readAsDataURL(file);
+                           }
+                           e.target.value = '';
+                         }} />
+                       </label>
                        {p.processedImage && <button onClick={() => { const a = document.createElement('a'); a.href = p.processedImage!; a.download = `page_${idx+1}.png`; a.click(); }} className="p-7 bg-emerald-50 text-emerald-600 rounded-[2rem]"><Download size={32} /></button>}
                        {p.layers && p.layers.length > 0 && (
                          <button onClick={() => handleDownloadLayers(p, idx)} className="p-7 bg-indigo-50 text-indigo-600 rounded-[2rem] flex flex-col items-center gap-1">
@@ -2026,34 +2041,59 @@ const App: React.FC = () => {
                         <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">Marketing Brief / Scene Description</h3>
                         <textarea className="w-full h-64 bg-slate-50 border-none rounded-3xl p-8 text-lg font-medium outline-none resize-none shadow-inner focus:ring-2 ring-indigo-600 transition-all" placeholder="Describe the cover scene, mood, and composition..." value={projectContext} onChange={e => setProjectContext(e.target.value)} />
                      </div>
-                     <button 
-                       disabled={isProcessing}
-                       onClick={async () => { 
-                         const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-                         if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
-                         
-                         setIsProcessing(true); 
-                         const selectedChars = settings.characterReferences.filter(c => selectedCoverCharIds.has(c.id));
-                         
-                         if (settings.layeredMode) {
-                           generateLayeredCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, projectName, targetAspectRatio, settings.exportFormat, settings.estimatedPageCount, settings.styleReference)
-                             .then(res => {
-                               setCoverImage(res.composite);
-                               setCoverLayers(res.layers);
-                             })
-                             .catch(err => console.error(err))
-                             .finally(() => setIsProcessing(false));
-                         } else {
-                           generateBookCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, targetAspectRatio, settings.exportFormat, settings.estimatedPageCount, settings.styleReference)
-                             .then(res => setCoverImage(res))
-                             .catch(err => console.error(err))
-                             .finally(() => setIsProcessing(false)); 
-                         }
-                       }} 
-                       className="w-full py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-2xl shadow-xl flex items-center justify-center gap-4 hover:scale-105 transition-all disabled:opacity-50"
-                     >
-                        {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <Sparkles size={32} />} RENDER PRODUCTION COVER
-                     </button>
+                     <div className="flex gap-4">
+                       <button 
+                         disabled={isProcessing}
+                         onClick={async () => { 
+                           const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+                           if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+                           
+                           setIsProcessing(true); 
+                           const selectedChars = settings.characterReferences.filter(c => selectedCoverCharIds.has(c.id));
+                           
+                           if (settings.layeredMode) {
+                             generateLayeredCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, projectName, targetAspectRatio, settings.exportFormat, settings.estimatedPageCount, settings.styleReference)
+                               .then(res => {
+                                 setCoverImage(res.composite);
+                                 setCoverLayers(res.layers);
+                               })
+                               .catch(err => {
+                                 console.error(err);
+                                 setToastMessage(err.message || 'Failed to generate cover');
+                                 setTimeout(() => setToastMessage(null), 3000);
+                               })
+                               .finally(() => setIsProcessing(false));
+                           } else {
+                             generateBookCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, targetAspectRatio, settings.exportFormat, settings.estimatedPageCount, settings.styleReference)
+                               .then(res => setCoverImage(res))
+                               .catch(err => {
+                                 console.error(err);
+                                 setToastMessage(err.message || 'Failed to generate cover');
+                                 setTimeout(() => setToastMessage(null), 3000);
+                               })
+                               .finally(() => setIsProcessing(false)); 
+                           }
+                         }} 
+                         className="flex-[3] py-8 bg-indigo-600 text-white rounded-[2.5rem] font-black text-xl lg:text-2xl shadow-xl flex items-center justify-center gap-4 hover:scale-105 transition-all disabled:opacity-50"
+                       >
+                          {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <Sparkles size={32} />} RENDER PRODUCTION COVER
+                       </button>
+                       <label className="flex-1 bg-slate-100 rounded-[2.5rem] flex flex-col items-center justify-center text-slate-400 hover:bg-indigo-600 hover:text-white transition-all cursor-pointer shadow-sm group font-black text-xs uppercase tracking-widest gap-2 py-4 px-2 text-center" title="Restore Cover Image from PDF">
+                         <Upload size={28} className="group-hover:scale-110 transition-transform" />
+                         <span>Restore<br/>Cover</span>
+                         <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                           const file = e.target.files?.[0];
+                           if (file) {
+                             const reader = new FileReader();
+                             reader.onload = (ev) => {
+                               setCoverImage(ev.target?.result as string);
+                             };
+                             reader.readAsDataURL(file);
+                           }
+                           e.target.value = '';
+                         }} />
+                       </label>
+                     </div>
                   </div>
                </div>
                <div className={`w-full lg:w-2/5 bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative flex flex-col items-center justify-center group ${targetAspectRatio === '16:9' ? 'aspect-video' : targetAspectRatio === '1:1' ? 'aspect-square' : targetAspectRatio === '9:16' ? 'aspect-[9/16]' : 'aspect-[4/3]'}`}>
@@ -2472,7 +2512,7 @@ const App: React.FC = () => {
             setShowUserDashboard(false);
             setShowAdminModal(true);
           }}
-          onSignOut={handleSignOut}
+          onSignOut={logout}
         />
       )}
 

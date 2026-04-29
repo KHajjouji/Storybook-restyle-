@@ -8,9 +8,9 @@ export const getBestAspectRatio = (
   isSpread: boolean = false, 
   estimatedPageCount: number = 24,
   fallbackRatio: string = "16:9"
-): "1:1" | "3:4" | "4:3" | "9:16" | "16:9" => {
-  const supported = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+): "1:1" | "3:4" | "4:3" | "9:16" | "16:9" | "1:4" | "1:8" | "4:1" | "8:1" => {
   if (!format || !PRINT_FORMATS[format]) {
+    const supported = ["1:1", "3:4", "4:3", "9:16", "16:9", "1:4", "1:8", "4:1", "8:1"];
     return supported.includes(fallbackRatio) ? (fallbackRatio as any) : "16:9";
   }
   
@@ -34,7 +34,11 @@ export const getBestAspectRatio = (
     { str: "3:4", val: 0.75 },
     { str: "4:3", val: 1.333 },
     { str: "9:16", val: 0.5625 },
-    { str: "16:9", val: 1.777 }
+    { str: "16:9", val: 1.777 },
+    { str: "1:4", val: 0.25 },
+    { str: "1:8", val: 0.125 },
+    { str: "4:1", val: 4 },
+    { str: "8:1", val: 8 }
   ];
   
   let best = ratios[0];
@@ -222,14 +226,13 @@ export const generateBookCover = async (
   }
 
   charRefs.forEach((ref) => {
-    if (ref.images.length > 0) {
-      const img = ref.images[0];
+    ref.images.forEach((img) => {
       if (img && img !== "LOADING") {
         const data = img.includes(',') ? img.split(',')[1] : img;
         parts.push({ text: `REFERENCE CHARACTER: ${ref.name}` });
         parts.push({ inlineData: { data, mimeType: 'image/png' } });
       }
-    }
+    });
   });
 
   const response: GenerateContentResponse = await ai.models.generateContent({
@@ -359,12 +362,11 @@ export const restyleIllustration = async (
   }
 
   charRefs.forEach((ref) => {
-    if (ref.images.length > 0) {
-      const img = ref.images[0];
+    ref.images.forEach((img) => {
       const data = img.includes(',') ? img.split(',')[1] : img;
       parts.push({ text: `CHARACTER IDENTITY: ${ref.name}` });
       parts.push({ inlineData: { data, mimeType: 'image/png' } });
-    }
+    });
   });
 
   const response: GenerateContentResponse = await ai.models.generateContent({
@@ -453,12 +455,11 @@ export const refineIllustration = async (
   parts.push({ inlineData: { data: targetData, mimeType: 'image/png' } });
 
   charRefs.forEach((ref) => {
-    if (ref.images.length > 0) {
-      const img = ref.images[0];
+    ref.images.forEach((img) => {
       const data = img.includes(',') ? img.split(',')[1] : img;
       parts.push({ text: `CHARACTER IDENTITY: ${ref.name}` });
       parts.push({ inlineData: { data, mimeType: 'image/png' } });
-    }
+    });
   });
 
   referenceImages.forEach((ref) => {
@@ -665,27 +666,21 @@ export const separateIllustrationIntoLayers = async (
     const ctx = canvas.getContext('2d')!;
     
     let loaded = 0;
-    const checkComplete = () => {
-      loaded++;
-      if (loaded === layers.length) {
-        const order = ['background', 'character', 'foreground', 'text'];
-        order.forEach(type => {
-          const layer = layers.find(l => l.type === type);
-          if (layer && layer.isVisible) {
-            const idx = layers.indexOf(layer);
-            ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
-          }
-        });
-        resolve(canvas.toDataURL('image/png'));
-      }
-    };
-
     const imgs = layers.map(l => {
       const img = new Image();
-      img.onload = checkComplete;
-      img.onerror = () => {
-        console.error("Failed to load a layer image for composite:", l.name);
-        checkComplete();
+      img.onload = () => {
+        loaded++;
+        if (loaded === layers.length) {
+          const order = ['background', 'character', 'foreground', 'text'];
+          order.forEach(type => {
+            const layer = layers.find(l => l.type === type);
+            if (layer && layer.isVisible) {
+              const idx = layers.indexOf(layer);
+              ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+            }
+          });
+          resolve(canvas.toDataURL('image/png'));
+        }
       };
       img.src = l.image;
       return img;
@@ -756,27 +751,21 @@ export const refineLayeredIllustration = async (
     const ctx = canvas.getContext('2d')!;
     
     let loaded = 0;
-    const checkComplete = () => {
-      loaded++;
-      if (loaded === layers.length) {
-        const order = ['background', 'foreground', 'character', 'text'];
-        order.forEach(type => {
-          const layer = layers.find(l => l.type === type);
-          if (layer && layer.isVisible) {
-            const idx = layers.indexOf(layer);
-            ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
-          }
-        });
-        resolve(canvas.toDataURL('image/png'));
-      }
-    };
-
     const imgs = layers.map(l => {
       const img = new Image();
-      img.onload = checkComplete;
-      img.onerror = () => {
-        console.error("Failed to load a layer image for composite:", l.name);
-        checkComplete();
+      img.onload = () => {
+        loaded++;
+        if (loaded === layers.length) {
+          const order = ['background', 'foreground', 'character', 'text'];
+          order.forEach(type => {
+            const layer = layers.find(l => l.type === type);
+            if (layer && layer.isVisible) {
+              const idx = layers.indexOf(layer);
+              ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+            }
+          });
+          resolve(canvas.toDataURL('image/png'));
+        }
       };
       img.src = l.image;
       return img;
@@ -827,10 +816,6 @@ export const removeWhiteBackground = (base64: string): Promise<string> => {
       
       ctx.putImageData(imageData, 0, 0);
       resolve(canvas.toDataURL('image/png'));
-    };
-    img.onerror = () => {
-      console.error("Failed to load image for removeWhiteBackground.");
-      resolve(base64); // Fallback to returning original base64
     };
     img.src = base64;
   });
@@ -895,7 +880,7 @@ export const generateLayeredIllustration = async (
     const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. 
     IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${layoutRules}`;
-    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
+    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, false, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
     textLayer = await removeWhiteBackground(textRaw);
   }
 
@@ -920,27 +905,22 @@ export const generateLayeredIllustration = async (
     const ctx = canvas.getContext('2d')!;
     
     let loaded = 0;
-    const checkComplete = () => {
-      loaded++;
-      if (loaded === layers.length) {
-        const order = ['background', 'foreground', 'character', 'text'];
-        order.forEach(type => {
-          const layer = layers.find(l => l.type === type);
-          if (layer && layer.isVisible) {
-            const idx = layers.indexOf(layer);
-            ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
-          }
-        });
-        resolve(canvas.toDataURL('image/png'));
-      }
-    };
-
     const imgs = layers.map(l => {
       const img = new Image();
-      img.onload = checkComplete;
-      img.onerror = () => {
-        console.error("Failed to load a layer image for composite:", l.name);
-        checkComplete();
+      img.onload = () => {
+        loaded++;
+        if (loaded === layers.length) {
+          // Draw in order: BG -> Props -> Chars -> Text
+          const order = ['background', 'foreground', 'character', 'text'];
+          order.forEach(type => {
+            const layer = layers.find(l => l.type === type);
+            if (layer && layer.isVisible) {
+              const idx = layers.indexOf(layer);
+              ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+            }
+          });
+          resolve(canvas.toDataURL('image/png'));
+        }
       };
       img.src = l.image;
       return img;
@@ -987,11 +967,11 @@ export const generateLayeredCover = async (
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `BOOK COVER BACKGROUND ONLY: ${context}. Style: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO TEXT. Just the environment and atmosphere. ${coverRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, true, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
 
   // 2. CHARACTER LAYER
   const charPrompt = `BOOK COVER CHARACTER LAYER: ${context}. Style: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO TEXT. Place them on a SOLID PURE WHITE BACKGROUND. ${coverRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, characters, [], true, false, true, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
+  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, characters, [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. TEXT LAYER (If applicable)
@@ -1000,7 +980,7 @@ export const generateLayeredCover = async (
     const textPrompt = `BOOK COVER TITLE LAYER: Render the title "${title}" in a bold, cinematic book cover font style. 
     IMPORTANT: Place the title in the UPPER THIRD of the frame, leaving at least 15% margin from all edges (SAFE MARGINS). 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${coverRules}`;
-    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, true, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
+    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, false, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
     textLayer = await removeWhiteBackground(textRaw);
   }
 
@@ -1023,27 +1003,21 @@ export const generateLayeredCover = async (
     const ctx = canvas.getContext('2d')!;
     
     let loaded = 0;
-    const checkComplete = () => {
-      loaded++;
-      if (loaded === layers.length) {
-        const order = ['background', 'character', 'text'];
-        order.forEach(type => {
-          const layer = layers.find(l => l.type === type);
-          if (layer && layer.isVisible) {
-            const idx = layers.indexOf(layer);
-            ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
-          }
-        });
-        resolve(canvas.toDataURL('image/png'));
-      }
-    };
-
     const imgs = layers.map(l => {
       const img = new Image();
-      img.onload = checkComplete;
-      img.onerror = () => {
-        console.error("Failed to load a layer image for composite:", l.name);
-        checkComplete();
+      img.onload = () => {
+        loaded++;
+        if (loaded === layers.length) {
+          const order = ['background', 'character', 'text'];
+          order.forEach(type => {
+            const layer = layers.find(l => l.type === type);
+            if (layer && layer.isVisible) {
+              const idx = layers.indexOf(layer);
+              ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
+            }
+          });
+          resolve(canvas.toDataURL('image/png'));
+        }
       };
       img.src = l.image;
       return img;

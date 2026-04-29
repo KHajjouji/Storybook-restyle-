@@ -1,7 +1,7 @@
 diff --git a/components/SimpleWizard.tsx b/components/SimpleWizard.tsx
 index dbcf288..27152ef 100644
---- a/components/SimpleWizard.tsx
-+++ b/components/SimpleWizard.tsx
+--- components/SimpleWizard.tsx
++++ components/SimpleWizard.tsx
 @@ -1,8 +1,8 @@
 -import React, { useState, useRef } from 'react';
 +import React, { useState, useRef, useEffect } from 'react';
@@ -772,7 +772,7 @@ diff --git a/hooks/useGenerationJob.ts b/hooks/useGenerationJob.ts
 new file mode 100644
 index 0000000..fcce5a1
 --- /dev/null
-+++ b/hooks/useGenerationJob.ts
++++ hooks/useGenerationJob.ts
 @@ -0,0 +1,158 @@
 +import { useState, useEffect, useCallback } from 'react';
 +import { BookPage } from '../types';
@@ -936,7 +936,7 @@ diff --git a/lib/firebaseServer.ts b/lib/firebaseServer.ts
 new file mode 100644
 index 0000000..22582bd
 --- /dev/null
-+++ b/lib/firebaseServer.ts
++++ lib/firebaseServer.ts
 @@ -0,0 +1,49 @@
 +/**
 + * Server-side Firebase helpers using the Firebase client SDK (works in Node.js).
@@ -991,7 +991,7 @@ diff --git a/lib/generationQueue.ts b/lib/generationQueue.ts
 new file mode 100644
 index 0000000..e91b177
 --- /dev/null
-+++ b/lib/generationQueue.ts
++++ lib/generationQueue.ts
 @@ -0,0 +1,112 @@
 +import { EventEmitter } from 'events';
 +
@@ -1107,8 +1107,8 @@ index 0000000..e91b177
 +export const getJob = (jobId: string): Job | undefined => jobs.get(jobId);
 diff --git a/server.ts b/server.ts
 index 6a15d17..426c373 100644
---- a/server.ts
-+++ b/server.ts
+--- server.ts
++++ server.ts
 @@ -5,6 +5,16 @@ import Stripe from "stripe";
  import cors from "cors";
  import dotenv from "dotenv";
