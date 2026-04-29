@@ -28,6 +28,7 @@ export interface UseGenerationJobResult {
 export interface GenerationPayload {
   userId: string;
   storyText: string;
+  coverPrompt?: string;
   stylePrompt: string;
   styleRefBase64?: string;
   characters: Array<{ name: string; description: string; photoBase64?: string }>;

@@ -137,6 +137,7 @@ export interface WizardCharacter {
 export interface WizardState {
   step: 1 | 2 | 3 | 4 | 5;
   storyText: string;
+  coverPrompt?: string; // Optional cover description
   selectedStyleIndex: number | null;
   customStyleImage?: string; // base64
   customStylePrompt?: string;

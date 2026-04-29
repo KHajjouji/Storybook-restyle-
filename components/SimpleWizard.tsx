@@ -173,6 +173,7 @@ export const SimpleWizard: React.FC<SimpleWizardProps> = ({
       await startJob({
         userId,
         storyText: wizardState.storyText,
+        coverPrompt: wizardState.coverPrompt,
         stylePrompt,
         styleRefBase64: wizardState.customStyleImage,
         characters,
@@ -250,10 +251,11 @@ export const SimpleWizard: React.FC<SimpleWizardProps> = ({
       project.pages,
       format.exportFormat,
       project.name,
-      'SPLIT_PAGES',
-      false,
-      'Inter',
-      project.pages.length,
+      false, // overlayText
+      project.pages.length, // totalEstimatedPages
+      'SPLIT_PAGES', // spreadMode
+      false, // layeredMode
+      'Inter', // textFont
     );
   };
 
@@ -481,9 +483,20 @@ export const SimpleWizard: React.FC<SimpleWizardProps> = ({
                 value={wizardState.storyText}
                 onChange={e => updateWizard({ storyText: e.target.value })}
               />
-              <p className="text-slate-400 text-sm font-medium text-right">
+              <p className="text-slate-400 text-sm font-medium text-right mt-1">
                 {wizardState.storyText.trim().split(/\s+/).filter(Boolean).length} words
               </p>
+              
+              <div className="mt-8 space-y-2">
+                <h3 className="text-xl font-bold text-slate-900">Cover Instructions (Optional)</h3>
+                <p className="text-sm text-slate-500 font-medium">Have specific ideas for the cover illustration? Describe it here.</p>
+                <textarea
+                  className="w-full h-32 bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] p-6 text-base font-medium outline-none resize-none focus:border-indigo-400 transition-colors leading-relaxed"
+                  placeholder="E.g. The main scene shows a Moroccan grandfather sitting comfortably... Around them, include softly integrated symbolic scenes..."
+                  value={wizardState.coverPrompt || ''}
+                  onChange={e => updateWizard({ coverPrompt: e.target.value })}
+                />
+              </div>
             </div>
           )}
 

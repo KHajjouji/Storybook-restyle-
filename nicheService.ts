@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
 export const searchBookNiches = async (topic: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-pro-preview',
     contents: `Act as a market research expert for self-publishing (similar to tools like Book Beam). 

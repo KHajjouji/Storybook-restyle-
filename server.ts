@@ -61,7 +61,7 @@ async function startServer() {
 
     // ── Recurring subscription payment succeeded (monthly renewal) ───────────
     if (event.type === 'invoice.payment_succeeded') {
-      const invoice = event.data.object as Stripe.Invoice;
+      const invoice = event.data.object as any;
       const customerId = invoice.customer as string;
       const subscriptionId = invoice.subscription as string;
 
@@ -172,6 +172,7 @@ async function startServer() {
     const {
       userId,
       storyText,
+      coverPrompt,
       stylePrompt,
       styleRefBase64,
       characters = [],
@@ -284,7 +285,7 @@ async function startServer() {
               /* isSpread            */ scene.isSpread ?? false,
               /* masterBible         */ `${GLOBAL_STYLE_LOCK}\n${parsed.masterBible || ''}`,
               /* imageSize           */ '2K',
-              /* projectContext      */ `A children's book. ${storyText.substring(0, 200)}`,
+              /* projectContext      */ `A children's book. ${storyText.substring(0, 3000)}`,
               /* aspectRatio         */ aspectRatio as any,
               /* exportFormat        */ exportFormat,
               /* estimatedPageCount  */ totalPages,
@@ -307,7 +308,7 @@ async function startServer() {
 
         try {
           const coverImage = await generateBookCover(
-            /* projectContext    */ `A children's book cover. Story: ${storyText.substring(0, 300)}`,
+            /* projectContext    */ coverPrompt ? `A children's book cover illustration. Cover instruction: ${coverPrompt}\n\nStory context: ${storyText.substring(0, 1000)}` : `A children's book cover. Story: ${storyText.substring(0, 3000)}`,
             /* charRefs          */ charRefs,
             /* stylePrompt       */ `${GLOBAL_STYLE_LOCK}\n${stylePrompt}`,
             /* masterBible       */ `${GLOBAL_STYLE_LOCK}\n${parsed.masterBible || ''}`,
@@ -411,7 +412,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.get('/(.*)', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
