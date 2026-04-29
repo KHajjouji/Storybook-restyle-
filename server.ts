@@ -91,8 +91,8 @@ async function startServer() {
     res.send();
   });
 
-  // ─── Standard JSON parsing (50 MB to handle base64 image payloads) ────────
-  app.use(express.json({ limit: '50mb' }));
+  // ─── Standard JSON parsing (200 MB to handle base64 image payloads) ────────
+  app.use(express.json({ limit: '200mb' }));
 
   // ── Create Stripe Checkout Session (new subscription or top-up) ──────────
   app.post('/api/create-checkout-session', async (req, res) => {
@@ -400,6 +400,12 @@ async function startServer() {
     req.on('close', () => {
       job.emitter.off('sse', onSse);
     });
+  });
+
+  // ─── Global Error Handler ──────────────────────────────────────────
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Unhandled error:', err);
+    res.status(500).json({ error: err.message || 'Internal Server Error' });
   });
 
   // ─── Vite Dev / Static Production Serving ────────────────────────────────

@@ -196,6 +196,11 @@ const getAvailableSteps = (mode: AppMode): { id: Step, label: string }[] => {
       return [
         { id: 'niche-research', label: 'Research' }
       ];
+    case 'cover-designer':
+      return [
+        { id: 'characters', label: 'Cast' },
+        { id: 'cover-master', label: 'Standalone Cover' }
+      ];
     default:
       return [];
   }
@@ -1157,10 +1162,10 @@ const App: React.FC = () => {
                 <h4 className="text-2xl font-black mb-3 text-slate-900">4K Master</h4>
                 <p className="text-slate-400 font-medium">Upscale and enhance your final frames for print quality.</p>
               </button>
-              <button onClick={() => setCurrentStep('cover-master')} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-amber-600 hover:shadow-2xl transition-all">
+              <button onClick={() => { setSettings({...settings, mode: 'cover-designer'}); setCurrentStep('cover-master'); }} className="group p-10 bg-white border-2 border-slate-100 rounded-[4rem] text-left hover:border-amber-600 hover:shadow-2xl transition-all">
                 <div className="w-16 h-16 bg-amber-50 rounded-3xl flex items-center justify-center mb-8 text-amber-600 group-hover:scale-110 transition-transform"><BookMarked size={32} /></div>
                 <h4 className="text-2xl font-black mb-3 text-slate-900">Cover Designer</h4>
-                <p className="text-slate-400 font-medium">Synthesize marketing context into a professional cover.</p>
+                <p className="text-slate-400 font-medium">Synthesize marketing context into a professional cover independently.</p>
               </button>
               <button onClick={() => setCurrentStep('production-layout')} className="group p-10 bg-white border-2 border-indigo-100 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden">
                 <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mb-8 text-indigo-600 group-hover:scale-110 transition-transform"><Ruler size={32} /></div>
@@ -2037,6 +2042,37 @@ const App: React.FC = () => {
                   </div>
 
                   <div className="bg-white border-2 border-slate-100 rounded-[4rem] p-12 shadow-2xl space-y-8">
+                     {settings.mode === 'cover-designer' && (
+                       <div className="space-y-6 pb-6 border-b-2 border-slate-100">
+                          <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">Cover Art Style</h3>
+                          <textarea className="w-full h-24 bg-slate-50 border-none rounded-2xl p-6 text-sm font-medium outline-none resize-none shadow-inner focus:ring-2 ring-indigo-600 transition-all" placeholder="E.g. Vintage watercolor, cinematic lighting..." value={settings.targetStyle} onChange={e => setSettings({...settings, targetStyle: e.target.value})} />
+                          <div className="flex gap-4">
+                             <div className="flex-1 space-y-2">
+                               <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Aspect Ratio</label>
+                               <select value={targetAspectRatio} onChange={(e) => setTargetAspectRatio(e.target.value as any)} className="w-full bg-slate-100 rounded-xl p-3 outline-none font-bold text-slate-700">
+                                 <option value="1:1">1:1 Square</option>
+                                 <option value="4:3">4:3 Landscape</option>
+                                 <option value="16:9">16:9 Cinema</option>
+                                 <option value="9:16">9:16 Portrait</option>
+                               </select>
+                             </div>
+                             <div className="flex-1 space-y-2">
+                               <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Resolution</label>
+                               <select value={targetResolution} onChange={(e) => setTargetResolution(e.target.value as any)} className="w-full bg-slate-100 rounded-xl p-3 outline-none font-bold text-slate-700">
+                                 <option value="1K">1K Fast</option>
+                                 <option value="2K">2K Standard</option>
+                                 <option value="4K">4K Print</option>
+                               </select>
+                             </div>
+                          </div>
+                          <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl">
+                            <span className="text-xs font-bold text-slate-600">Generate Title Typography Layer</span>
+                            <button onClick={() => setSettings({...settings, layeredMode: !settings.layeredMode})} className={`w-12 h-6 rounded-full transition-all relative ${settings.layeredMode ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+                              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.layeredMode ? 'left-7' : 'left-1'}`} />
+                            </button>
+                          </div>
+                       </div>
+                     )}
                      <div className="space-y-4">
                         <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">Marketing Brief / Scene Description</h3>
                         <textarea className="w-full h-64 bg-slate-50 border-none rounded-3xl p-8 text-lg font-medium outline-none resize-none shadow-inner focus:ring-2 ring-indigo-600 transition-all" placeholder="Describe the cover scene, mood, and composition..." value={projectContext} onChange={e => setProjectContext(e.target.value)} />
