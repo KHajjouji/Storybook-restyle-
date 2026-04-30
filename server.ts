@@ -114,14 +114,11 @@ async function startServer() {
          return res.status(500).json({ error: "Missing GEMINI_API_KEY on server." });
       }
       
-      console.log("Proxying to Gemini URL:", urlWithKey.toString().replace(process.env.GEMINI_API_KEY as string, "[REDACTED]"));
-      
       const response = await fetch(urlWithKey.toString(), {
         method: req.method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body)
       });
-      console.log("Gemini response status:", response.status);
       const text = await response.text();
       let data = text;
       try { data = JSON.parse(text); } catch(e) {}
@@ -131,6 +128,10 @@ async function startServer() {
       console.error("Gemini Proxy Error:", err);
       res.status(500).json({ error: err.message });
     }
+  });
+
+  app.get('/api/debug-key', (req, res) => {
+    res.json({ length: process.env.GEMINI_API_KEY?.length, val: process.env.GEMINI_API_KEY?.substring(0, 5) });
   });
 
   app.post('/api/create-checkout-session', async (req, res) => {
