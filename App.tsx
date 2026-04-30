@@ -724,42 +724,74 @@ const App: React.FC = () => {
     setIsAnalyzingStyle(true);
     const reader = new FileReader();
     reader.onload = async () => {
-      const base64 = reader.result as string;
-      try {
-        const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-        if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
-        
-        const stylePrompt = await analyzeStyleFromImage(base64);
-        
-        const newStyle: import('./types').UserStyle = {
-          id: Date.now().toString(),
-          name: file.name.split('.')[0] || 'Custom Style',
-          image: base64,
-          prompt: stylePrompt,
-          createdAt: Date.now()
-        };
-        
-        await persistenceService.saveUserStyle(newStyle);
-        setUserStyles(prev => [newStyle, ...prev]);
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 1024;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+           showToast("Failed to resize image.");
+           setIsAnalyzingStyle(false);
+           return;
+        }
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        const base64 = canvas.toDataURL('image/jpeg', 0.8);
+        try {
+          // analyzeStyle uses gemini-2.5-flash which is free, so no key check needed.
+          const stylePrompt = await analyzeStyleFromImage(base64);
+          
+          const newStyle: import('./types').UserStyle = {
+            id: Date.now().toString(),
+            name: file.name.split('.')[0] || 'Custom Style',
+            image: base64,
+            prompt: stylePrompt,
+            createdAt: Date.now()
+          };
+          
+          await persistenceService.saveUserStyle(newStyle);
+          setUserStyles(prev => [newStyle, ...prev]);
 
-        setSettings(prev => ({
-          ...prev,
-          styleReference: base64,
-          masterBible: `STYLE LOCK (From Uploaded Reference): ${stylePrompt}\n\n${prev.masterBible}`
-        }));
-      } catch (error) {
-        console.error("Style analysis failed:", error);
-        showToast("Failed to analyze style. Please try again.");
-      } finally {
+          setSettings(prev => ({
+            ...prev,
+            styleReference: base64,
+            masterBible: `STYLE LOCK (From Uploaded Reference): ${stylePrompt}\n\n${prev.masterBible}`
+          }));
+        } catch (error: any) {
+          console.error("Style analysis failed:", error);
+          showToast("Failed to analyze style: " + (error.message || 'Unknown error'));
+        } finally {
+          setIsAnalyzingStyle(false);
+        }
+      };
+      img.onerror = () => {
+        showToast("Invalid image format.");
         setIsAnalyzingStyle(false);
-      }
+      };
+      img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   };
 
   const renderScene = async (pageId: string) => {
-    const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-    if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+    if (settings.useProModel) {
+      const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+      if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+    }
     setPages(curr => curr.map(p => p.id === pageId ? { ...p, status: 'processing' } : p));
     setIsProcessing(true);
     try {
@@ -810,8 +842,10 @@ const App: React.FC = () => {
 
   const handleApplyAdvancedFix = async () => {
     if (!activeFixId) return;
-    const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-    if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+    if (settings.useProModel) {
+      const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+      if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+    }
     
     setPages(curr => curr.map(p => p.id === activeFixId ? { ...p, status: 'processing' } : p));
     setIsProcessing(true);
@@ -894,12 +928,14 @@ const App: React.FC = () => {
     if (!activeRetargetId || !retargetSourceImage) return;
     
     try {
-      const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-      if (!hasKey) { 
-        await (window as any).aistudio?.openSelectKey(); 
-        // Re-check after opening
-        const stillNoKey = !await (window as any).aistudio?.hasSelectedApiKey();
-        if (stillNoKey) return;
+      if (settings.useProModel) {
+        const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+        if (!hasKey) { 
+          await (window as any).aistudio?.openSelectKey(); 
+          // Re-check after opening
+          const stillNoKey = !await (window as any).aistudio?.hasSelectedApiKey();
+          if (stillNoKey) return;
+        }
       }
 
       const targetId = activeRetargetId;
@@ -2096,8 +2132,10 @@ const App: React.FC = () => {
                        <button 
                          disabled={isProcessing}
                          onClick={async () => { 
-                           const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-                           if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+                           if (settings.useProModel) {
+                             const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
+                             if (!hasKey) { await (window as any).aistudio?.openSelectKey(); }
+                           }
                            
                            setIsProcessing(true); 
                            const selectedChars = settings.characterReferences.filter(c => selectedCoverCharIds.has(c.id));

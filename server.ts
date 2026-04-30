@@ -98,25 +98,28 @@ async function startServer() {
     try {
       let pathParam = req.params.all;
       let pathPortion = Array.isArray(pathParam) ? pathParam.join('/') : pathParam;
-      if (typeof pathPortion !== 'string') {
+      if (typeof pathPortion !== 'string' || !pathPortion) {
         pathPortion = req.url.replace('/api/gemini', '');
       }
       if (!pathPortion.startsWith('/')) {
         pathPortion = '/' + pathPortion;
       }
       
-      const targetUrl = `https://generativelanguage.googleapis.com${pathPortion}`;
+      const targetUrl = new URL(`https://generativelanguage.googleapis.com${pathPortion}`);
+      for (const [key, value] of Object.entries(req.query)) {
+        if (key !== 'key') {
+          targetUrl.searchParams.set(key, value as string);
+        }
+      }
+      targetUrl.searchParams.set('key', process.env.GEMINI_API_KEY as string);
       
-      const urlWithKey = new URL(targetUrl);
-      urlWithKey.searchParams.set('key', process.env.GEMINI_API_KEY as string);
-      
-      console.log('Proxying to:', urlWithKey.toString().replace(process.env.GEMINI_API_KEY as string, "[REDACTED]"));
+      console.log('Proxying to:', targetUrl.toString().replace(process.env.GEMINI_API_KEY as string, "[REDACTED]"));
       
       if (!process.env.GEMINI_API_KEY) {
          return res.status(500).json({ error: "Missing GEMINI_API_KEY on server." });
       }
       
-      const response = await fetch(urlWithKey.toString(), {
+      const response = await fetch(targetUrl.toString(), {
         method: req.method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body)
