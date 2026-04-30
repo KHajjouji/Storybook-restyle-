@@ -110,6 +110,8 @@ async function startServer() {
       const urlWithKey = new URL(targetUrl);
       urlWithKey.searchParams.set('key', process.env.GEMINI_API_KEY as string);
       
+      console.log('Proxying to:', urlWithKey.toString().replace(process.env.GEMINI_API_KEY as string, "[REDACTED]"));
+      
       if (!process.env.GEMINI_API_KEY) {
          return res.status(500).json({ error: "Missing GEMINI_API_KEY on server." });
       }
