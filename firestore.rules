@@ -167,11 +167,28 @@ service cloud.firestore {
              data.monthlyCredits is number && data.monthlyCredits >= 0;
     }
 
+    function isValidChunk(data) {
+      let allowedFields = ['data', 'chunkCount'];
+      return hasOnlyAllowedFields(allowedFields) &&
+             (!('data' in data) || (data.data is string && data.data.size() < 1048576)) &&
+             (!('chunkCount' in data) || data.chunkCount is number);
+    }
+
     match /projects/{projectId} {
       allow read: if isAuthenticated() && isDocOwner();
       allow create: if isAuthenticated() && isValidProject(request.resource.data) && uidUnchanged() && request.resource.data.uid == request.auth.uid;
       allow update: if isAuthenticated() && isDocOwner() && isValidProject(request.resource.data) && uidNotModified();
       allow delete: if isAuthenticated() && isDocOwner();
+      
+      match /{chunkType}/{chunkId} {
+        allow read: if isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.uid == request.auth.uid;
+        allow write: if isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.uid == request.auth.uid && isValidChunk(request.resource.data);
+        
+        match /chunks/{chunkIndex} {
+          allow read: if isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.uid == request.auth.uid;
+          allow write: if isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.uid == request.auth.uid && isValidChunk(request.resource.data);
+        }
+      }
     }
 
     match /userStyles/{styleId} {

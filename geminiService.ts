@@ -6,8 +6,7 @@ import { calculateCoverWithBleed } from "./kdpConfig";
 export const getAIClient = (): GoogleGenAI => {
   if (typeof window !== 'undefined') {
     return new GoogleGenAI({
-      apiKey: "unused", // SDK requires a non-empty string, but our proxy handles the real authentication
-      httpOptions: { baseUrl: window.location.origin + "/api/gemini" }
+      apiKey: "unused", // SDK requires a non-empty string, AI Studio handles the real authentication via interceptor
     });
   }
   return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });

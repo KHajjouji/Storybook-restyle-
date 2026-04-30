@@ -42,7 +42,58 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
+const chunkCache = new Map<string, number>();
+
 export const persistenceService = {
+  // Utility for chunking large strings into Firestore
+  async saveChunks(projectId: string, chunkType: string, id: string, data: string): Promise<void> {
+    if (!data) return;
+    const cacheKey = `${projectId}_${chunkType}_${id}`;
+    if (chunkCache.get(cacheKey) === data.length) {
+      return; // Already uploaded this exact size
+    }
+    
+    const CHUNK_SIZE = 900 * 1024; // 900KB
+    const chunks = [];
+    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+      chunks.push(data.slice(i, i + CHUNK_SIZE));
+    }
+    const baseRef = doc(db, `projects/${projectId}/${chunkType}`, id);
+    try {
+      await setDoc(baseRef, { chunkCount: chunks.length });
+      for (let i = 0; i < chunks.length; i++) {
+        await setDoc(doc(db, `projects/${projectId}/${chunkType}/${id}/chunks`, i.toString()), { data: chunks[i] });
+      }
+      chunkCache.set(cacheKey, data.length);
+    } catch (e) {
+      console.warn('Failed to save chunk to Firestore, may be too large', e);
+      await set(`project_${chunkType}_${id}`, data); // fallback to IDB
+    }
+  },
+
+  async loadChunks(projectId: string, chunkType: string, id: string): Promise<string | null> {
+    const baseRef = doc(db, `projects/${projectId}/${chunkType}`, id);
+    try {
+      const snap = await getDoc(baseRef);
+      if (snap.exists()) {
+        const chunkCount = snap.data().chunkCount;
+        let fullString = "";
+        for (let i = 0; i < chunkCount; i++) {
+          const chunkSnap = await getDoc(doc(db, `projects/${projectId}/${chunkType}/${id}/chunks`, i.toString()));
+          if (chunkSnap.exists()) {
+            fullString += chunkSnap.data().data || "";
+          }
+        }
+        return fullString;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    // Fallback to idb
+    const idbData = await get(`project_${chunkType}_${id}`);
+    return idbData || null;
+  },
+
   async saveProject(project: Project): Promise<void> {
     if (!auth.currentUser) return;
     const path = `projects/${project.id}`;
@@ -73,6 +124,20 @@ export const persistenceService = {
         layers: undefined,
         retargeting: p.retargeting ? { ...p.retargeting, sourceImage: undefined } : undefined
       }));
+      
+      // Save full page images to Firestore chunks
+      for (const p of project.pages) {
+        if (p.originalImage) await this.saveChunks(project.id, 'page_originalImage', p.id, p.originalImage);
+        if (p.processedImage) await this.saveChunks(project.id, 'page_processedImage', p.id, p.processedImage);
+        if (p.layers && p.layers.length > 0) await this.saveChunks(project.id, 'page_layers', p.id, JSON.stringify(p.layers));
+      }
+      
+      if (project.coverImage) {
+        await this.saveChunks(project.id, 'project_coverImage', project.id, project.coverImage);
+      }
+      if (project.coverLayers && project.coverLayers.length > 0) {
+        await this.saveChunks(project.id, 'project_coverLayers', project.id, JSON.stringify(project.coverLayers));
+      }
 
       const strippedSettings = {
         ...project.settings,
@@ -130,27 +195,43 @@ export const persistenceService = {
         const localThumbnail = await get(`project_thumbnail_${data.id}`);
 
         const remotePages = JSON.parse(data.pages);
+        // Load remote chunks
+        const remoteCoverImage = await persistenceService.loadChunks(data.id, 'project_coverImage', data.id);
+        const remoteCoverLayersStr = await persistenceService.loadChunks(data.id, 'project_coverLayers', data.id);
+        const remoteCoverLayers = remoteCoverLayersStr ? JSON.parse(remoteCoverLayersStr) : undefined;
+        
         let mergedPages = remotePages;
         
-        if (localPages && Array.isArray(localPages)) {
-          // Merge local images into remote pages based on ID
-          mergedPages = remotePages.map((remotePage: any) => {
-            const localPage = localPages.find((p: any) => p.id === remotePage.id);
-            if (localPage) {
-              return {
-                ...remotePage,
-                originalImage: localPage.originalImage || remotePage.originalImage,
-                processedImage: localPage.processedImage || remotePage.processedImage,
-                layers: localPage.layers || remotePage.layers,
-                retargeting: remotePage.retargeting ? {
-                  ...remotePage.retargeting,
-                  sourceImage: localPage.retargeting?.sourceImage || remotePage.retargeting?.sourceImage
-                } : undefined
-              };
-            }
-            return remotePage;
-          });
-        }
+        // Merge remote and local images into remote pages based on ID
+        mergedPages = await Promise.all(remotePages.map(async (remotePage: any) => {
+          const localPage = localPages && Array.isArray(localPages) ? localPages.find((p: any) => p.id === remotePage.id) : undefined;
+          
+          const remoteOriginalImage = await persistenceService.loadChunks(data.id, 'page_originalImage', remotePage.id);
+          const remoteProcessedImage = await persistenceService.loadChunks(data.id, 'page_processedImage', remotePage.id);
+          const remoteLayersStr = await persistenceService.loadChunks(data.id, 'page_layers', remotePage.id);
+          const remoteLayers = remoteLayersStr ? JSON.parse(remoteLayersStr) : undefined;
+          
+          let processedImg = remoteProcessedImage || (localPage ? localPage.processedImage : undefined) || remotePage.processedImage;
+          let originalImg = remoteOriginalImage || (localPage ? localPage.originalImage : undefined) || remotePage.originalImage;
+          
+          // Reset status if completed but images are missing
+          let status = remotePage.status;
+          if (status === 'completed' && !processedImg && !originalImg) {
+            status = 'idle';
+          }
+          
+          return {
+            ...remotePage,
+            status,
+            originalImage: originalImg,
+            processedImage: processedImg,
+            layers: remoteLayers || (localPage ? localPage.layers : undefined) || remotePage.layers,
+            retargeting: remotePage.retargeting ? {
+              ...remotePage.retargeting,
+              sourceImage: localPage?.retargeting?.sourceImage || remotePage.retargeting?.sourceImage
+            } : undefined
+          };
+        }));
 
         const parsedSettings = JSON.parse(data.settings);
         if (localStyleReference) {
@@ -182,8 +263,8 @@ export const persistenceService = {
           activityScript: data.activityScript,
           nicheTopic: data.nicheTopic,
           nicheResult: data.nicheResult,
-          coverImage: localCoverImage || data.coverImage,
-          coverLayers: localCoverLayers || (data.coverLayers ? JSON.parse(data.coverLayers) : undefined),
+          coverImage: remoteCoverImage || localCoverImage || data.coverImage,
+          coverLayers: remoteCoverLayers || localCoverLayers || (data.coverLayers ? JSON.parse(data.coverLayers) : undefined),
           projectContext: data.projectContext,
           enableActivityDesigner: data.enableActivityDesigner,
           globalFixPrompt: data.globalFixPrompt,
