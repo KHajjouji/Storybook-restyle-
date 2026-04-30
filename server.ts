@@ -3,7 +3,6 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import Stripe from "stripe";
 import cors from "cors";
-import dotenv from "dotenv";
 
 import { createJob, getJob, geminiQueue } from "./lib/generationQueue.js";
 import { getUserCredits, deductCredit } from "./lib/firebaseServer.js";
@@ -14,8 +13,6 @@ import {
   generateBookCover,
 } from "./geminiService.js";
 import { GLOBAL_STYLE_LOCK } from "./seriesData.js";
-
-dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
   apiVersion: '2025-02-24.acacia' as any
@@ -97,11 +94,25 @@ async function startServer() {
   // ── Create Stripe Checkout Session (new subscription or top-up) ──────────
   
   // ─── Gemini API Proxy ──────────────────────────────────────────────────────
-  app.post('/api/gemini/*', async (req, res) => {
+  app.post('/api/gemini/*all', async (req, res) => {
     try {
-      const targetUrl = `https://generativelanguage.googleapis.com${req.url.replace('/api/gemini', '')}`;
+      let pathParam = req.params.all;
+      let pathPortion = Array.isArray(pathParam) ? pathParam.join('/') : pathParam;
+      if (typeof pathPortion !== 'string') {
+        pathPortion = req.url.replace('/api/gemini', '');
+      }
+      if (!pathPortion.startsWith('/')) {
+        pathPortion = '/' + pathPortion;
+      }
+      
+      const targetUrl = `https://generativelanguage.googleapis.com${pathPortion}`;
+      
       const urlWithKey = new URL(targetUrl);
       urlWithKey.searchParams.set('key', process.env.GEMINI_API_KEY as string);
+      
+      if (!process.env.GEMINI_API_KEY) {
+         return res.status(500).json({ error: "Missing GEMINI_API_KEY on server." });
+      }
       
       console.log("Proxying to Gemini URL:", urlWithKey.toString().replace(process.env.GEMINI_API_KEY as string, "[REDACTED]"));
       
