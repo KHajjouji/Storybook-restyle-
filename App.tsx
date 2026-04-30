@@ -2101,7 +2101,9 @@ const App: React.FC = () => {
                                .finally(() => setIsProcessing(false));
                            } else {
                              generateBookCover(projectContext, selectedChars, settings.targetStyle, settings.masterBible, targetResolution, targetAspectRatio, settings.exportFormat, settings.estimatedPageCount, settings.styleReference)
-                               .then(res => setCoverImage(res))
+                               .then(res => {
+                                 setCoverImage(res);
+                               })
                                .catch(err => {
                                  console.error(err);
                                  setToastMessage(err.message || 'Failed to generate cover');

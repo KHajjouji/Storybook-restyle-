@@ -95,6 +95,33 @@ async function startServer() {
   app.use(express.json({ limit: '200mb' }));
 
   // ── Create Stripe Checkout Session (new subscription or top-up) ──────────
+  
+  // ─── Gemini API Proxy ──────────────────────────────────────────────────────
+  app.post('/api/gemini/*', async (req, res) => {
+    try {
+      const targetUrl = `https://generativelanguage.googleapis.com${req.url.replace('/api/gemini', '')}`;
+      const urlWithKey = new URL(targetUrl);
+      urlWithKey.searchParams.set('key', process.env.GEMINI_API_KEY as string);
+      
+      console.log("Proxying to Gemini URL:", urlWithKey.toString().replace(process.env.GEMINI_API_KEY as string, "[REDACTED]"));
+      
+      const response = await fetch(urlWithKey.toString(), {
+        method: req.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body)
+      });
+      console.log("Gemini response status:", response.status);
+      const text = await response.text();
+      let data = text;
+      try { data = JSON.parse(text); } catch(e) {}
+      
+      res.status(response.status).json(data);
+    } catch (err: any) {
+      console.error("Gemini Proxy Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post('/api/create-checkout-session', async (req, res) => {
     try {
       const { userId, credits, priceId, tierId, mode = 'payment' } = req.body;
