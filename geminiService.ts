@@ -3,6 +3,16 @@ import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { CharacterRef, CharacterAssignment, ExportFormat, PRINT_FORMATS } from "./types";
 import { calculateCoverWithBleed } from "./kdpConfig";
 
+export const getAIClient = (): GoogleGenAI => {
+  if (typeof window !== 'undefined') {
+    return new GoogleGenAI({
+      apiKey: "unused", // SDK requires a non-empty string, but our proxy handles the real authentication
+      httpOptions: { baseUrl: window.location.origin + "/api-proxy/gemini" }
+    });
+  }
+  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+};
+
 export const generateContentWithRetry = async (ai: GoogleGenAI, params: any, retries: number = 2): Promise<GenerateContentResponse> => {
   let attempt = 0;
   while (attempt <= retries) {
@@ -76,7 +86,7 @@ export const parsePromptPack = async (rawText: string): Promise<{
   characterIdentities: { name: string, description: string }[],
   scenes: { prompt: string, isSpread: boolean, text?: string }[] 
 }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
     model: 'gemini-3-flash-preview',
     contents: `Analyze the provided script to extract structural production data.
@@ -137,7 +147,7 @@ export const parseActivityPack = async (rawText: string): Promise<{
   globalInstructions: string,
   spreads: { title: string, fullPrompt: string, pageText?: string }[] 
 }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
     model: 'gemini-3-flash-preview',
     contents: `Break down this Activity Master Prompt into individual spreads.
@@ -195,7 +205,7 @@ export const generateBookCover = async (
   estimatedPageCount?: number,
   styleRefBase64?: string
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   
   let formatRules = "";
   if (exportFormat && estimatedPageCount && PRINT_FORMATS[exportFormat]) {
@@ -268,7 +278,7 @@ export const generateBookCover = async (
  * Designs character sheets.
  */
 export const identifyAndDesignCharacters = async (charDescription: string, stylePrompt: string): Promise<CharacterRef[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const instruction = `INDUSTRIAL CHARACTER DESIGN SHEET:
   CHARACTER DESCRIPTION: ${charDescription}
   STYLE LOCK: ${stylePrompt}
@@ -319,7 +329,7 @@ export const restyleIllustration = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-2.5-flash-image';
   
   let formatRules = "";
@@ -417,7 +427,7 @@ export const refineIllustration = async (
   estimatedPageCount?: number,
   styleRefBase64?: string
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
   
   let formatRules = "";
@@ -509,7 +519,7 @@ export const upscaleIllustration = async (
   imageSize: '1K' | '2K' | '4K' = '4K',
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const data = currentImageBase64.includes(',') ? currentImageBase64.split(',')[1] : currentImageBase64;
   
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
@@ -533,7 +543,7 @@ export const upscaleIllustration = async (
 
 export const translateText = async (text: string, targetLanguage: string): Promise<string> => {
   if (targetLanguage === 'NONE_CLEAN_BG' || targetLanguage === 'English') return text;
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
     model: 'gemini-3-flash-preview',
     contents: `Translate to ${targetLanguage}: "${text}"`,
@@ -542,7 +552,7 @@ export const translateText = async (text: string, targetLanguage: string): Promi
 };
 
 export const analyzeStyleFromImage = async (imageBase64: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
     model: 'gemini-3-flash-preview',
@@ -556,7 +566,7 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
   characterIdentities?: { name: string, description: string }[],
   pages: {text: string, isSpread: boolean, mappedCharacterNames: string[], fullPrompt?: string, pageText?: string}[]
 }> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const prompt = enableActivityDesigner 
     ? `Break this script into distinct pages/spreads. The script may contain both narrative story scenes and design activities (like flashcards, coloring pages, etc.). 
     Extract any "GLOBAL" style or layout instructions into 'globalInstructions'. 
@@ -619,7 +629,7 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
 };
 
 export const extractTextFromImage = async (imageBase64: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
     model: 'gemini-3-flash-preview',
@@ -1082,7 +1092,7 @@ export const retargetCharacters = async (
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
 ): Promise<string> => {
   console.log("Starting retargetCharacters with:", { sourceHotspots: retargeting.sourceHotspots, targetHotspots: retargeting.targetHotspots });
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+  const ai = getAIClient();
   const sourceData = sourceImageBase64.includes(',') ? sourceImageBase64.split(',')[1] : sourceImageBase64;
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
 
