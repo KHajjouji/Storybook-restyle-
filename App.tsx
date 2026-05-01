@@ -2187,10 +2187,10 @@ const App: React.FC = () => {
                      </div>
                   </div>
                </div>
-               <div className={`w-full lg:w-2/5 bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative flex flex-col items-center justify-center group ${targetAspectRatio === '16:9' ? 'aspect-video' : targetAspectRatio === '1:1' ? 'aspect-square' : targetAspectRatio === '9:16' ? 'aspect-[9/16]' : 'aspect-[4/3]'}`}>
+               <div className={`w-full lg:w-2/5 bg-white rounded-[4.5rem] shadow-2xl overflow-hidden border-8 border-white relative group ${!coverImage ? 'flex flex-col items-center justify-center' : ''} ${targetAspectRatio === '16:9' ? 'aspect-video' : targetAspectRatio === '1:1' ? 'aspect-square' : targetAspectRatio === '9:16' ? 'aspect-[9/16]' : 'aspect-[4/3]'}`}>
                   {coverImage ? (
-                    <div className="relative w-full h-full">
-                       <img src={coverImage} className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 w-full h-full">
+                       <img src={coverImage} className="w-full h-full object-cover block" />
                        <SpreadGuide isSpread={false} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
                        {coverLayers && coverLayers.length > 0 && (
                          <div className="absolute bottom-0 inset-x-0 bg-white/90 backdrop-blur-xl p-6 border-t border-slate-100">

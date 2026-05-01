@@ -1,6 +1,6 @@
 import { Project } from "./types";
 import { db, auth } from "./firebase";
-import { collection, doc, setDoc, getDocs, deleteDoc, query, where } from "firebase/firestore";
+import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where } from "firebase/firestore";
 import { set, get, del } from 'idb-keyval';
 
 enum OperationType {

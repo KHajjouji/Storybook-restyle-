@@ -96,10 +96,10 @@ async function startServer() {
   // ─── Gemini API Proxy ──────────────────────────────────────────────────────
   app.post('/api/gemini/*all', async (req, res) => {
     try {
-      let pathParam = req.params.all;
-      let pathPortion = Array.isArray(pathParam) ? pathParam.join('/') : pathParam;
-      if (typeof pathPortion !== 'string' || !pathPortion) {
-        pathPortion = req.url.replace('/api/gemini', '');
+      let pathPortion = req.originalUrl.replace('/api/gemini', '');
+      const queryIndex = pathPortion.indexOf('?');
+      if (queryIndex !== -1) {
+        pathPortion = pathPortion.substring(0, queryIndex);
       }
       if (!pathPortion.startsWith('/')) {
         pathPortion = '/' + pathPortion;
@@ -111,7 +111,7 @@ async function startServer() {
           targetUrl.searchParams.set(key, value as string);
         }
       }
-      targetUrl.searchParams.set('key', process.env.GEMINI_API_KEY as string);
+      targetUrl.searchParams.set('key', (process.env.GEMINI_API_KEY as string).trim());
       
       console.log('Proxying to:', targetUrl.toString().replace(process.env.GEMINI_API_KEY as string, "[REDACTED]"));
       
