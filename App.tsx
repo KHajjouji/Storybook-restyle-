@@ -436,6 +436,20 @@ const App: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [pages, currentStep, settings, fullScript, activityScript, nicheTopic, nicheResult, coverImage, coverLayers, projectName, projectContext, enableActivityDesigner, globalFixPrompt, targetAspectRatio, targetResolution]);
 
+  // Auto-map characters when projectContext changes
+  useEffect(() => {
+    if (!projectContext || currentStep !== 'cover-master') return;
+    const newIds = new Set(selectedCoverCharIds);
+    let changed = false;
+    settings.characterReferences.forEach(c => {
+      if (c.name && projectContext.toLowerCase().includes(c.name.toLowerCase()) && !newIds.has(c.id)) {
+        newIds.add(c.id);
+        changed = true;
+      }
+    });
+    if (changed) setSelectedCoverCharIds(newIds);
+  }, [projectContext, settings.characterReferences, currentStep]);
+
   useEffect(() => {
     const isGenerating = isProcessing || pages.some(p => p.status === 'processing');
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -2129,6 +2143,19 @@ const App: React.FC = () => {
                         <textarea className="w-full h-64 bg-slate-50 border-none rounded-3xl p-8 text-lg font-medium outline-none resize-none shadow-inner focus:ring-2 ring-indigo-600 transition-all" placeholder="Describe the cover scene, mood, and composition..." value={projectContext} onChange={e => setProjectContext(e.target.value)} />
                      </div>
                      <div className="flex gap-4">
+                       <button 
+                         onClick={() => {
+                           setProjectContext("");
+                           setCoverImage(null);
+                           setCoverLayers([]);
+                           setSelectedCoverCharIds(new Set());
+                         }}
+                         className="flex-1 bg-slate-100 rounded-[2.5rem] flex flex-col items-center justify-center text-slate-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer shadow-sm group font-black text-[10px] uppercase tracking-widest gap-2 py-4 px-2 text-center"
+                         title="Clear Cover Design"
+                       >
+                         <Trash2 size={24} className="group-hover:scale-110 transition-transform" />
+                         <span>Clear<br/>Design</span>
+                       </button>
                        <button 
                          disabled={isProcessing}
                          onClick={async () => { 
