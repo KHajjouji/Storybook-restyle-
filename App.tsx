@@ -2141,6 +2141,51 @@ const App: React.FC = () => {
                      <div className="space-y-4">
                         <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">Marketing Brief / Scene Description</h3>
                         <textarea className="w-full h-64 bg-slate-50 border-none rounded-3xl p-8 text-lg font-medium outline-none resize-none shadow-inner focus:ring-2 ring-indigo-600 transition-all" placeholder="Describe the cover scene, mood, and composition..." value={projectContext} onChange={e => setProjectContext(e.target.value)} />
+                        {projectContext && (
+                          <button 
+                            disabled={isProcessing}
+                            onClick={async () => {
+                              setIsProcessing(true);
+                              try {
+                                const result = await planStoryScenes(projectContext, settings.characterReferences, false);
+                                let newIds = new Set(selectedCoverCharIds);
+                                if (result.characterIdentities && result.characterIdentities.length > 0) {
+                                  const newChars = result.characterIdentities
+                                    .filter(ci => !settings.characterReferences.some(cr => cr.name.toLowerCase() === ci.name.toLowerCase()))
+                                    .map(ci => ({
+                                      id: Math.random().toString(36).substring(7),
+                                      name: ci.name,
+                                      description: ci.description,
+                                      images: []
+                                    }));
+                                  
+                                  if (newChars.length > 0) {
+                                    setSettings(prev => ({
+                                      ...prev,
+                                      characterReferences: [...prev.characterReferences, ...newChars]
+                                    }));
+                                    newChars.forEach(c => newIds.add(c.id));
+                                  }
+                                  
+                                  result.characterIdentities.forEach(ci => {
+                                    const existing = settings.characterReferences.find(cr => cr.name.toLowerCase() === ci.name.toLowerCase());
+                                    if (existing) newIds.add(existing.id);
+                                  });
+                                }
+                                setSelectedCoverCharIds(newIds);
+                                showToast("Extracted characters from prompt!");
+                              } catch(e) {
+                                console.error(e);
+                                showToast("Failed to parse characters.");
+                              } finally {
+                                setIsProcessing(false);
+                              }
+                            }}
+                            className="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center gap-2"
+                          >
+                            <Sparkles size={18} /> Analyze & Extract Characters
+                          </button>
+                        )}
                      </div>
                      <div className="flex gap-4">
                        <button 
