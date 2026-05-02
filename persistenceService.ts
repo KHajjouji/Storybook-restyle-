@@ -104,6 +104,24 @@ export const persistenceService = {
     if (!auth.currentUser) return;
     const path = `projects/${project.id}`;
     try {
+      // Save project metadata to local list for offline/quota fallback
+      const localProjectList: any[] = (await get('local_project_list')) || [];
+      const metadata = {
+        id: project.id,
+        name: project.name,
+        lastModified: project.lastModified || Date.now(),
+        thumbnail: project.thumbnail,
+        settings: project.settings
+      };
+      
+      const existingIndex = localProjectList.findIndex((p: any) => p.id === project.id);
+      if (existingIndex >= 0) {
+        localProjectList[existingIndex] = metadata;
+      } else {
+        localProjectList.push(metadata);
+      }
+      await set('local_project_list', localProjectList);
+
       // Save large data to IndexedDB
       await set(`project_pages_${project.id}`, project.pages);
       if (project.coverLayers) {
@@ -184,55 +202,136 @@ export const persistenceService = {
   async getAllProjects(): Promise<Project[]> {
     if (!auth.currentUser) return [];
     const path = 'projects';
-    try {
-      const q = query(collection(db, path), where("uid", "==", auth.currentUser.uid));
-      const querySnapshot = await getDocs(q);
-      const projects: Project[] = [];
-      
-      for (const docSnap of querySnapshot.docs) {
-        const data = docSnap.data();
+    
+    const fetchWithRetry = async (retries = 2, delay = 1000): Promise<Project[]> => {
+      try {
+        const q = query(collection(db, path), where("uid", "==", auth.currentUser!.uid));
+        const querySnapshot = await getDocs(q);
+        const projects: Project[] = [];
         
-        // Fast path: Only load thumbnail
-        const localThumbnail = await get(`project_thumbnail_${data.id}`);
+        for (const docSnap of querySnapshot.docs) {
+          const data = docSnap.data();
+          const localThumbnail = await get(`project_thumbnail_${data.id}`);
+          const parsedSettings = data.settings ? JSON.parse(data.settings) : {};
 
-        const parsedSettings = JSON.parse(data.settings);
-
-        projects.push({
-          id: data.id,
-          name: data.name,
-          lastModified: data.lastModified,
-          settings: parsedSettings,
-          pages: [], // We don't load pages here anymore to save time
-          thumbnail: localThumbnail || data.thumbnail,
-          currentStep: data.currentStep,
-          fullScript: data.fullScript,
-          activityScript: data.activityScript,
-          nicheTopic: data.nicheTopic,
-          nicheResult: data.nicheResult,
-          coverImage: data.coverImage,
-          coverLayers: data.coverLayers ? JSON.parse(data.coverLayers) : undefined,
-          projectContext: data.projectContext,
-          enableActivityDesigner: data.enableActivityDesigner,
-          globalFixPrompt: data.globalFixPrompt,
-          targetAspectRatio: data.targetAspectRatio,
-          targetResolution: data.targetResolution
-        });
+          projects.push({
+            id: data.id,
+            name: data.name || "Untitled Project",
+            lastModified: data.lastModified || Date.now(),
+            settings: parsedSettings,
+            pages: [],
+            thumbnail: localThumbnail || data.thumbnail,
+            currentStep: data.currentStep,
+            fullScript: data.fullScript,
+            activityScript: data.activityScript,
+            nicheTopic: data.nicheTopic,
+            nicheResult: data.nicheResult,
+            coverImage: data.coverImage,
+            coverLayers: data.coverLayers ? JSON.parse(data.coverLayers) : undefined,
+            projectContext: data.projectContext,
+            enableActivityDesigner: data.enableActivityDesigner,
+            globalFixPrompt: data.globalFixPrompt,
+            targetAspectRatio: data.targetAspectRatio,
+            targetResolution: data.targetResolution
+          });
+        }
+        
+        // Update local cache
+        const localList = projects.map(p => ({
+          id: p.id,
+          name: p.name,
+          lastModified: p.lastModified,
+          thumbnail: p.thumbnail,
+          settings: p.settings
+        }));
+        await set('local_project_list', localList);
+        
+        return projects.sort((a, b) => b.lastModified - a.lastModified);
+      } catch (error: any) {
+        const errMsg = error.message || "";
+        if ((errMsg.includes('Quota exceeded') || errMsg.includes('resource-exhausted')) && retries > 0) {
+          console.warn(`Quota exceeded, retrying in ${delay}ms... (${retries} retries left)`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return fetchWithRetry(retries - 1, delay * 2);
+        }
+        throw error;
       }
-      return projects.sort((a, b) => b.lastModified - a.lastModified);
+    };
+
+    try {
+      return await fetchWithRetry();
     } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, path);
-      return [];
+      console.warn("Firestore listing failed after retries, falling back to local discovery:", error);
+      
+      // 1. Try local metadata list
+      let localProjects: any[] = (await get('local_project_list')) || [];
+      
+      if (localProjects.length === 0) {
+        // 2. Deep discovery: Scan IndexedDB keys for project_pages_*
+        try {
+          const { keys } = await import('idb-keyval');
+          const allKeys = await keys();
+          const projectIds = allKeys
+            .filter((k: any) => typeof k === 'string' && k.startsWith('project_pages_'))
+            .map((k: any) => k.replace('project_pages_', ''));
+          
+          for (const id of projectIds) {
+            const thumbnail = await get(`project_thumbnail_${id}`);
+            const pages = await get(`project_pages_${id}`);
+            localProjects.push({
+              id,
+              name: `Recovered: ${id.substring(0, 5)}...`,
+              lastModified: Date.now(), // approximation
+              thumbnail: thumbnail,
+              settings: {}
+            });
+          }
+          if (localProjects.length > 0) {
+            await set('local_project_list', localProjects);
+          }
+        } catch (e) {
+          console.error("Discovery failed", e);
+        }
+      }
+
+      return localProjects.map(p => ({
+        ...p,
+        pages: [],
+        lastModified: p.lastModified || 0,
+        settings: p.settings || {}
+      })).sort((a, b) => (b.lastModified || 0) - (a.lastModified || 0));
     }
   },
 
   async getProject(id: string): Promise<Project | null> {
     if (!auth.currentUser) return null;
     const path = `projects/${id}`;
+    let data: any = null;
     try {
       const docSnap = await getDoc(doc(db, 'projects', id));
-      if (!docSnap.exists()) return null;
-      
-      const data = docSnap.data();
+      if (docSnap.exists()) {
+        data = docSnap.data();
+      }
+    } catch (error) {
+      console.warn("Firestore project fetch failed, checking local cache:", error);
+      // Try to find metadata in local list
+      const localProjects: any[] = (await get('local_project_list')) || [];
+      const found = localProjects.find(p => p.id === id);
+      if (found) {
+        data = {
+          ...found,
+          settings: JSON.stringify(found.settings),
+          pages: JSON.stringify([]) // Pages will be loaded from local storage below
+        };
+      } else {
+        // Absolutely no record of this project locally or remotely
+        return null;
+      }
+    }
+
+    try {
+      // If data is still null, the project doesn't exist
+      if (!data) return null;
       
       // Load local data
       const localPages = await get(`project_pages_${data.id}`);
@@ -361,6 +460,17 @@ export const persistenceService = {
         ...style,
         uid: auth.currentUser.uid
       };
+      
+      // Save locally too
+      const localStyles: any[] = (await get('local_user_styles')) || [];
+      const existingIndex = localStyles.findIndex((s: any) => s.id === style.id);
+      if (existingIndex >= 0) {
+        localStyles[existingIndex] = styleToSave;
+      } else {
+        localStyles.push(styleToSave);
+      }
+      await set('local_user_styles', localStyles);
+
       await setDoc(doc(db, 'userStyles', style.id), styleToSave);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
@@ -384,10 +494,15 @@ export const persistenceService = {
           createdAt: data.createdAt
         });
       });
+      
+      // Update local cache
+      await set('local_user_styles', styles);
+      
       return styles.sort((a, b) => b.createdAt - a.createdAt);
     } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, path);
-      return [];
+      console.warn("Firestore userStyles fetch failed, falling back to local cache:", error);
+      const localStyles: any[] = (await get('local_user_styles')) || [];
+      return localStyles.sort((a, b) => b.createdAt - a.createdAt);
     }
   },
 

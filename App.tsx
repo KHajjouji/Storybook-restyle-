@@ -255,6 +255,7 @@ const App: React.FC = () => {
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
+  const [isLocalDiscovery, setIsLocalDiscovery] = useState(false);
   const [userStyles, setUserStyles] = useState<import('./types').UserStyle[]>([]);
   const [recentProject, setRecentProject] = useState<Project | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
@@ -374,6 +375,11 @@ const App: React.FC = () => {
     try {
       const projs = await persistenceService.getAllProjects();
       setSavedProjects(projs);
+      
+      // Heuristic to detect discovery mode: check if any project has "Recovered:" in name
+      const hasRecovered = projs.some(p => p.name.startsWith('Recovered:'));
+      setIsLocalDiscovery(hasRecovered);
+      
       setShowProjectsModal(true);
     } catch (e) {
       console.error(e);
