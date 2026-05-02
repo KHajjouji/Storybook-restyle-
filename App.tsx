@@ -517,7 +517,7 @@ const App: React.FC = () => {
     const newIds = new Set(selectedCoverCharIds);
     let changed = false;
     settings.characterReferences.forEach(c => {
-      if (c.name && projectContext.toLowerCase().includes(c.name.toLowerCase()) && !newIds.has(c.id)) {
+      if (c.name && projectContext.toLowerCase().includes(c.name.trim().toLowerCase()) && !newIds.has(c.id)) {
         newIds.add(c.id);
         changed = true;
       }
@@ -704,7 +704,7 @@ const App: React.FC = () => {
       // Add new characters
       if (result.characterIdentities && result.characterIdentities.length > 0) {
         const newChars = result.characterIdentities
-          .filter(ci => !settings.characterReferences.some(cr => cr.name.toLowerCase() === ci.name.toLowerCase()))
+          .filter(ci => !settings.characterReferences.some(cr => cr.name.trim().toLowerCase() === ci.name.trim().toLowerCase()))
           .map(ci => ({
             id: Math.random().toString(36).substring(7),
             name: ci.name,
@@ -752,7 +752,7 @@ const App: React.FC = () => {
       // Add new characters
       if (result.characterIdentities && result.characterIdentities.length > 0) {
         const newChars = result.characterIdentities
-          .filter(ci => !settings.characterReferences.some(cr => cr.name.toLowerCase() === ci.name.toLowerCase()))
+          .filter(ci => !settings.characterReferences.some(cr => cr.name.trim().toLowerCase() === ci.name.trim().toLowerCase()))
           .map(ci => ({
             id: Math.random().toString(36).substring(7),
             name: ci.name,
@@ -768,20 +768,20 @@ const App: React.FC = () => {
         }
       }
 
-      if (result.globalInstructions) {
+      if (result.globalInstructions && !settings.masterBible.includes(result.globalInstructions)) {
         setSettings(prev => ({ 
           ...prev, 
           masterBible: `${result.globalInstructions}\n\n${prev.masterBible}`
         }));
       }
-      setPages(prev => [...prev, ...result.pages.map(p => ({
+      setPages(result.pages.map(p => ({
         id: Math.random().toString(36).substring(7),
         originalText: p.pageText || p.text,
         status: 'idle' as const,
         assignments: p.mappedCharacterNames.map(name => ({ refId: name, description: "" })),
         isSpread: p.isSpread,
         overrideStylePrompt: p.fullPrompt || p.text
-      }))]);
+      })));
       setCurrentStep('characters');
     } catch (e) { showToast("Script analysis failed."); }
     finally { setIsParsing(false); }
@@ -2347,7 +2347,7 @@ const App: React.FC = () => {
                                 let newIds = new Set(selectedCoverCharIds);
                                 if (result.characterIdentities && result.characterIdentities.length > 0) {
                                   const newChars = result.characterIdentities
-                                    .filter(ci => !settings.characterReferences.some(cr => cr.name.toLowerCase() === ci.name.toLowerCase()))
+                                    .filter(ci => !settings.characterReferences.some(cr => cr.name.trim().toLowerCase() === ci.name.trim().toLowerCase()))
                                     .map(ci => ({
                                       id: Math.random().toString(36).substring(7),
                                       name: ci.name,
@@ -2364,7 +2364,7 @@ const App: React.FC = () => {
                                   }
                                   
                                   result.characterIdentities.forEach(ci => {
-                                    const existing = settings.characterReferences.find(cr => cr.name.toLowerCase() === ci.name.toLowerCase());
+                                    const existing = settings.characterReferences.find(cr => cr.name.trim().toLowerCase() === ci.name.trim().toLowerCase());
                                     if (existing) newIds.add(existing.id);
                                   });
                                 }
