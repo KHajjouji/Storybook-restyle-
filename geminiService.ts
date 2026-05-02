@@ -327,7 +327,8 @@ export const restyleIllustration = async (
   projectContext: string = "",
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   exportFormat?: ExportFormat,
-  estimatedPageCount?: number
+  estimatedPageCount?: number,
+  environmentRefBase64?: string
 ): Promise<string> => {
   const ai = getAIClient();
   const model = usePro ? 'gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
@@ -390,10 +391,16 @@ export const restyleIllustration = async (
     if (ref.images.length > 0) {
       const img = ref.images[0];
       const data = img.includes(',') ? img.split(',')[1] : img;
-      parts.push({ text: `CHARACTER IDENTITY: ${ref.name}` });
+      parts.push({ text: `CHARACTER IDENTITY (${ref.name}): CRITICAL RULE - Extract ONLY the face, hairstyle, clothing, and body type of this character. You MUST entirely IGNORE the background, location, and environment shown in this character reference image. DO NOT duplicate the scene from this image.` });
       parts.push({ inlineData: { data, mimeType: 'image/png' } });
     }
   });
+
+  if (environmentRefBase64) {
+    const data = environmentRefBase64.includes(',') ? environmentRefBase64.split(',')[1] : environmentRefBase64;
+    parts.push({ text: "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location." });
+    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+  }
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
     model,
@@ -484,7 +491,7 @@ export const refineIllustration = async (
     if (ref.images.length > 0) {
       const img = ref.images[0];
       const data = img.includes(',') ? img.split(',')[1] : img;
-      parts.push({ text: `CHARACTER IDENTITY: ${ref.name}` });
+      parts.push({ text: `CHARACTER IDENTITY (${ref.name}): CRITICAL RULE - Extract ONLY the face, hairstyle, clothing, and body type of this character. You MUST entirely IGNORE the background, location, and environment shown in this character reference image. DO NOT duplicate the scene from this image.` });
       parts.push({ inlineData: { data, mimeType: 'image/png' } });
     }
   });
@@ -879,7 +886,8 @@ export const generateLayeredIllustration = async (
   isSpread: boolean = false,
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
-  styleRefBase64?: string
+  styleRefBase64?: string,
+  environmentRefBase64?: string
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
   
@@ -906,16 +914,16 @@ export const generateLayeredIllustration = async (
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment. ${layoutRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64);
 
   // 2. CHARACTER LAYER
   const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
+  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
   const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
+  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER (If applicable)

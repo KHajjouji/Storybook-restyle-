@@ -392,6 +392,8 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
+  const [extraScript, setExtraScript] = useState("");
+  const [isAddingPages, setIsAddingPages] = useState(false);
   const restyleInputRef = useRef<HTMLInputElement>(null);
   const charImageInputRef = useRef<HTMLInputElement>(null);
   const styleImageInputRef = useRef<HTMLInputElement>(null);
@@ -402,6 +404,8 @@ const App: React.FC = () => {
     const completed = pages.filter(p => p.status === 'completed').length;
     return { total, completed, progress: total === 0 ? 0 : Math.round((completed / total) * 100) };
   }, [pages]);
+
+  const [saveMessage, setSaveMessage] = useState("");
 
   // Persistence
   const handleSaveProject = async () => {
@@ -426,6 +430,12 @@ const App: React.FC = () => {
       targetResolution
     };
     try { await persistenceService.saveProject(project); } catch (e) { console.error(e); }
+  };
+
+  const triggerManualSave = async () => {
+    await handleSaveProject();
+    setSaveMessage("Project saved to cloud successfully!");
+    setTimeout(() => setSaveMessage(""), 3000);
   };
 
   useEffect(() => {
@@ -617,6 +627,54 @@ const App: React.FC = () => {
       showToast("Niche research failed.");
     } finally {
       setIsSearchingNiche(false);
+    }
+  };
+
+  const handleAddMorePages = async () => {
+    if (!extraScript.trim()) return;
+    setIsAddingPages(true);
+    try {
+      const result = await planStoryScenes(extraScript, settings.characterReferences, enableActivityDesigner);
+      
+      // Add new characters
+      if (result.characterIdentities && result.characterIdentities.length > 0) {
+        const newChars = result.characterIdentities
+          .filter(ci => !settings.characterReferences.some(cr => cr.name.toLowerCase() === ci.name.toLowerCase()))
+          .map(ci => ({
+            id: Math.random().toString(36).substring(7),
+            name: ci.name,
+            description: ci.description,
+            images: []
+          }));
+        
+        if (newChars.length > 0) {
+          setSettings(prev => ({
+            ...prev,
+            characterReferences: [...prev.characterReferences, ...newChars]
+          }));
+        }
+      }
+
+      // Append pages
+      const newPages: BookPage[] = result.pages.map((p, idx) => ({
+        id: Math.random().toString(36).substring(7),
+        originalText: p.text,
+        pageText: p.pageText,
+        status: 'idle',
+        assignments: [],
+        isSpread: p.isSpread,
+        layers: [],
+        overrideStylePrompt: p.fullPrompt,
+        retargeting: { sourceHotspots: [], targetHotspots: [], instruction: "" }
+      }));
+
+      setPages(prev => [...prev, ...newPages]);
+      setExtraScript("");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to plan additional scenes.");
+    } finally {
+      setIsAddingPages(false);
     }
   };
 
@@ -820,6 +878,12 @@ const App: React.FC = () => {
       const targetText = settings.embedTextInImage ? p.originalText : undefined;
       const finalAspectRatio = p.isSpread ? (targetAspectRatio === '9:16' ? '16:9' : targetAspectRatio === '4:3' ? '16:9' : targetAspectRatio) : targetAspectRatio;
 
+      let envRefBase64 = undefined;
+      if (p.environmentRefId) {
+        const refPage = pages.find(pg => pg.id === p.environmentRefId);
+        if (refPage) envRefBase64 = refPage.processedImage || refPage.originalImage;
+      }
+
       if (settings.layeredMode && !p.originalImage) {
         const layeredResult = await generateLayeredIllustration(
           narrativeContext,
@@ -832,7 +896,8 @@ const App: React.FC = () => {
           p.isSpread,
           settings.exportFormat,
           settings.estimatedPageCount,
-          settings.styleReference
+          settings.styleReference,
+          envRefBase64
         );
         result = layeredResult.composite;
         layers = layeredResult.layers;
@@ -843,7 +908,7 @@ const App: React.FC = () => {
         result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference);
       } else {
         // For activities, use the specific spread prompt as the primary instruction
-        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount);
+        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
     } catch (e) { 
@@ -1777,6 +1842,25 @@ const App: React.FC = () => {
                 )}
               </div>
             </div>
+
+            <div className="bg-slate-50 border-4 border-slate-100 rounded-[4rem] p-12 space-y-6 flex flex-col items-center max-w-4xl mx-auto shadow-inner text-center">
+              <h3 className="text-3xl font-black text-slate-800">Need to append more scenes?</h3>
+              <p className="text-slate-500 font-bold text-lg">Paste additional script segments here, and we'll analyze and add them to the end of the project.</p>
+              <textarea 
+                value={extraScript}
+                onChange={e => setExtraScript(e.target.value)}
+                placeholder="Paste extra manuscript here..."
+                className="w-full h-32 bg-white rounded-3xl p-6 text-lg border-2 border-slate-100 focus:border-indigo-500 outline-none resize-none font-medium shadow-sm text-slate-700"
+              />
+              <button 
+                onClick={handleAddMorePages}
+                disabled={!extraScript.trim() || isAddingPages}
+                className="px-12 py-5 bg-indigo-600 text-white rounded-[2rem] font-black text-xl hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3 shadow-xl"
+              >
+                {isAddingPages ? <Loader2 size={24} className="animate-spin" /> : <Plus size={24} />} ANALYZE & ADD SCENES
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
               {pages.map((p, idx) => (
                 <div key={p.id} className="bg-white rounded-[6rem] border-4 border-slate-50 shadow-2xl overflow-hidden group transition-all">
@@ -1809,6 +1893,19 @@ const App: React.FC = () => {
                          className="w-full text-lg text-slate-700 font-bold leading-relaxed bg-slate-50 p-10 rounded-[2.5rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0 resize-y min-h-[120px]"
                          placeholder="Enter the text that will appear on this page in the final PDF..."
                        />
+                    </div>
+                    <div className="space-y-4">
+                       <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><ImageIcon size={20} /> Environment Reference (Visual Link)</h4>
+                       <select 
+                         value={p.environmentRefId || ''} 
+                         onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefId: e.target.value || undefined } : pg))}
+                         className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
+                       >
+                         <option value="">None (Auto-generate environment)</option>
+                         {pages.map((refPg, i) => refPg.id !== p.id ? (
+                           <option key={refPg.id} value={refPg.id}>Link to Scene #{i + 1}</option>
+                         ) : null)}
+                       </select>
                     </div>
 
                     <LayerManager 
@@ -2504,8 +2601,9 @@ const App: React.FC = () => {
           <div className="flex items-center gap-10">
              <div className="bg-slate-50 border border-slate-100 rounded-[2rem] px-12 py-5 flex items-center gap-12 shadow-inner">
                 <input className="bg-transparent border-none outline-none font-black text-slate-800 text-2xl w-96" value={projectName} onChange={e => setProjectName(e.target.value)} />
-                <div className="flex gap-4">
-                   <button onClick={handleSaveProject} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Save Project"><Save size={28} /></button>
+                <div className="flex gap-4 items-center">
+                   {saveMessage && <span className="text-emerald-500 font-bold text-sm mr-2 animate-in fade-in slide-in-from-right-4">{saveMessage}</span>}
+                   <button onClick={triggerManualSave} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Save Project"><Save size={28} /></button>
                    <button onClick={handleOpenProjects} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Load Project"><FolderOpen size={28} /></button>
                    <button onClick={handleExportProjectFile} className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Export Project"><FileDown size={28} /></button>
                    <label className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform cursor-pointer" title="Import Project">

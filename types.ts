@@ -59,6 +59,7 @@ export interface BookPage {
   overrideStylePrompt?: string; 
   retargeting?: CharacterRetargeting;
   layers?: BookLayer[];
+  environmentRefId?: string;
 }
 
 export type ExportFormat = 'KDP_5x8' | 'KDP_5_06x7_81' | 'KDP_5_25x8' | 'KDP_5_5x8_5' | 'KDP_6x9' | 'KDP_6_14x9_21' | 'KDP_6_69x9_61' | 'KDP_7x10' | 'KDP_7_44x9_69' | 'KDP_7_5x9_25' | 'KDP_8x10' | 'KDP_8_25x6' | 'KDP_8_25x8_25' | 'KDP_8_5x8_5' | 'KDP_8_5x11' | 'KDP_8_27x11_69' | 'LULU_A4' | 'LULU_US_LETTER' | 'INGRAM_PREMIUM';
