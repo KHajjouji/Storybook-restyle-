@@ -298,8 +298,12 @@ const App: React.FC = () => {
           if (docSnap.exists()) {
             setUserProfile(docSnap.data() as import('./types').UserProfile);
           }
-        }, (error) => {
-          console.error("Profile snapshot error:", error);
+        }, (error: any) => {
+          if (!error.message?.includes('Quota exceeded') && !error.message?.includes('resource-exhausted')) {
+            console.error("Profile snapshot error:", error);
+          } else {
+            console.warn("Profile snapshot quota exceeded, using local fallback.");
+          }
           // Fallback to basic free profile if Firestore quota is exceeded
           setUserProfile({
              uid: currentUser.uid,

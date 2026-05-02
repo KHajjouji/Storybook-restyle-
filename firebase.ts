@@ -63,8 +63,12 @@ export const initializeUserProfile = async (user: any) => {
         subscriptionStatus: 'free_trial',
       });
     }
-  } catch (error) {
-    console.error("Error initializing user profile:", error);
+  } catch (error: any) {
+    if (error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
+      console.warn("Firestore quota exceeded during profile init, using local default.");
+    } else {
+      console.error("Error initializing user profile:", error);
+    }
   }
 };
 
