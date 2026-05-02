@@ -723,13 +723,13 @@ const App: React.FC = () => {
       // Append pages
       const newPages: BookPage[] = result.pages.map((p, idx) => ({
         id: Math.random().toString(36).substring(7),
-        originalText: p.text,
+        originalText: p.pageText || p.text,
         pageText: p.pageText,
         status: 'idle',
         assignments: [],
         isSpread: p.isSpread,
         layers: [],
-        overrideStylePrompt: p.fullPrompt,
+        overrideStylePrompt: p.fullPrompt || p.text,
         retargeting: { sourceHotspots: [], targetHotspots: [], instruction: "" }
       }));
 
@@ -1958,6 +1958,15 @@ const App: React.FC = () => {
                      <div className="absolute top-12 right-12 z-10 bg-emerald-500 text-white px-8 py-3 rounded-full font-black text-sm shadow-2xl">{targetResolution} {p.isSpread ? '(SPREAD)' : '(SINGLE)'}</div>
                   </div>
                   <div className="p-16 space-y-10">
+                    <div className="space-y-4">
+                       <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><Sparkles size={20} /> Image Generation Prompt</h4>
+                       <textarea 
+                         value={p.overrideStylePrompt || ''}
+                         onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, overrideStylePrompt: e.target.value } : pg))}
+                         className="w-full text-lg text-slate-700 font-bold leading-relaxed bg-slate-50 p-10 rounded-[2.5rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0 resize-y min-h-[160px]"
+                         placeholder="Enter the visual description for the AI image generator..."
+                       />
+                    </div>
                     <div className="space-y-4">
                        <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><PenTool size={20} /> Editable PDF Text Overlay</h4>
                        <textarea 

@@ -554,9 +554,11 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
     Script: ${fullScript}`
     : `Break this script into distinct pages/spreads. 
     Extract all distinct characters and their descriptions into 'characterIdentities'. 
-    For each page, provide a visual description (text), whether it's a 2-page spread (isSpread), and an array of character names present (mappedCharacterNames). 
-    CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description. The visual description should ONLY describe what is happening in the scene. ALSO CRITICAL: Strip out any specific text that is meant to be written on the page.
-    Extract the exact text that is meant to be written on the page into 'pageText'.
+    For each page:
+    1. Provide a detailed visual description in 'fullPrompt'. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description. The visual description should ONLY describe what is happening in the scene for an AI image generator. ALSO CRITICAL: Strip out any specific text that is meant to be written on the page.
+    2. Extract the exact text that is meant to be written on the page into 'pageText'.
+    3. 'text' can be a brief summary of the scene.
+    4. Set whether it's a 2-page spread (isSpread), and an array of character names present (mappedCharacterNames).
     Script: ${fullScript}`;
 
   const response: GenerateContentResponse = await ai.models.generateContent({
@@ -590,7 +592,7 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
                 fullPrompt: { type: Type.STRING },
                 pageText: { type: Type.STRING }
               },
-              required: ['text', 'isSpread', 'mappedCharacterNames']
+              required: ['text', 'isSpread', 'mappedCharacterNames', 'fullPrompt', 'pageText']
             }
           }
         },

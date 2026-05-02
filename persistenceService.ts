@@ -396,6 +396,7 @@ export const persistenceService = {
           originalImage: originalImg,
           processedImage: processedImg,
           layers: layers,
+          overrideStylePrompt: remotePage.overrideStylePrompt || remotePage.originalText || '',
           retargeting: remotePage.retargeting ? {
             ...remotePage.retargeting,
             sourceImage: localPage?.retargeting?.sourceImage || remotePage.retargeting?.sourceImage
