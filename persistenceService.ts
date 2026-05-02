@@ -237,22 +237,36 @@ export const persistenceService = {
       const localThumbnail = await get(`project_thumbnail_${data.id}`);
 
       const remotePages = JSON.parse(data.pages);
-      // Load remote chunks
-      const remoteCoverImage = await persistenceService.loadChunks(data.id, 'project_coverImage', data.id);
-      const remoteCoverLayersStr = await persistenceService.loadChunks(data.id, 'project_coverLayers', data.id);
-      const remoteCoverLayers = remoteCoverLayersStr ? JSON.parse(remoteCoverLayersStr) : undefined;
+      // Load remote chunks ONLY if not available locally
+      let remoteCoverImage = localCoverImage || data.coverImage;
+      if (!remoteCoverImage) {
+        remoteCoverImage = await persistenceService.loadChunks(data.id, 'project_coverImage', data.id);
+      }
+      
+      let coverLayers = localCoverLayers || (data.coverLayers ? JSON.parse(data.coverLayers) : undefined);
+      if (!coverLayers) {
+        const remoteCoverLayersStr = await persistenceService.loadChunks(data.id, 'project_coverLayers', data.id);
+        coverLayers = remoteCoverLayersStr ? JSON.parse(remoteCoverLayersStr) : undefined;
+      }
       
       // Merge remote and local images into remote pages based on ID
       const mergedPages = await Promise.all(remotePages.map(async (remotePage: any) => {
         const localPage = localPages && Array.isArray(localPages) ? localPages.find((p: any) => p.id === remotePage.id) : undefined;
         
-        const remoteOriginalImage = await persistenceService.loadChunks(data.id, 'page_originalImage', remotePage.id);
-        const remoteProcessedImage = await persistenceService.loadChunks(data.id, 'page_processedImage', remotePage.id);
-        const remoteLayersStr = await persistenceService.loadChunks(data.id, 'page_layers', remotePage.id);
-        const remoteLayers = remoteLayersStr ? JSON.parse(remoteLayersStr) : undefined;
-        
-        let processedImg = remoteProcessedImage || (localPage ? localPage.processedImage : undefined) || remotePage.processedImage;
-        let originalImg = remoteOriginalImage || (localPage ? localPage.originalImage : undefined) || remotePage.originalImage;
+        let processedImg = localPage?.processedImage || remotePage.processedImage;
+        let originalImg = localPage?.originalImage || remotePage.originalImage;
+        let layers = localPage?.layers || remotePage.layers;
+
+        if (!processedImg && remotePage.status === 'completed') {
+          processedImg = await persistenceService.loadChunks(data.id, 'page_processedImage', remotePage.id);
+        }
+        if (!originalImg) {
+          originalImg = await persistenceService.loadChunks(data.id, 'page_originalImage', remotePage.id);
+        }
+        if (!layers || layers.length === 0) {
+          const remoteLayersStr = await persistenceService.loadChunks(data.id, 'page_layers', remotePage.id);
+          layers = remoteLayersStr ? JSON.parse(remoteLayersStr) : undefined;
+        }
         
         // Reset status if completed but images are missing
         let status = remotePage.status;
@@ -265,7 +279,7 @@ export const persistenceService = {
           status,
           originalImage: originalImg,
           processedImage: processedImg,
-          layers: remoteLayers || (localPage ? localPage.layers : undefined) || remotePage.layers,
+          layers: layers,
           retargeting: remotePage.retargeting ? {
             ...remotePage.retargeting,
             sourceImage: localPage?.retargeting?.sourceImage || remotePage.retargeting?.sourceImage
@@ -303,8 +317,8 @@ export const persistenceService = {
         activityScript: data.activityScript,
         nicheTopic: data.nicheTopic,
         nicheResult: data.nicheResult,
-        coverImage: remoteCoverImage || localCoverImage || data.coverImage,
-        coverLayers: remoteCoverLayers || localCoverLayers || (data.coverLayers ? JSON.parse(data.coverLayers) : undefined),
+        coverImage: remoteCoverImage,
+        coverLayers: coverLayers,
         projectContext: data.projectContext,
         enableActivityDesigner: data.enableActivityDesigner,
         globalFixPrompt: data.globalFixPrompt,

@@ -297,17 +297,40 @@ const App: React.FC = () => {
           if (docSnap.exists()) {
             setUserProfile(docSnap.data() as import('./types').UserProfile);
           }
+        }, (error) => {
+          console.error("Profile snapshot error:", error);
+          // Fallback to basic free profile if Firestore quota is exceeded
+          setUserProfile({
+             uid: currentUser.uid,
+             email: currentUser.email,
+             tierId: 'free',
+             credits: 0,
+             role: 'user',
+             createdAt: Date.now(),
+             stripeCustomerId: null,
+             subscriptionStatus: 'free_trial'
+          } as import('./types').UserProfile);
         });
 
         setAuthError(null);
         setUser(currentUser);
         setIsAuthReady(true);
-        const projs = await persistenceService.getAllProjects();
-        if (projs.length > 0) {
-          setRecentProject(projs[0]);
+        
+        try {
+          const projs = await persistenceService.getAllProjects();
+          if (projs.length > 0) {
+            setRecentProject(projs[0]);
+          }
+        } catch (e) {
+          console.warn("Could not load projects (quota exceeded?)", e);
         }
-        const styles = await persistenceService.getUserStyles();
-        setUserStyles(styles);
+        
+        try {
+          const styles = await persistenceService.getUserStyles();
+          setUserStyles(styles);
+        } catch (e) {
+          console.warn("Could not load user styles (quota exceeded?)", e);
+        }
         
         return () => {
           unsubscribeProfile();
@@ -346,9 +369,15 @@ const App: React.FC = () => {
   };
 
   const handleOpenProjects = async () => {
-    const projs = await persistenceService.getAllProjects();
-    setSavedProjects(projs);
-    setShowProjectsModal(true);
+    try {
+      const projs = await persistenceService.getAllProjects();
+      setSavedProjects(projs);
+      setShowProjectsModal(true);
+    } catch (e) {
+      console.error(e);
+      showToast("Cannot load projects right now. Server quota may be exceeded.");
+      setShowProjectsModal(false);
+    }
   };
 
   const handleLoadProject = async (proj: Project) => {
@@ -445,12 +474,18 @@ const App: React.FC = () => {
       targetAspectRatio,
       targetResolution
     };
-    try { await persistenceService.saveProject(project); } catch (e) { console.error(e); }
+    await persistenceService.saveProject(project);
   };
 
   const triggerManualSave = async () => {
-    await handleSaveProject();
-    setSaveMessage("Project saved to cloud successfully!");
+    try {
+      await handleSaveProject();
+      setSaveMessage("Project saved successfully!");
+    } catch (e) {
+      console.error(e);
+      setSaveMessage("Error saving. Server quota may be exceeded.");
+      showToast("Error saving project data.");
+    }
     setTimeout(() => setSaveMessage(""), 3000);
   };
 
@@ -2159,6 +2194,9 @@ const App: React.FC = () => {
                         setIsProcessing(true);
                         try {
                           await generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode, settings.textFont);
+                        } catch (err) {
+                          console.error("PDF generation failed:", err);
+                          showToast("Failed to generate PDF. See console.");
                         } finally {
                           setIsProcessing(false);
                         }
