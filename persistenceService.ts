@@ -186,85 +186,25 @@ export const persistenceService = {
       for (const docSnap of querySnapshot.docs) {
         const data = docSnap.data();
         
-        // Load local data
-        const localPages = await get(`project_pages_${data.id}`);
-        const localCoverLayers = await get(`project_coverLayers_${data.id}`);
-        const localCoverImage = await get(`project_coverImage_${data.id}`);
-        const localStyleReference = await get(`project_styleReference_${data.id}`);
-        const localCharacterReferences = await get(`project_characterReferences_${data.id}`);
+        // Fast path: Only load thumbnail
         const localThumbnail = await get(`project_thumbnail_${data.id}`);
 
-        const remotePages = JSON.parse(data.pages);
-        // Load remote chunks
-        const remoteCoverImage = await persistenceService.loadChunks(data.id, 'project_coverImage', data.id);
-        const remoteCoverLayersStr = await persistenceService.loadChunks(data.id, 'project_coverLayers', data.id);
-        const remoteCoverLayers = remoteCoverLayersStr ? JSON.parse(remoteCoverLayersStr) : undefined;
-        
-        let mergedPages = remotePages;
-        
-        // Merge remote and local images into remote pages based on ID
-        mergedPages = await Promise.all(remotePages.map(async (remotePage: any) => {
-          const localPage = localPages && Array.isArray(localPages) ? localPages.find((p: any) => p.id === remotePage.id) : undefined;
-          
-          const remoteOriginalImage = await persistenceService.loadChunks(data.id, 'page_originalImage', remotePage.id);
-          const remoteProcessedImage = await persistenceService.loadChunks(data.id, 'page_processedImage', remotePage.id);
-          const remoteLayersStr = await persistenceService.loadChunks(data.id, 'page_layers', remotePage.id);
-          const remoteLayers = remoteLayersStr ? JSON.parse(remoteLayersStr) : undefined;
-          
-          let processedImg = remoteProcessedImage || (localPage ? localPage.processedImage : undefined) || remotePage.processedImage;
-          let originalImg = remoteOriginalImage || (localPage ? localPage.originalImage : undefined) || remotePage.originalImage;
-          
-          // Reset status if completed but images are missing
-          let status = remotePage.status;
-          if (status === 'completed' && !processedImg && !originalImg) {
-            status = 'idle';
-          }
-          
-          return {
-            ...remotePage,
-            status,
-            originalImage: originalImg,
-            processedImage: processedImg,
-            layers: remoteLayers || (localPage ? localPage.layers : undefined) || remotePage.layers,
-            retargeting: remotePage.retargeting ? {
-              ...remotePage.retargeting,
-              sourceImage: localPage?.retargeting?.sourceImage || remotePage.retargeting?.sourceImage
-            } : undefined
-          };
-        }));
-
         const parsedSettings = JSON.parse(data.settings);
-        if (localStyleReference) {
-          parsedSettings.styleReference = localStyleReference;
-        }
-        if (localCharacterReferences && Array.isArray(localCharacterReferences)) {
-          // Merge local character images into remote character references
-          parsedSettings.characterReferences = parsedSettings.characterReferences.map((remoteChar: any) => {
-            const localChar = localCharacterReferences.find((c: any) => c.id === remoteChar.id);
-            if (localChar) {
-              return {
-                ...remoteChar,
-                images: localChar.images || []
-              };
-            }
-            return remoteChar;
-          });
-        }
 
         projects.push({
           id: data.id,
           name: data.name,
           lastModified: data.lastModified,
           settings: parsedSettings,
-          pages: mergedPages,
+          pages: [], // We don't load pages here anymore to save time
           thumbnail: localThumbnail || data.thumbnail,
           currentStep: data.currentStep,
           fullScript: data.fullScript,
           activityScript: data.activityScript,
           nicheTopic: data.nicheTopic,
           nicheResult: data.nicheResult,
-          coverImage: remoteCoverImage || localCoverImage || data.coverImage,
-          coverLayers: remoteCoverLayers || localCoverLayers || (data.coverLayers ? JSON.parse(data.coverLayers) : undefined),
+          coverImage: data.coverImage,
+          coverLayers: data.coverLayers ? JSON.parse(data.coverLayers) : undefined,
           projectContext: data.projectContext,
           enableActivityDesigner: data.enableActivityDesigner,
           globalFixPrompt: data.globalFixPrompt,
@@ -276,6 +216,104 @@ export const persistenceService = {
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, path);
       return [];
+    }
+  },
+
+  async getProject(id: string): Promise<Project | null> {
+    if (!auth.currentUser) return null;
+    const path = `projects/${id}`;
+    try {
+      const docSnap = await getDoc(doc(db, 'projects', id));
+      if (!docSnap.exists()) return null;
+      
+      const data = docSnap.data();
+      
+      // Load local data
+      const localPages = await get(`project_pages_${data.id}`);
+      const localCoverLayers = await get(`project_coverLayers_${data.id}`);
+      const localCoverImage = await get(`project_coverImage_${data.id}`);
+      const localStyleReference = await get(`project_styleReference_${data.id}`);
+      const localCharacterReferences = await get(`project_characterReferences_${data.id}`);
+      const localThumbnail = await get(`project_thumbnail_${data.id}`);
+
+      const remotePages = JSON.parse(data.pages);
+      // Load remote chunks
+      const remoteCoverImage = await persistenceService.loadChunks(data.id, 'project_coverImage', data.id);
+      const remoteCoverLayersStr = await persistenceService.loadChunks(data.id, 'project_coverLayers', data.id);
+      const remoteCoverLayers = remoteCoverLayersStr ? JSON.parse(remoteCoverLayersStr) : undefined;
+      
+      // Merge remote and local images into remote pages based on ID
+      const mergedPages = await Promise.all(remotePages.map(async (remotePage: any) => {
+        const localPage = localPages && Array.isArray(localPages) ? localPages.find((p: any) => p.id === remotePage.id) : undefined;
+        
+        const remoteOriginalImage = await persistenceService.loadChunks(data.id, 'page_originalImage', remotePage.id);
+        const remoteProcessedImage = await persistenceService.loadChunks(data.id, 'page_processedImage', remotePage.id);
+        const remoteLayersStr = await persistenceService.loadChunks(data.id, 'page_layers', remotePage.id);
+        const remoteLayers = remoteLayersStr ? JSON.parse(remoteLayersStr) : undefined;
+        
+        let processedImg = remoteProcessedImage || (localPage ? localPage.processedImage : undefined) || remotePage.processedImage;
+        let originalImg = remoteOriginalImage || (localPage ? localPage.originalImage : undefined) || remotePage.originalImage;
+        
+        // Reset status if completed but images are missing
+        let status = remotePage.status;
+        if (status === 'completed' && !processedImg && !originalImg) {
+          status = 'idle';
+        }
+        
+        return {
+          ...remotePage,
+          status,
+          originalImage: originalImg,
+          processedImage: processedImg,
+          layers: remoteLayers || (localPage ? localPage.layers : undefined) || remotePage.layers,
+          retargeting: remotePage.retargeting ? {
+            ...remotePage.retargeting,
+            sourceImage: localPage?.retargeting?.sourceImage || remotePage.retargeting?.sourceImage
+          } : undefined
+        };
+      }));
+
+      const parsedSettings = JSON.parse(data.settings);
+      if (localStyleReference) {
+        parsedSettings.styleReference = localStyleReference;
+      }
+      if (localCharacterReferences && Array.isArray(localCharacterReferences)) {
+        // Merge local character images into remote character references
+        parsedSettings.characterReferences = parsedSettings.characterReferences.map((remoteChar: any) => {
+          const localChar = localCharacterReferences.find((c: any) => c.id === remoteChar.id);
+          if (localChar) {
+            return {
+              ...remoteChar,
+              images: localChar.images || []
+            };
+          }
+          return remoteChar;
+        });
+      }
+
+      return {
+        id: data.id,
+        name: data.name,
+        lastModified: data.lastModified,
+        settings: parsedSettings,
+        pages: mergedPages,
+        thumbnail: localThumbnail || data.thumbnail,
+        currentStep: data.currentStep,
+        fullScript: data.fullScript,
+        activityScript: data.activityScript,
+        nicheTopic: data.nicheTopic,
+        nicheResult: data.nicheResult,
+        coverImage: remoteCoverImage || localCoverImage || data.coverImage,
+        coverLayers: remoteCoverLayers || localCoverLayers || (data.coverLayers ? JSON.parse(data.coverLayers) : undefined),
+        projectContext: data.projectContext,
+        enableActivityDesigner: data.enableActivityDesigner,
+        globalFixPrompt: data.globalFixPrompt,
+        targetAspectRatio: data.targetAspectRatio,
+        targetResolution: data.targetResolution
+      };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      return null;
     }
   },
 

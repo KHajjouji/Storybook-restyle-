@@ -237,6 +237,9 @@ export const generateBookPDF = async (
       }
       currentPageNum++;
     }
+
+    // Yield to the main thread to prevent UI freezing
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
 
   pdf.save(`${title.replace(/\s+/g, '_')}_PRINT_INTERIOR.pdf`);

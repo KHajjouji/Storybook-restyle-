@@ -253,6 +253,7 @@ const App: React.FC = () => {
   const [activeHotspotLabel, setActiveHotspotLabel] = useState(1);
 
   const [showProjectsModal, setShowProjectsModal] = useState(false);
+  const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
   const [savedProjects, setSavedProjects] = useState<Project[]>([]);
   const [userStyles, setUserStyles] = useState<import('./types').UserStyle[]>([]);
   const [recentProject, setRecentProject] = useState<Project | null>(null);
@@ -350,24 +351,39 @@ const App: React.FC = () => {
     setShowProjectsModal(true);
   };
 
-  const handleLoadProject = (proj: Project) => {
-    setProjectId(proj.id);
-    setProjectName(proj.name);
-    setSettings(proj.settings);
-    setPages(proj.pages);
-    setFullScript(proj.fullScript || "");
-    setActivityScript(proj.activityScript || "");
-    setNicheTopic(proj.nicheTopic || "");
-    setNicheResult(proj.nicheResult || "");
-    setCoverImage(proj.coverImage || null);
-    setCoverLayers(proj.coverLayers || []);
-    setProjectContext(proj.projectContext || "");
-    setEnableActivityDesigner(proj.enableActivityDesigner || false);
-    setGlobalFixPrompt(proj.globalFixPrompt || "Keep character facial features and clothing consistent with reference images.");
-    setTargetAspectRatio(proj.targetAspectRatio || '4:3');
-    setTargetResolution(proj.targetResolution || '1K');
-    setShowProjectsModal(false);
-    setCurrentStep((proj.currentStep as Step) || 'restyle-editor');
+  const handleLoadProject = async (proj: Project) => {
+    setIsProcessing(true);
+    setLoadingProjectId(proj.id);
+    try {
+      const fullProj = await persistenceService.getProject(proj.id);
+      if (!fullProj) {
+        showToast("Failed to load project.");
+        return;
+      }
+      setProjectId(fullProj.id);
+      setProjectName(fullProj.name);
+      setSettings(fullProj.settings);
+      setPages(fullProj.pages);
+      setFullScript(fullProj.fullScript || "");
+      setActivityScript(fullProj.activityScript || "");
+      setNicheTopic(fullProj.nicheTopic || "");
+      setNicheResult(fullProj.nicheResult || "");
+      setCoverImage(fullProj.coverImage || null);
+      setCoverLayers(fullProj.coverLayers || []);
+      setProjectContext(fullProj.projectContext || "");
+      setEnableActivityDesigner(fullProj.enableActivityDesigner || false);
+      setGlobalFixPrompt(fullProj.globalFixPrompt || "Keep character facial features and clothing consistent with reference images.");
+      setTargetAspectRatio(fullProj.targetAspectRatio || '4:3');
+      setTargetResolution(fullProj.targetResolution || '1K');
+      setShowProjectsModal(false);
+      setCurrentStep((fullProj.currentStep as Step) || 'restyle-editor');
+    } catch (e) {
+      console.error(e);
+      showToast("Error loading project.");
+    } finally {
+      setIsProcessing(false);
+      setLoadingProjectId(null);
+    }
   };
 
   const retargetSourceInputRef = useRef<HTMLInputElement>(null);
@@ -1172,9 +1188,15 @@ const App: React.FC = () => {
                     {savedProjects.slice(0, 4).map(proj => (
                       <button
                         key={proj.id}
+                        disabled={isProcessing}
                         onClick={() => handleLoadProject(proj)}
-                        className="group bg-white border-2 border-slate-100 rounded-[2rem] overflow-hidden hover:border-indigo-300 hover:shadow-xl transition-all text-left"
+                        className="group bg-white border-2 border-slate-100 rounded-[2rem] overflow-hidden hover:border-indigo-300 hover:shadow-xl transition-all text-left relative disabled:opacity-50"
                       >
+                        {loadingProjectId === proj.id && (
+                          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex items-center justify-center">
+                            <Loader2 className="animate-spin text-indigo-600" size={32} />
+                          </div>
+                        )}
                         <div className="aspect-square bg-slate-100 overflow-hidden">
                           {proj.thumbnail ? (
                             <img src={proj.thumbnail} alt={proj.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
@@ -1243,10 +1265,12 @@ const App: React.FC = () => {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
               {recentProject && (
-                <button onClick={() => handleLoadProject(recentProject)} className="group p-10 bg-indigo-50 border-2 border-indigo-200 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden md:col-span-2 lg:col-span-3 flex items-center gap-8">
-                  <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition-transform"><FolderOpen size={40} /></div>
+                <button disabled={isProcessing} onClick={() => handleLoadProject(recentProject)} className="group p-10 bg-indigo-50 border-2 border-indigo-200 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden md:col-span-2 lg:col-span-3 flex items-center gap-8 disabled:opacity-50">
+                  <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition-transform">
+                    {loadingProjectId === recentProject.id ? <Loader2 size={40} className="animate-spin" /> : <FolderOpen size={40} />}
+                  </div>
                   <div>
-                    <h4 className="text-3xl font-black mb-2 text-slate-900">Resume Project: {recentProject.name}</h4>
+                    <h4 className="text-3xl font-black mb-2 text-slate-900">{loadingProjectId === recentProject.id ? "Loading Project..." : `Resume Project: ${recentProject.name}`}</h4>
                     <p className="text-indigo-600 font-medium text-lg">Pick up right where you left off. All your generated pages and settings are saved.</p>
                   </div>
                 </button>
@@ -2129,7 +2153,21 @@ const App: React.FC = () => {
                       ))}
                   </div>
                   <div className="space-y-6">
-                    <button onClick={() => generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode, settings.textFont)} className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8"><Download size={48} /> DOWNLOAD INTERIOR PDF</button>
+                    <button 
+                      disabled={isProcessing}
+                      onClick={async () => {
+                        setIsProcessing(true);
+                        try {
+                          await generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode, settings.textFont);
+                        } finally {
+                          setIsProcessing(false);
+                        }
+                      }} 
+                      className="w-full py-12 bg-emerald-600 text-white rounded-[4rem] font-black text-4xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-8 disabled:opacity-50"
+                    >
+                      {isProcessing ? <Loader2 className="animate-spin" size={48} /> : <Download size={48} />} 
+                      {isProcessing ? "GENERATING PDF (MAY TAKE A WHILE)..." : "DOWNLOAD INTERIOR PDF"}
+                    </button>
                     <button onClick={() => exportProjectAssetsForCanva(pages, projectName)} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-4"><Layers size={32} /> DOWNLOAD ASSETS FOR CANVA / PHOTOSHOP</button>
                     <button onClick={() => setCurrentStep('cover-master')} className="w-full py-8 bg-amber-50 text-amber-600 rounded-[3rem] font-black text-2xl shadow-sm hover:bg-amber-100 transition-all flex items-center justify-center gap-4">GO TO COVER DESIGNER <ChevronRight size={32} /></button>
                   </div>
@@ -2696,11 +2734,13 @@ const App: React.FC = () => {
                         <p className="text-slate-500 font-medium text-sm mt-2">Last modified: {new Date(proj.lastModified).toLocaleDateString()}</p>
                       </div>
                       <div className="flex gap-4 mt-auto">
-                        <button onClick={() => handleLoadProject(proj)} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm hover:bg-indigo-700 transition-colors">LOAD</button>
-                        <button onClick={async () => {
+                        <button disabled={isProcessing} onClick={() => handleLoadProject(proj)} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50">
+                          {loadingProjectId === proj.id ? "LOADING..." : "LOAD"}
+                        </button>
+                        <button disabled={isProcessing} onClick={async () => {
                           await persistenceService.deleteProject(proj.id);
                           setSavedProjects(savedProjects.filter(p => p.id !== proj.id));
-                        }} className="p-4 bg-rose-100 text-rose-600 rounded-2xl hover:bg-rose-600 hover:text-white transition-colors"><X size={24} /></button>
+                        }} className="p-4 bg-rose-100 text-rose-600 rounded-2xl hover:bg-rose-600 hover:text-white transition-colors disabled:opacity-50"><X size={24} /></button>
                       </div>
                     </div>
                   ))
