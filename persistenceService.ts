@@ -321,7 +321,7 @@ export const persistenceService = {
         data = {
           ...found,
           settings: JSON.stringify(found.settings),
-          pages: JSON.stringify([]) // Pages will be loaded from local storage below
+          pages: JSON.stringify([]) // Initial placeholder
         };
       } else {
         // Absolutely no record of this project locally or remotely
@@ -341,7 +341,18 @@ export const persistenceService = {
       const localCharacterReferences = await get(`project_characterReferences_${data.id}`);
       const localThumbnail = await get(`project_thumbnail_${data.id}`);
 
-      const remotePages = JSON.parse(data.pages);
+      let remotePages = data.pages ? JSON.parse(data.pages) : [];
+      
+      // If server has no pages but we have local pages, use local pages as source of truth
+      if ((!remotePages || remotePages.length === 0) && localPages && Array.isArray(localPages)) {
+        remotePages = localPages.map((lp: any) => ({
+          id: lp.id,
+          status: lp.status || 'idle',
+          prompt: lp.prompt || '',
+          retargeting: lp.retargeting
+        }));
+      }
+
       // Load remote chunks ONLY if not available locally
       let remoteCoverImage = localCoverImage || data.coverImage;
       if (!remoteCoverImage) {
