@@ -231,7 +231,8 @@ export const generateBookCover = async (
   ${masterBible}
   
   LAYOUT RULES FOR KDP COVER: ${formatRules}
-  - SPINE: If this is a full wrap cover, leave space in the center for the spine.
+  - SPINE SAFETY ZONE: This is a full wrap cover. The EXACT VERTICAL CENTER is the spine of the book.
+  - CRITICAL: DO NOT place any faces, characters, or important details in the dead center (spine). Keep the main cover art on the Right side (front cover) and Left side (back cover).
 
   RULES:
   1. Generate a SINGLE professional book cover illustration.
@@ -1010,7 +1011,8 @@ export const generateLayeredCover = async (
 
   const coverRules = `
   LAYOUT RULES FOR KDP COVER: ${formatRules}
-  - SPINE: If this is a full wrap cover, leave space in the center for the spine. Do not place critical text across the spine folds.
+  - SPINE SAFETY ZONE: This is a full wrap cover. The EXACT VERTICAL CENTER is the spine of the book.
+  - CRITICAL: DO NOT place any faces, characters, or important details in the dead center (spine). Keep the main cover art on the Right side (front cover) and Left side (back cover).
   `;
 
   // 1. BACKGROUND LAYER
