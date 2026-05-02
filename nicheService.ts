@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 export const searchBookNiches = async (topic: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-pro',
+    model: 'gemini-3.1-pro-preview',
     contents: `Act as a market research expert for self-publishing (similar to tools like Book Beam). 
     Analyze the current market demand, competition, and profitability for books related to: "${topic}".
     Use Google Search to find real-time data, trends, and popular sub-niches.

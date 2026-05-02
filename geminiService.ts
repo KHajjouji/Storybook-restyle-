@@ -87,7 +87,7 @@ export const parsePromptPack = async (rawText: string): Promise<{
 }> => {
   const ai = getAIClient();
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: `Analyze the provided script to extract structural production data.
     
     1. EXTRACT MASTER BIBLE: Look for style lock instructions.
@@ -148,7 +148,7 @@ export const parseActivityPack = async (rawText: string): Promise<{
 }> => {
   const ai = getAIClient();
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: `Break down this Activity Master Prompt into individual spreads.
     Extract the "GLOBAL" section separately.
     For each "SPREAD X" or "ACTIVITY PAGE X":
@@ -261,7 +261,7 @@ export const generateBookCover = async (
   });
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash-image',
+    model: 'gemini-3.1-flash-image-preview',
     contents: { parts },
     config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, true, estimatedPageCount, targetAspectRatio), imageSize: targetResolution } }
   });
@@ -287,7 +287,7 @@ export const identifyAndDesignCharacters = async (charDescription: string, style
   - Solid white background.`;
 
   const imgResponse: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash-image',
+    model: 'gemini-3.1-flash-image-preview',
     contents: { parts: [{ text: instruction }] },
     config: { imageConfig: { aspectRatio: '1:1', imageSize: '1K' } }
   });
@@ -331,7 +331,7 @@ export const restyleIllustration = async (
   environmentRefBase64?: string
 ): Promise<string> => {
   const ai = getAIClient();
-  const model = usePro ? 'gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+  const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-3.1-flash-image-preview';
   
   let formatRules = "";
   if (exportFormat && PRINT_FORMATS[exportFormat]) {
@@ -503,7 +503,7 @@ export const refineIllustration = async (
   });
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash-image',
+    model: 'gemini-3.1-flash-image-preview',
     contents: { parts },
     config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), imageSize } }
   });
@@ -530,7 +530,7 @@ export const upscaleIllustration = async (
   const data = currentImageBase64.includes(',') ? currentImageBase64.split(',')[1] : currentImageBase64;
   
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash-image',
+    model: 'gemini-3.1-flash-image-preview',
     contents: {
       parts: [
         { inlineData: { data, mimeType: 'image/png' } },
@@ -552,7 +552,7 @@ export const translateText = async (text: string, targetLanguage: string): Promi
   if (targetLanguage === 'NONE_CLEAN_BG' || targetLanguage === 'English') return text;
   const ai = getAIClient();
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: `Translate to ${targetLanguage}: "${text}"`,
   });
   return response.text?.trim() || text;
@@ -563,7 +563,7 @@ export const analyzeStyleFromImage = async (imageBase64: string): Promise<string
   const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
   const mimeType = imageBase64.includes(',') ? imageBase64.split(';')[0].split(':')[1] : 'image/png';
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: { parts: [{ inlineData: { data, mimeType } }, { text: "Analyze the illustration style of this image in detail. Provide a comprehensive prompt that can be used to generate images in this exact style. Include details about medium, lighting, color palette, line work, shading, and overall mood. Format it as a single paragraph starting with 'STYLE LOCK:'." }] }
   });
   return response.text?.trim() || "";
@@ -594,7 +594,7 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
     Script: ${fullScript}`;
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
@@ -640,7 +640,7 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string>
   const ai = getAIClient();
   const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     contents: { parts: [{ inlineData: { data, mimeType: 'image/png' } }, { text: "Extract text." }] },
   });
   return response.text?.trim() || "";
@@ -1135,7 +1135,7 @@ export const retargetCharacters = async (
   ];
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-2.5-flash-image',
+    model: 'gemini-3.1-flash-image-preview',
     contents: { parts },
     config: { imageConfig: { aspectRatio, imageSize } }
   });

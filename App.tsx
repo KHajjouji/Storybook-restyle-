@@ -889,7 +889,7 @@ const App: React.FC = () => {
         ctx.drawImage(img, 0, 0, width, height);
         const base64 = canvas.toDataURL('image/jpeg', 0.8);
         try {
-          // analyzeStyle uses gemini-2.5-flash which is free, so no key check needed.
+          // analyzeStyle uses gemini-3-flash-preview which is free, so no key check needed.
           const stylePrompt = await analyzeStyleFromImage(base64);
           
           const newStyle: import('./types').UserStyle = {
