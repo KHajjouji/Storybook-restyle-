@@ -322,14 +322,16 @@ const App: React.FC = () => {
             setRecentProject(projs[0]);
           }
         } catch (e) {
-          console.warn("Could not load projects (quota exceeded?)", e);
+          console.warn("Could not load projects", e);
+          const errMsg = e instanceof Error ? e.message : String(e);
+          showToast(`App startup error (projects): ${errMsg}`);
         }
         
         try {
           const styles = await persistenceService.getUserStyles();
           setUserStyles(styles);
         } catch (e) {
-          console.warn("Could not load user styles (quota exceeded?)", e);
+          console.warn("Could not load user styles", e);
         }
         
         return () => {
@@ -375,7 +377,8 @@ const App: React.FC = () => {
       setShowProjectsModal(true);
     } catch (e) {
       console.error(e);
-      showToast("Cannot load projects right now. Server quota may be exceeded.");
+      const errMsg = e instanceof Error ? e.message : String(e);
+      showToast(`Error: ${errMsg}. Please try again later.`);
       setShowProjectsModal(false);
     }
   };
@@ -483,8 +486,9 @@ const App: React.FC = () => {
       setSaveMessage("Project saved successfully!");
     } catch (e) {
       console.error(e);
-      setSaveMessage("Error saving. Server quota may be exceeded.");
-      showToast("Error saving project data.");
+      const errMsg = e instanceof Error ? e.message : String(e);
+      setSaveMessage(`Error saving: ${errMsg}`);
+      showToast(`Error saving project data. ${errMsg}`);
     }
     setTimeout(() => setSaveMessage(""), 3000);
   };
