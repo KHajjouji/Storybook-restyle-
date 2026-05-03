@@ -3,7 +3,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Sparkles, BookOpen, Download, Trash2, Save,
   Loader2, AlertCircle, CheckCircle2, ChevronRight, 
-  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid, TrendingUp, Key, CreditCard
+  ChevronLeft, Plus, MapPin, Layers, Palette, Columns, Wand2, Edit3, RefreshCw, X, Rocket, Clock, Cloud, FolderOpen, MoreVertical, Maximize2, Zap, FileText, ClipboardList, UserCheck, Layout, Info, Image as ImageIcon, Heart, LogIn, LogOut, User, Lock, Mail, DatabaseZap, Database, Globe, ArrowRight, ShieldCheck, Link2, Settings2, KeyRound, FileUp, FileDown, Monitor, MessageSquareCode, Scissors, ToggleLeft as Toggle, Settings, Check, Frame, BookMarked, Megaphone, QrCode, FileCheck, Ruler, Book, PenTool, Eraser, Maximize, Eye, EyeOff, Grid, TrendingUp, Key, CreditCard, FilePlus
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { BookPage, AppSettings, PRINT_FORMATS, CharacterRef, CharacterAssignment, AppMode, Project, SeriesPreset, ExportFormat, Hotspot, CharacterRetargeting, BookLayer, UserMode } from './types';
@@ -501,6 +501,42 @@ const App: React.FC = () => {
       showToast(`Error saving project data. ${errMsg}`);
     }
     setTimeout(() => setSaveMessage(""), 3000);
+  };
+
+  const handleStartNewProject = () => {
+    setProjectId(Math.random().toString(36).substring(7));
+    setProjectName("Untitled Project");
+    setPages([]);
+    setFullScript("");
+    setActivityScript("");
+    setProjectContext("");
+    setCoverImage(null);
+    setCoverLayers([]);
+    setSettings({
+      mode: 'create',
+      targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines',
+      targetLanguage: 'NONE_CLEAN_BG',
+      exportFormat: 'KDP_8_5x8_5',
+      spreadExportMode: 'WIDE_SPREAD',
+      useProModel: true,
+      embedTextInImage: false,
+      layeredMode: false,
+      overlayText: false,
+      textFont: 'Inter',
+      characterReferences: [],
+      showSafeGuides: true,
+      masterBible: "",
+      estimatedPageCount: 100
+    });
+    setEnableActivityDesigner(false);
+    setGlobalFixPrompt("Keep character facial features and clothing consistent with reference images.");
+    setTargetAspectRatio('4:3');
+    setTargetResolution('1K');
+    setSelectedCoverCharIds(new Set());
+    setNicheTopic("");
+    setNicheResult("");
+    setCurrentStep('landing');
+    showToast("Started a new project");
   };
 
   useEffect(() => {
@@ -2702,6 +2738,7 @@ const App: React.FC = () => {
                 <input className="bg-transparent border-none outline-none font-black text-slate-800 text-2xl w-96" value={projectName} onChange={e => setProjectName(e.target.value)} />
                 <div className="flex gap-4 items-center">
                    {saveMessage && <span className="text-emerald-500 font-bold text-sm mr-2 animate-in fade-in slide-in-from-right-4">{saveMessage}</span>}
+                   <button onClick={handleStartNewProject} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="New Project"><FilePlus size={28} /></button>
                    <button onClick={triggerManualSave} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Save Project"><Save size={28} /></button>
                    <button onClick={handleOpenProjects} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Load Project"><FolderOpen size={28} /></button>
                    <button onClick={handleExportProjectFile} className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Export Project"><FileDown size={28} /></button>
