@@ -272,6 +272,38 @@ const App: React.FC = () => {
   const [showCanvaModal, setShowCanvaModal] = useState(false);
   const [canvaModalPages, setCanvaModalPages] = useState<BookPage[]>([]);
 
+  const renderProjectThumbnails = (proj: Project, className: string = "w-full h-48 flex flex-wrap bg-slate-200") => {
+    const validImages: string[] = [];
+    proj.pages?.forEach(p => {
+       if (p.processedImage) validImages.push(p.processedImage);
+       else if (p.originalImage) validImages.push(p.originalImage);
+    });
+    if (validImages.length === 0 && proj.coverImage) validImages.push(proj.coverImage);
+    if (validImages.length === 0 && proj.thumbnail) validImages.push(proj.thumbnail);
+  
+    if (validImages.length > 0) {
+      return (
+        <div className={className}>
+          {validImages.slice(0, 4).map((img, i) => (
+            <div key={i} className={`relative ${validImages.length === 1 ? 'w-full h-full' : validImages.length === 2 ? 'w-1/2 h-full' : validImages.length === 3 ? (i === 0 ? 'w-full h-1/2' : 'w-1/2 h-1/2') : 'w-1/2 h-1/2'} border-white border-[0.5px]`}>
+              <img src={img} className="w-full h-full object-cover" alt="Thumbnail" />
+              {i === 3 && validImages.length > 4 && (
+                <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center text-white font-black text-xl">
+                  +{validImages.length - 4}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className={className + " items-center justify-center text-slate-300 flex"}>
+        <BookOpen size={40} />
+      </div>
+    );
+  };
+
   const handleToggleUserMode = () => {
     const next: UserMode = userMode === 'simple' ? 'professional' : 'simple';
     setUserMode(next);
@@ -1282,14 +1314,8 @@ const App: React.FC = () => {
                             <Loader2 className="animate-spin text-indigo-600" size={32} />
                           </div>
                         )}
-                        <div className="aspect-square bg-slate-100 overflow-hidden">
-                          {proj.thumbnail ? (
-                            <img src={proj.thumbnail} alt={proj.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-300">
-                              <BookOpen size={40} />
-                            </div>
-                          )}
+                        <div className="aspect-square bg-slate-100 overflow-hidden relative">
+                          {renderProjectThumbnails(proj, "w-full h-full flex flex-wrap bg-slate-200 group-hover:scale-105 transition-transform origin-center")}
                         </div>
                         <div className="p-4">
                           <p className="font-black text-slate-900 text-sm truncate">{proj.name}</p>
@@ -1351,8 +1377,12 @@ const App: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
               {recentProject && (
                 <button disabled={isProcessing} onClick={() => handleLoadProject(recentProject)} className="group p-10 bg-indigo-50 border-2 border-indigo-200 rounded-[4rem] text-left hover:border-indigo-600 hover:shadow-2xl transition-all relative overflow-hidden md:col-span-2 lg:col-span-3 flex items-center gap-8 disabled:opacity-50">
-                  <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition-transform">
-                    {loadingProjectId === recentProject.id ? <Loader2 size={40} className="animate-spin" /> : <FolderOpen size={40} />}
+                  <div className="w-24 h-24 bg-indigo-600 rounded-3xl flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition-transform overflow-hidden shadow-inner">
+                    {loadingProjectId === recentProject.id ? (
+                       <Loader2 size={40} className="animate-spin" />
+                    ) : (
+                       renderProjectThumbnails(recentProject, "w-full h-full flex flex-wrap bg-slate-200")
+                    )}
                   </div>
                   <div>
                     <h4 className="text-3xl font-black mb-2 text-slate-900">{loadingProjectId === recentProject.id ? "Loading Project..." : `Resume Project: ${recentProject.name}`}</h4>
@@ -2820,13 +2850,9 @@ const App: React.FC = () => {
                 ) : (
                   savedProjects.map(proj => (
                     <div key={proj.id} className="bg-slate-50 rounded-[3rem] p-8 flex flex-col gap-6 shadow-sm border border-slate-100 hover:border-indigo-200 transition-colors group">
-                      {proj.thumbnail ? (
-                        <img src={proj.thumbnail} className="w-full h-48 object-cover rounded-[2rem] shadow-inner" />
-                      ) : (
-                        <div className="w-full h-48 bg-slate-200 rounded-[2rem] flex items-center justify-center text-slate-400 shadow-inner">
-                          <ImageIcon size={48} />
-                        </div>
-                      )}
+                      <div className="rounded-[2rem] overflow-hidden">
+                        {renderProjectThumbnails(proj, "w-full h-48 flex flex-wrap bg-slate-200 group-hover:scale-[1.02] transition-transform origin-center")}
+                      </div>
                       <div>
                         <h4 className="text-2xl font-black text-slate-900 truncate">{proj.name}</h4>
                         <p className="text-slate-500 font-medium text-sm mt-2">Last modified: {new Date(proj.lastModified).toLocaleDateString()}</p>
