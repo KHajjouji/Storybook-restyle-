@@ -14,7 +14,7 @@ import { CanvaExportModal } from './components/CanvaExportModal';
 import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers } from './geminiService';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont } from './geminiService';
 import { searchBookNiches } from './nicheService';
 import Markdown from 'react-markdown';
 import { generateBookPDF, generateCoverPDF } from './utils/pdfGenerator';
@@ -24,6 +24,7 @@ import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
 import { getInsideMargin } from './kdpConfig';
 import { KdpPdfFixer } from './components/KdpPdfFixer';
 import { AdminModal } from './components/AdminModal';
+import { GOOGLE_FONTS, STORY_TYPES, loadGoogleFont } from './utils/fontLoader';
 
 type Step = 'landing' | 'upload' | 'restyle-editor' | 'script' | 'prompt-pack' | 'characters' | 'generate' | 'direct-upscale' | 'cover-master' | 'production-layout' | 'activity-builder' | 'retarget-editor' | 'niche-research' | 'kdp-fixer';
 
@@ -605,6 +606,12 @@ const App: React.FC = () => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isProcessing, pages]);
 
+  useEffect(() => {
+    if (settings.textFont) {
+      loadGoogleFont(settings.textFont).catch(console.error);
+    }
+  }, [settings.textFont]);
+
   if (!isAuthReady) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -925,6 +932,26 @@ const App: React.FC = () => {
     }
     
     setIsProcessing(false);
+  };
+
+  const handleAISelectFont = async () => {
+    setIsProcessing(true);
+    try {
+      const sampleText = pages.find(p => p.originalText)?.originalText || "A brave little adventurer stepped carefully through the magical forest, wondering what surprises were hiding behind the giant glowing mushrooms.";
+      const fontData = await selectStoryFont(settings.masterBible || projectContext || settings.targetStyle, sampleText);
+      setSettings(prev => ({
+        ...prev,
+        textFont: fontData.fontName,
+        storyType: fontData.storyType,
+        overlayTextSize: fontData.fontSize
+      }));
+      showToast('AI Typography logic applied: ' + fontData.fontName + ' (' + fontData.storyType + ')');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to select font via AI');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleCharImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1683,26 +1710,62 @@ const App: React.FC = () => {
                     <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, the original text will be overlaid on the generated PDF pages.</p>
                     {settings.overlayText && (
                       <div className="px-4 mt-2 space-y-4">
+                        <button onClick={handleAISelectFont} disabled={isProcessing} className="w-full flex items-center justify-center gap-2 bg-indigo-50 text-indigo-600 rounded-xl py-3 font-black text-xs uppercase tracking-widest hover:bg-indigo-100 transition-colors">
+                            {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                            AI Auto-Select Typography
+                        </button>
+                        
                         <div>
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Font Family</label>
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Story Type</label>
                           <select 
-                            value={settings.textFont || 'Inter'} 
-                            onChange={(e) => setSettings({...settings, textFont: e.target.value})}
+                            value={settings.storyType || 'picture-book'} 
+                            onChange={(e) => setSettings({...settings, storyType: e.target.value})}
                             className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
                           >
-                            <option value="Inter">Inter (Sans)</option>
-                            <option value="Outfit">Outfit (Display)</option>
-                            <option value="Fredoka">Fredoka (Friendly)</option>
-                            <option value="Patrick Hand">Patrick Hand (Handwritten)</option>
-                            <option value="Chewy">Chewy (Chunky Playful)</option>
-                            <option value="Quicksand">Quicksand (Rounded)</option>
-                            <option value="Nunito">Nunito (Soft Sans)</option>
-                            <option value="Amatic SC">Amatic SC (Tall Quirky)</option>
-                            <option value="Comic Sans MS">Comic Sans (Playful)</option>
-                            <option value="Georgia">Georgia (Serif)</option>
-                            <option value="Courier New">Courier (Mono)</option>
+                            {STORY_TYPES.map(st => (
+                                <option key={st.id} value={st.id}>{st.name}</option>
+                            ))}
                           </select>
                         </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Font Family</label>
+                            <select 
+                              value={settings.textFont || 'Inter'} 
+                              onChange={(e) => setSettings({...settings, textFont: e.target.value})}
+                              className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3 truncate"
+                            >
+                              {GOOGLE_FONTS.map(f => (
+                                  <option key={f.name} value={f.name}>{f.name} ({f.category})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Font Size (pt)</label>
+                            <input 
+                              type="number" 
+                              value={settings.overlayTextSize || 24}
+                              onChange={(e) => setSettings({...settings, overlayTextSize: parseInt(e.target.value) || 24})}
+                              className="w-full h-12 bg-slate-100 border-none rounded-xl p-3 font-bold text-slate-700"
+                              min={14} max={48}
+                            />
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Spread Text Side</label>
+                          <select 
+                            value={settings.spreadTextSide || 'right'} 
+                            onChange={(e) => setSettings({...settings, spreadTextSide: e.target.value as any})}
+                            className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
+                          >
+                            <option value="right">Right Page (Default)</option>
+                            <option value="left">Left Page</option>
+                            <option value="both">Both (Bilingual / Split)</option>
+                          </select>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Text Color</label>
@@ -1783,27 +1846,98 @@ const App: React.FC = () => {
                       {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
                       <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
                       {settings.overlayText && p.originalText && (
-                        <div className={`absolute inset-0 flex p-[5%] pointer-events-none
+                        <div className={`absolute inset-0 flex pointer-events-none p-[5%]
                           ${settings.overlayTextPosition === 'top' ? 'items-start' : 
                             settings.overlayTextPosition === 'center' ? 'items-center' : 'items-end'
                           } justify-center`}
                         >
-                          <div className={`
-                            ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
-                            ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
-                            ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
-                          `}>
-                            <p 
-                              className={`text-center text-2xl font-bold whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
-                              style={{ 
-                                fontFamily: settings.textFont || 'Inter',
-                                color: settings.overlayTextColor || '#000000',
-                                textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
-                              }}
-                            >
-                              {p.originalText}
-                            </p>
-                          </div>
+                          {(!p.isSpread || settings.spreadTextSide === 'both') && (
+                            <div className={`${p.isSpread ? 'w-1/2 flex justify-center' : 'w-full flex justify-center'}`}>
+                              <div className={`
+                                ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
+                                ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                              `}>
+                                <p 
+                                  className={`text-center transition-all whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
+                                  style={{ 
+                                    fontFamily: settings.textFont || 'Inter',
+                                    fontSize: `${(settings.overlayTextSize || 24) * 0.75}px`,
+                                    color: settings.overlayTextColor || '#000000',
+                                    textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
+                                  }}
+                                >
+                                  {settings.spreadTextSide === 'both' ? (p.originalText.split('||')[0] || p.originalText) : p.originalText}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {p.isSpread && settings.spreadTextSide === 'left' && (
+                             <div className="w-1/2 flex justify-center pr-4">
+                                <div className={`
+                                  ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
+                                  ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                  ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                `}>
+                                  <p 
+                                    className={`text-center transition-all whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
+                                    style={{ 
+                                      fontFamily: settings.textFont || 'Inter',
+                                      fontSize: `${(settings.overlayTextSize || 24) * 0.75}px`,
+                                      color: settings.overlayTextColor || '#000000',
+                                      textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
+                                    }}
+                                  >
+                                    {p.originalText}
+                                  </p>
+                                </div>
+                             </div>
+                          )}
+
+                          {p.isSpread && (settings.spreadTextSide === 'right' || !settings.spreadTextSide) && (
+                             <div className="w-1/2 flex justify-center ml-[50%] pl-4 absolute">
+                                <div className={`
+                                  ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
+                                  ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                  ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                `}>
+                                  <p 
+                                    className={`text-center transition-all whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
+                                    style={{ 
+                                      fontFamily: settings.textFont || 'Inter',
+                                      fontSize: `${(settings.overlayTextSize || 24) * 0.75}px`,
+                                      color: settings.overlayTextColor || '#000000',
+                                      textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
+                                    }}
+                                  >
+                                    {p.originalText}
+                                  </p>
+                                </div>
+                             </div>
+                          )}
+
+                          {p.isSpread && settings.spreadTextSide === 'both' && (
+                             <div className="w-1/2 flex justify-center pl-4">
+                               <div className={`
+                                 ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
+                                 ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                 ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                               `}>
+                                 <p 
+                                   className={`text-center transition-all whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
+                                   style={{ 
+                                     fontFamily: settings.textFont || 'Inter',
+                                     fontSize: `${(settings.overlayTextSize || 24) * 0.75}px`,
+                                     color: settings.overlayTextColor || '#000000',
+                                     textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
+                                   }}
+                                 >
+                                   {p.originalText.split('||')[1] || p.originalText}
+                                 </p>
+                               </div>
+                             </div>
+                          )}
                         </div>
                       )}
                     </div>

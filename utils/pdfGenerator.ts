@@ -79,9 +79,14 @@ export const generateBookPDF = async (
     format: [singleFullWidth, fullHeight]
   });
 
+  const { loadGoogleFont } = await import('./fontLoader');
+
   let currentPageNum = 1;
 
-  const createTextImage = (text: string, widthIn: number, heightIn: number, safeLeftIn: number, safeRightIn: number, safeBottomIn: number): string => {
+  const createTextImageAsync = async (text: string, widthIn: number, heightIn: number, safeLeftIn: number, safeRightIn: number, safeBottomIn: number): Promise<string> => {
+    if (settings.textFont) {
+      await loadGoogleFont(settings.textFont);
+    }
     const dpi = 300;
     const canvas = document.createElement('canvas');
     canvas.width = widthIn * dpi;
@@ -90,7 +95,7 @@ export const generateBookPDF = async (
     if (!ctx) return '';
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const fontSize = 24 * (dpi/72);
+    const fontSize = (settings.overlayTextSize || 24) * (dpi/72);
     ctx.font = `bold ${fontSize}px ${settings.textFont || 'Inter'}, sans-serif`;
     ctx.fillStyle = settings.overlayTextColor || 'black';
     ctx.textAlign = 'center';
@@ -117,7 +122,10 @@ export const generateBookPDF = async (
     }
     lines.push(line);
     
-    const lineHeight = 30 * (dpi/72);
+    const maxLineWidthPx = Math.max(...lines.map(l => ctx.measureText(l.trim()).width));
+    const actualWidthPx = Math.min(maxWidthPx, maxLineWidthPx);
+
+    const lineHeight = (settings.overlayTextSize || 24) * 1.25 * (dpi/72);
     const totalHeight = lines.length * lineHeight;
     let startY = safeBottomPx - totalHeight + lineHeight; // default bottom
     
@@ -136,11 +144,11 @@ export const generateBookPDF = async (
       ctx.fillStyle = bgColor;
       const boxPad = fontSize * 0.75;
       ctx.beginPath();
-      // approximate rect
+      // Use actual width instead of max width for tighter background box
       ctx.roundRect(
-        centerXPx - (maxWidthPx / 2) - boxPad, 
+        centerXPx - (actualWidthPx / 2) - boxPad, 
         startY - lineHeight - boxPad + (lineHeight * 0.25), 
-        maxWidthPx + (boxPad * 2), 
+        actualWidthPx + (boxPad * 2), 
         totalHeight + (boxPad * 2),
         fontSize * 0.5
       );
@@ -193,19 +201,64 @@ export const generateBookPDF = async (
         // Active Text (Dynamic)
         if (overlayText && page.originalText && !textLayer) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
-          const safeLeft = config.outside + config.bleed;
-          const safeRight = spreadWidth - config.outside - config.bleed;
-          const textImg = createTextImage(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom);
-          if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+          
+          if (settings.spreadTextSide === 'left') {
+            const safeLeft = config.outside + config.bleed;
+            const safeRight = (spreadWidth / 2) - gutter;
+            const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom);
+            if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+          } else if (settings.spreadTextSide === 'both') {
+            // Bilingual or both pages text
+            const textParts = page.originalText.split('||');
+            const leftText = textParts[0] || page.originalText;
+            const rightText = textParts[1] || page.originalText;
+            
+            const safeLeftL = config.outside + config.bleed;
+            const safeRightL = (spreadWidth / 2) - gutter;
+            const textImgL = await createTextImageAsync(leftText, spreadWidth, fullHeight, safeLeftL, safeRightL, safeBottom);
+            if (textImgL) pdf.addImage(textImgL, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+            
+            const safeLeftR = (spreadWidth / 2) + gutter;
+            const safeRightR = spreadWidth - config.outside - config.bleed;
+            const textImgR = await createTextImageAsync(rightText, spreadWidth, fullHeight, safeLeftR, safeRightR, safeBottom);
+            if (textImgR) pdf.addImage(textImgR, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+          } else { // default 'right'
+            const safeLeft = (spreadWidth / 2) + gutter;
+            const safeRight = spreadWidth - config.outside - config.bleed;
+            const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom);
+            if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+          }
         }
       } else {
         pdf.addImage(image, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
-          const safeLeft = config.outside + config.bleed;
-          const safeRight = spreadWidth - config.outside - config.bleed;
-          const textImg = createTextImage(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom);
-          if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+          
+          if (settings.spreadTextSide === 'left') {
+            const safeLeft = config.outside + config.bleed;
+            const safeRight = (spreadWidth / 2) - gutter;
+            const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom);
+            if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+          } else if (settings.spreadTextSide === 'both') {
+            const textParts = page.originalText.split('||');
+            const leftText = textParts[0] || page.originalText;
+            const rightText = textParts[1] || page.originalText;
+            
+            const safeLeftL = config.outside + config.bleed;
+            const safeRightL = (spreadWidth / 2) - gutter;
+            const textImgL = await createTextImageAsync(leftText, spreadWidth, fullHeight, safeLeftL, safeRightL, safeBottom);
+            if (textImgL) pdf.addImage(textImgL, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+            
+            const safeLeftR = (spreadWidth / 2) + gutter;
+            const safeRightR = spreadWidth - config.outside - config.bleed;
+            const textImgR = await createTextImageAsync(rightText, spreadWidth, fullHeight, safeLeftR, safeRightR, safeBottom);
+            if (textImgR) pdf.addImage(textImgR, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+          } else { // default 'right'
+            const safeLeft = (spreadWidth / 2) + gutter;
+            const safeRight = spreadWidth - config.outside - config.bleed;
+            const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom);
+            if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+          }
         }
       }
       currentPageNum += 2;
@@ -223,7 +276,7 @@ export const generateBookPDF = async (
         const safeBottom = fullHeight - config.bottom - config.bleed;
         const safeLeft = config.outside + config.bleed;
         const safeRight = singleFullWidth - gutter;
-        const textImg = createTextImage(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom);
+        const textImg = await createTextImageAsync(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom);
         if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
       }
       currentPageNum++;
@@ -257,7 +310,7 @@ export const generateBookPDF = async (
           const safeBottom = fullHeight - config.bottom - config.bleed;
           const safeLeft = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);
           const safeRight = isRightPage ? (singleFullWidth - config.outside - config.bleed) : (singleFullWidth - gutter - config.bleed);
-          const textImg = createTextImage(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom);
+          const textImg = await createTextImageAsync(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom);
           if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
         }
       } else {
@@ -266,7 +319,7 @@ export const generateBookPDF = async (
           const safeBottom = fullHeight - config.bottom - config.bleed;
           const safeLeft = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);
           const safeRight = isRightPage ? (singleFullWidth - config.outside - config.bleed) : (singleFullWidth - gutter - config.bleed);
-          const textImg = createTextImage(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom);
+          const textImg = await createTextImageAsync(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom);
           if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
         }
       }

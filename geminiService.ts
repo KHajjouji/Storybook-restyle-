@@ -1107,6 +1107,8 @@ export const retargetCharacters = async (
   const ai = getAIClient();
   const sourceData = sourceImageBase64.includes(',') ? sourceImageBase64.split(',')[1] : sourceImageBase64;
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
+  // ... actual implementation is further down
+
 
   const mappingDescription = retargeting.sourceHotspots.map(sh => {
     const th = retargeting.targetHotspots.find(h => h.label === sh.label);
@@ -1148,4 +1150,70 @@ export const retargetCharacters = async (
     }
   }
   throw new Error("Retargeting failed.");
+};
+
+export const selectStoryFont = async (masterBible: string, sampleText: string): Promise<{ fontName: string, storyType: string, fontSize: number }> => {
+  const ai = getAIClient();
+  const prompt = `You are a professional children's book typography director.
+Based on this story bible and sample text, select the best Google Font from the following curated list:
+- Nunito
+- Fredoka
+- Quicksand
+- Noto Sans
+- Lexend
+- Comic Neue
+- Patrick Hand
+- Chewy
+- Bangers
+- Amatic SC
+- Cinzel
+- Lora
+- Georgia
+- Courier New
+- Inter
+
+Also determine the story type from:
+- picture-book
+- activity-book
+- educational
+- fantasy
+- adventure
+- religious
+- bilingual
+
+And suggest a base font size (between 14 and 48).
+
+Story Bible:
+${masterBible}
+
+Sample Text:
+${sampleText}
+
+Respond ONLY with a JSON object in this format:
+{"fontName": "SelectedFont", "storyType": "selected-type", "fontSize": 24}
+`;
+
+  const response: GenerateContentResponse = await generateContentWithRetry(ai, {
+    model: 'gemini-3-flash-preview',
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          fontName: { type: Type.STRING },
+          storyType: { type: Type.STRING },
+          fontSize: { type: Type.INTEGER }
+        },
+        required: ["fontName", "storyType", "fontSize"]
+      }
+    }
+  });
+
+  const jsonStr = response.text || '{"fontName":"Inter","storyType":"picture-book","fontSize":24}';
+  try {
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    return { fontName: 'Inter', storyType: 'picture-book', fontSize: 24 };
+  }
 };
