@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
-import { CharacterRef, CharacterAssignment, ExportFormat, PRINT_FORMATS } from "./types";
+import { CharacterRef, CharacterAssignment, ExportFormat, PRINT_FORMATS, StoryType } from "./types";
 import { calculateCoverWithBleed } from "./kdpConfig";
 
 export const getAIClient = (): GoogleGenAI => {
@@ -1148,4 +1148,102 @@ export const retargetCharacters = async (
     }
   }
   throw new Error("Retargeting failed.");
+};
+
+/**
+ * Uses AI to analyze the story style and recommend the best Google Font and story type.
+ * Returns the story type, a Google Font family name, and the AI's reasoning.
+ */
+export const selectStoryFont = async (
+  masterBible: string,
+  sampleText: string,
+  targetLanguage: string = ''
+): Promise<{ storyType: StoryType; fontFamily: string; googleFontsParams: string; fontSize: number; reasoning: string }> => {
+  const ai = getAIClient();
+
+  const fontOptions = [
+    'Nunito (warm, rounded, ideal for children\'s picture books) → params: Nunito:wght@700;800',
+    'Fredoka One (bold, playful, ideal for activity books) → params: Fredoka+One',
+    'Quicksand (clean, modern, ideal for educational books) → params: Quicksand:wght@600;700',
+    'Baloo 2 (cheerful, friendly, ideal for preschool & picture books) → params: Baloo+2:wght@600;700;800',
+    'Patrick Hand (natural handwriting feel, ideal for personal stories) → params: Patrick+Hand',
+    'Chewy (chunky, super playful, ideal for toddler books) → params: Chewy',
+    'Bangers (dynamic, bold, ideal for action & adventure comics) → params: Bangers',
+    'Cinzel (elegant classical, ideal for fantasy & fairy tales) → params: Cinzel:wght@700',
+    'Lora (dignified warm serif, ideal for religious/spiritual stories) → params: Lora:wght@600;700',
+    'Noto Sans (universal multi-script, ideal for bilingual/multilingual books) → params: Noto+Sans:wght@600;700',
+    'Poppins (geometric modern, ideal for educational/STEM books) → params: Poppins:wght@600;700',
+    'Amatic SC (quirky tall hand-drawn, ideal for whimsical indie picture books) → params: Amatic+SC:wght@700',
+    'Comic Neue (friendly casual, ideal for comic-style narratives) → params: Comic+Neue:wght@700',
+    'Outfit (contemporary clean, ideal for modern children\'s books) → params: Outfit:wght@600;700',
+  ];
+
+  try {
+    const response = await generateContentWithRetry(ai, {
+      model: 'gemini-3-flash-preview',
+      contents: `You are a professional children's book typography expert. Analyze the following book description and recommend the best Google Font.
+
+STORY BIBLE / STYLE DESCRIPTION:
+${masterBible || '(not provided)'}
+
+SAMPLE TEXT FROM THE BOOK:
+${sampleText || '(not provided)'}
+
+TARGET LANGUAGE: ${targetLanguage || 'English'}
+
+AVAILABLE FONTS (choose one):
+${fontOptions.join('\n')}
+
+STORY TYPES (choose one):
+- children_picture_book: Classic picture books for ages 2–8
+- activity_book: Workbooks, coloring books, puzzle books
+- educational: Learning-focused, STEM, vocabulary books
+- fantasy: Fairy tales, mythology, magical stories
+- adventure: Action stories, superhero, exploration
+- religious_spiritual: Faith-based, religious stories, Ramadan/Eid/Christmas stories
+- bilingual: Books with two languages or non-Latin scripts
+
+Rules:
+- If the story mentions Ramadan, Eid, prayer, Islam, faith → religious_spiritual + Lora
+- If bilingual (Arabic, Spanish+English, etc.) → bilingual + Noto Sans
+- If activity/coloring/puzzle → activity_book + Fredoka One
+- For toddlers age 2–4 → Chewy or Fredoka One
+- For ages 5–8 picture books → Nunito or Baloo 2
+- Consider the cultural context and emotional tone
+
+Also recommend a fontSize in points (range 18–30). Default is 24.`,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            storyType: { type: Type.STRING },
+            fontFamily: { type: Type.STRING },
+            googleFontsParams: { type: Type.STRING },
+            fontSize: { type: Type.NUMBER },
+            reasoning: { type: Type.STRING },
+          },
+          required: ['storyType', 'fontFamily', 'googleFontsParams', 'fontSize', 'reasoning'],
+        },
+      },
+    });
+
+    const result = JSON.parse(response.text || '{}');
+    return {
+      storyType: (result.storyType || 'children_picture_book') as StoryType,
+      fontFamily: result.fontFamily || 'Nunito',
+      googleFontsParams: result.googleFontsParams || 'Nunito:wght@700;800',
+      fontSize: Math.max(16, Math.min(36, result.fontSize || 24)),
+      reasoning: result.reasoning || '',
+    };
+  } catch (e) {
+    console.warn('[selectStoryFont] AI selection failed, using defaults:', e);
+    return {
+      storyType: 'children_picture_book',
+      fontFamily: 'Nunito',
+      googleFontsParams: 'Nunito:wght@700;800',
+      fontSize: 24,
+      reasoning: 'Default fallback',
+    };
+  }
 };
