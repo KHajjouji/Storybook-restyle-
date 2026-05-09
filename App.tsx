@@ -14,8 +14,7 @@ import { CanvaExportModal } from './components/CanvaExportModal';
 import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont } from './geminiService';
-import { loadGoogleFont, getGoogleFontsParams, CURATED_GOOGLE_FONTS } from './utils/fontLoader';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers } from './geminiService';
 import { searchBookNiches } from './nicheService';
 import Markdown from 'react-markdown';
 import { generateBookPDF, generateCoverPDF } from './utils/pdfGenerator';
@@ -134,25 +133,25 @@ const PREDEFINED_STYLES = [
     id: 'style-1',
     name: 'Classic Storybook',
     image: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?auto=format&fit=crop&q=80&w=400&h=400',
-    prompt: "classic children's book illustration, soft painterly textures, whimsical, rounded shapes, warm inviting lighting, highly detailed but stylized"
+    prompt: 'classic children’s book illustration, soft painterly textures, whimsical, rounded shapes, warm inviting lighting, highly detailed but stylized'
   },
   {
     id: 'style-2',
     name: 'Vibrant & Playful',
     image: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?auto=format&fit=crop&q=80&w=400&h=400',
-    prompt: "vibrant children's book illustration, bright bold colors, playful and energetic, flat shading with subtle gradients, cute proportions"
+    prompt: 'vibrant children’s book illustration, bright bold colors, playful and energetic, flat shading with subtle gradients, cute proportions'
   },
   {
     id: 'style-3',
     name: 'Watercolor Magic',
     image: 'https://images.unsplash.com/photo-1580136608260-4eb11f4b24fe?auto=format&fit=crop&q=80&w=400&h=400',
-    prompt: "whimsical watercolor children's book illustration, visible paper texture, soft color bleeds, magical atmosphere, loose brushstrokes, dreamy lighting"
+    prompt: 'whimsical watercolor children’s book illustration, visible paper texture, soft color bleeds, magical atmosphere, loose brushstrokes, dreamy lighting'
   },
   {
     id: 'style-4',
     name: 'Soft Pastel',
     image: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=400&h=400',
-    prompt: "soft pastel children's book illustration, gentle glow lighting, warm pastel palette, minimal outlines, soothing and calm mood, dreamy"
+    prompt: 'soft pastel children’s book illustration, gentle glow lighting, warm pastel palette, minimal outlines, soothing and calm mood, dreamy'
   }
 ];
 
@@ -465,7 +464,7 @@ const App: React.FC = () => {
 
   const [settings, setSettings] = useState<AppSettings>({
     mode: 'restyle',
-    targetStyle: "soft vibrant children's storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines",
+    targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines',
     targetLanguage: 'NONE_CLEAN_BG',
     exportFormat: 'KDP_8_5x8_5',
     spreadExportMode: 'WIDE_SPREAD',
@@ -473,29 +472,13 @@ const App: React.FC = () => {
     embedTextInImage: false,
     layeredMode: false,
     overlayText: false,
-    textFont: 'Nunito',
-    textFontSize: 24,
-    storyType: 'children_picture_book',
-    spreadTextSide: 'right',
-    overlayTextPosition: 'bottom',
-    overlayTextBackground: 'semi-transparent-white',
-    overlayTextShadow: true,
-    overlayTextColor: '#1a1a2e',
+    textFont: 'Inter',
     showSafeGuides: true,
     characterReferences: [],
     estimatedPageCount: 32,
     masterBible: GLOBAL_STYLE_LOCK
   });
-  const [isSelectingFont, setIsSelectingFont] = useState(false);
-
-  // Pre-load selected Google Font whenever it changes so the preview renders correctly
-  useEffect(() => {
-    const family = settings.textFont;
-    if (!family) return;
-    const params = getGoogleFontsParams(family, '700');
-    loadGoogleFont(family, params, '700').catch(() => {});
-  }, [settings.textFont]);
-
+  
   const [isProcessing, setIsProcessing] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
@@ -563,7 +546,7 @@ const App: React.FC = () => {
     setCoverLayers([]);
     setSettings({
       mode: 'create',
-      targetStyle: "soft vibrant children's storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines",
+      targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines',
       targetLanguage: 'NONE_CLEAN_BG',
       exportFormat: 'KDP_8_5x8_5',
       spreadExportMode: 'WIDE_SPREAD',
@@ -571,14 +554,7 @@ const App: React.FC = () => {
       embedTextInImage: false,
       layeredMode: false,
       overlayText: false,
-      textFont: 'Nunito',
-      textFontSize: 24,
-      storyType: 'children_picture_book',
-      spreadTextSide: 'right',
-      overlayTextPosition: 'bottom',
-      overlayTextBackground: 'semi-transparent-white',
-      overlayTextShadow: true,
-      overlayTextColor: '#1a1a2e',
+      textFont: 'Inter',
       characterReferences: [],
       showSafeGuides: true,
       masterBible: "",
@@ -1613,7 +1589,7 @@ const App: React.FC = () => {
                     <div className="flex justify-between items-center px-4">
                       <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">Target Style / Scene Prompt</h3>
                       <div className="flex gap-2">
-                        <button onClick={() => setSettings({...settings, targetStyle: "soft vibrant children's storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines"})} className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">Soft Painterly</button>
+                        <button onClick={() => setSettings({...settings, targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines'})} className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">Soft Painterly</button>
                         <button onClick={() => {
                           setSettings({...settings, targetStyle: 'Flat vector illustration, SVG style, solid colors, clean crisp edges, no gradients, no shading, minimalist, 2D flat design, perfect for auto-tracing'});
                           setTargetResolution('4K'); // Ensure high resolution for vector tracing
@@ -1706,96 +1682,41 @@ const App: React.FC = () => {
                     </div>
                     <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, the original text will be overlaid on the generated PDF pages.</p>
                     {settings.overlayText && (
-                      <div className="px-4 mt-2 space-y-5">
-
-                        {/* ── AI Font Selection ─────────────────────────── */}
-                        <div className="bg-indigo-50 rounded-2xl p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-700">AI Font Selection</p>
-                              <p className="text-[9px] text-indigo-400 mt-0.5">Let AI pick the best font for your story type</p>
-                            </div>
-                            <button
-                              disabled={isSelectingFont}
-                              onClick={async () => {
-                                setIsSelectingFont(true);
-                                try {
-                                  const sampleText = pages.slice(0, 3).map(p => p.originalText).filter(Boolean).join(' ').slice(0, 300);
-                                  const result = await selectStoryFont(settings.masterBible || settings.targetStyle, sampleText, settings.targetLanguage);
-                                  // Pre-load the selected font
-                                  await loadGoogleFont(result.fontFamily, result.googleFontsParams, '700');
-                                  setSettings(s => ({
-                                    ...s,
-                                    storyType: result.storyType,
-                                    textFont: result.fontFamily,
-                                    textFontSize: result.fontSize,
-                                  }));
-                                  showToast(`Font selected: ${result.fontFamily} (${result.storyType.replace(/_/g, ' ')})`);
-                                } catch (e) {
-                                  showToast("Font selection failed.");
-                                } finally {
-                                  setIsSelectingFont(false);
-                                }
-                              }}
-                              className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
-                            >
-                              {isSelectingFont ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                              {isSelectingFont ? 'SELECTING...' : 'AI SELECT'}
-                            </button>
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 block mb-2">Story Type</label>
-                            <select
-                              value={settings.storyType || 'children_picture_book'}
-                              onChange={(e) => setSettings({...settings, storyType: e.target.value as any})}
-                              className="w-full bg-white border-none rounded-xl text-sm font-bold text-slate-700 p-3"
-                            >
-                              <option value="children_picture_book">Children's Picture Book</option>
-                              <option value="activity_book">Activity / Coloring Book</option>
-                              <option value="educational">Educational / STEM</option>
-                              <option value="fantasy">Fantasy / Fairy Tale</option>
-                              <option value="adventure">Adventure / Action</option>
-                              <option value="religious_spiritual">Religious / Spiritual</option>
-                              <option value="bilingual">Bilingual / Multilingual</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* ── Font Family ───────────────────────────────── */}
+                      <div className="px-4 mt-2 space-y-4">
                         <div>
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Font Family (Google Fonts)</label>
-                          <select
-                            value={settings.textFont || 'Nunito'}
-                            onChange={async (e) => {
-                              const family = e.target.value;
-                              const params = getGoogleFontsParams(family, '700');
-                              await loadGoogleFont(family, params, '700');
-                              setSettings({...settings, textFont: family});
-                            }}
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Font Family</label>
+                          <select 
+                            value={settings.textFont || 'Inter'} 
+                            onChange={(e) => setSettings({...settings, textFont: e.target.value})}
                             className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
                           >
-                            {CURATED_GOOGLE_FONTS.map(f => (
-                              <option key={f.family} value={f.family}>{f.label}</option>
-                            ))}
+                            <option value="Inter">Inter (Sans)</option>
+                            <option value="Outfit">Outfit (Display)</option>
+                            <option value="Fredoka">Fredoka (Friendly)</option>
+                            <option value="Patrick Hand">Patrick Hand (Handwritten)</option>
+                            <option value="Chewy">Chewy (Chunky Playful)</option>
+                            <option value="Quicksand">Quicksand (Rounded)</option>
+                            <option value="Nunito">Nunito (Soft Sans)</option>
+                            <option value="Amatic SC">Amatic SC (Tall Quirky)</option>
+                            <option value="Comic Sans MS">Comic Sans (Playful)</option>
+                            <option value="Georgia">Georgia (Serif)</option>
+                            <option value="Courier New">Courier (Mono)</option>
                           </select>
                         </div>
-
-                        {/* ── Font Size + Text Position ─────────────────── */}
                         <div className="grid grid-cols-2 gap-4">
                           <div>
-                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Font Size (pt)</label>
-                            <input
-                              type="number"
-                              min={14} max={48} step={1}
-                              value={settings.textFontSize || 24}
-                              onChange={(e) => setSettings({...settings, textFontSize: Number(e.target.value)})}
-                              className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
+                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Text Color</label>
+                            <input 
+                              type="color" 
+                              value={settings.overlayTextColor || '#000000'}
+                              onChange={(e) => setSettings({...settings, overlayTextColor: e.target.value})}
+                              className="w-full h-12 bg-slate-100 border-none rounded-xl p-1 cursor-pointer"
                             />
                           </div>
                           <div>
                             <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Text Position</label>
-                            <select
-                              value={settings.overlayTextPosition || 'bottom'}
+                            <select 
+                              value={settings.overlayTextPosition || 'bottom'} 
                               onChange={(e) => setSettings({...settings, overlayTextPosition: e.target.value as any})}
                               className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
                             >
@@ -1805,52 +1726,23 @@ const App: React.FC = () => {
                             </select>
                           </div>
                         </div>
-
-                        {/* ── Spread Text Side ──────────────────────────── */}
                         <div>
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Spread Text Side</label>
-                          <select
-                            value={settings.spreadTextSide || 'right'}
-                            onChange={(e) => setSettings({...settings, spreadTextSide: e.target.value as any})}
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Background Box</label>
+                          <select 
+                            value={settings.overlayTextBackground || 'transparent'} 
+                            onChange={(e) => setSettings({...settings, overlayTextBackground: e.target.value as any})}
                             className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
                           >
-                            <option value="right">Right page (default)</option>
-                            <option value="left">Left page</option>
-                            <option value="both">Both pages — bilingual (original right, translated left)</option>
+                            <option value="transparent">None (Transparent)</option>
+                            <option value="solid-white">Solid White</option>
+                            <option value="semi-transparent-white">Semi-Transparent White</option>
+                            <option value="semi-transparent-black">Semi-Transparent Black</option>
                           </select>
-                          <p className="text-[9px] text-slate-400 mt-1.5 font-medium">Text is always constrained within each page's safe zone and never crosses the gutter fold.</p>
                         </div>
-
-                        {/* ── Color + Background ────────────────────────── */}
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Text Color</label>
-                            <input
-                              type="color"
-                              value={settings.overlayTextColor || '#1a1a2e'}
-                              onChange={(e) => setSettings({...settings, overlayTextColor: e.target.value})}
-                              className="w-full h-12 bg-slate-100 border-none rounded-xl p-1 cursor-pointer"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Background Box</label>
-                            <select
-                              value={settings.overlayTextBackground || 'semi-transparent-white'}
-                              onChange={(e) => setSettings({...settings, overlayTextBackground: e.target.value as any})}
-                              className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
-                            >
-                              <option value="transparent">None (Transparent)</option>
-                              <option value="solid-white">Solid White</option>
-                              <option value="semi-transparent-white">Semi-Transparent White</option>
-                              <option value="semi-transparent-black">Semi-Transparent Black</option>
-                            </select>
-                          </div>
-                        </div>
-
                         <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={settings.overlayTextShadow ?? true}
+                          <input 
+                            type="checkbox" 
+                            checked={settings.overlayTextShadow ?? true} 
                             onChange={(e) => setSettings({...settings, overlayTextShadow: e.target.checked})}
                             className="w-5 h-5 accent-indigo-600 rounded"
                           />
@@ -1890,47 +1782,30 @@ const App: React.FC = () => {
                     <div className="aspect-[4/3] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner border-8 border-white relative">
                       {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
                       <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
-                      {settings.overlayText && (p.originalText || p.translatedText) && (() => {
-                        const spreadSide = settings.spreadTextSide || 'right';
-                        const showBilingual = p.isSpread && spreadSide === 'both' && p.translatedText;
-                        const posClass = settings.overlayTextPosition === 'top' ? 'items-start' : settings.overlayTextPosition === 'center' ? 'items-center' : 'items-end';
-                        const bgClass = settings.overlayTextBackground === 'solid-white' ? 'bg-white p-3 rounded-xl'
-                          : settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/75 p-3 rounded-xl backdrop-blur-sm'
-                          : settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/55 p-3 rounded-xl backdrop-blur-sm' : '';
-                        const textStyle: React.CSSProperties = {
-                          fontFamily: `"${settings.textFont || 'Nunito'}", sans-serif`,
-                          color: settings.overlayTextColor || '#1a1a2e',
-                          fontSize: `${settings.textFontSize || 24}px`,
-                          fontWeight: 700,
-                          textShadow: settings.overlayTextShadow !== false ? '0px 2px 6px rgba(0,0,0,0.4)' : 'none',
-                          lineHeight: 1.55,
-                        };
-                        return (
-                          <div className={`absolute inset-0 flex p-[5%] pointer-events-none ${posClass} ${showBilingual ? 'justify-between gap-4' : 'justify-center'}`}>
-                            {showBilingual ? (
-                              <>
-                                <div className={`flex-1 flex ${posClass} justify-center`}>
-                                  <div className={bgClass}>
-                                    <p className="text-center whitespace-pre-wrap px-2" style={textStyle}>{p.translatedText}</p>
-                                  </div>
-                                </div>
-                                <div className="w-px bg-slate-300/40 self-stretch mx-1" />
-                                <div className={`flex-1 flex ${posClass} justify-center`}>
-                                  <div className={bgClass}>
-                                    <p className="text-center whitespace-pre-wrap px-2" style={textStyle}>{p.originalText}</p>
-                                  </div>
-                                </div>
-                              </>
-                            ) : (
-                              <div className={`${p.isSpread ? (spreadSide === 'left' ? 'mr-auto ml-[5%]' : 'ml-auto mr-[5%]') : ''} max-w-[45%]`}>
-                                <div className={bgClass}>
-                                  <p className="text-center whitespace-pre-wrap px-2" style={textStyle}>{p.originalText}</p>
-                                </div>
-                              </div>
-                            )}
+                      {settings.overlayText && p.originalText && (
+                        <div className={`absolute inset-0 flex p-[5%] pointer-events-none
+                          ${settings.overlayTextPosition === 'top' ? 'items-start' : 
+                            settings.overlayTextPosition === 'center' ? 'items-center' : 'items-end'
+                          } justify-center`}
+                        >
+                          <div className={`
+                            ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
+                            ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
+                            ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                          `}>
+                            <p 
+                              className={`text-center text-2xl font-bold whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
+                              style={{ 
+                                fontFamily: settings.textFont || 'Inter',
+                                color: settings.overlayTextColor || '#000000',
+                                textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
+                              }}
+                            >
+                              {p.originalText}
+                            </p>
                           </div>
-                        );
-                      })()}
+                        </div>
+                      )}
                     </div>
                     {p.originalText && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 italic leading-relaxed">"{p.originalText}"</p>}
                     

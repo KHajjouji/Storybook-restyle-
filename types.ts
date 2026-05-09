@@ -83,45 +83,25 @@ export interface UserStyle {
   createdAt: number;
 }
 
-export type StoryType =
-  | 'children_picture_book'
-  | 'activity_book'
-  | 'educational'
-  | 'fantasy'
-  | 'adventure'
-  | 'religious_spiritual'
-  | 'bilingual';
-
 export interface AppSettings {
   mode: AppMode;
   fullScript?: string;
-  masterBible?: string;
+  masterBible?: string; 
   targetStyle: string;
-  styleReference?: string;
+  styleReference?: string; 
   targetLanguage: string | 'NONE_CLEAN_BG';
-  characterReferences: CharacterRef[];
+  characterReferences: CharacterRef[]; 
   exportFormat: ExportFormat;
   spreadExportMode: SpreadExportMode;
   useProModel: boolean;
   embedTextInImage: boolean;
   layeredMode: boolean;
   overlayText: boolean;
-  /** Font family name — can be any Google Font name */
   textFont?: string;
-  /** Font size in points (default driven by storyType recommendation) */
-  textFontSize?: number;
   overlayTextColor?: string;
   overlayTextPosition?: 'top' | 'center' | 'bottom';
   overlayTextBackground?: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black';
   overlayTextShadow?: boolean;
-  /** AI-detected or user-selected story type, drives font recommendation */
-  storyType?: StoryType;
-  /**
-   * For spread pages: which page half receives the text.
-   * 'both' uses originalText on the right half and translatedText on the left half
-   * (bilingual layout).
-   */
-  spreadTextSide?: 'left' | 'right' | 'both';
   showSafeGuides: boolean;
   estimatedPageCount: number;
 }
