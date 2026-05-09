@@ -98,6 +98,10 @@ export interface AppSettings {
   layeredMode: boolean;
   overlayText: boolean;
   textFont?: string;
+  overlayTextColor?: string;
+  overlayTextPosition?: 'top' | 'center' | 'bottom';
+  overlayTextBackground?: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black';
+  overlayTextShadow?: boolean;
   showSafeGuides: boolean;
   estimatedPageCount: number;
 }

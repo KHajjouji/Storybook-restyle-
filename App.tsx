@@ -875,34 +875,56 @@ const App: React.FC = () => {
     finally { setIsParsing(false); }
   }
 
-  const handleRestyleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as unknown as Blob[];
+  const handleRestyleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
     const newPages: BookPage[] = [];
-    let loaded = 0;
-    files.forEach(f => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        newPages.push({
-          id: Math.random().toString(36).substring(7),
-          originalImage: reader.result as string,
-          originalText: "",
-          status: 'idle',
-          assignments: [],
-          isSpread: targetAspectRatio === '16:9',
-          overrideStylePrompt: settings.targetStyle
-        });
-        loaded++;
-        if (loaded === files.length) {
-          const initializedPages = newPages.map(p => ({
-            ...p,
-            retargeting: { sourceHotspots: [], targetHotspots: [], instruction: "" }
-          }));
-          setPages(prev => [...prev, ...initializedPages]);
-          setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
+    
+    setIsProcessing(true);
+    let allExtractedImages: string[] = [];
+
+    for (const f of files) {
+      if (f.type === 'application/pdf') {
+        try {
+          // Dynamic import to avoid loading it right away on boot
+          const { extractImagesFromPDF } = await import('./utils/pdfExtract');
+          const pdfImages = await extractImagesFromPDF(f);
+          allExtractedImages.push(...pdfImages);
+        } catch (error) {
+          console.error("PDF extraction failed", error);
+          showToast("Failed to extract images from PDF.");
         }
-      };
-      reader.readAsDataURL(f);
+      } else {
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(f);
+        });
+        allExtractedImages.push(dataUrl);
+      }
+    }
+
+    allExtractedImages.forEach(img => {
+      newPages.push({
+        id: Math.random().toString(36).substring(7),
+        originalImage: img,
+        originalText: "",
+        status: 'idle',
+        assignments: [],
+        isSpread: targetAspectRatio === '16:9',
+        overrideStylePrompt: settings.targetStyle
+      });
     });
+
+    if (newPages.length > 0) {
+      const initializedPages = newPages.map(p => ({
+        ...p,
+        retargeting: { sourceHotspots: [], targetHotspots: [], instruction: "" }
+      }));
+      setPages(prev => [...prev, ...initializedPages]);
+      setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
+    }
+    
+    setIsProcessing(false);
   };
 
   const handleCharImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1001,10 +1023,11 @@ const App: React.FC = () => {
     setIsProcessing(true);
     try {
       const p = pages.find(pg => pg.id === pageId)!;
+      const spreadInstruction = p.isSpread ? " IMPORTANT: This is a TWO-PAGE SPREAD illustration. DO NOT place character faces, text, or focal points directly on the vertical center line (the book's gutter) as they will be folded." : "";
       const basePrompt = p.overrideStylePrompt || (p.originalText ? `SCENE SCRIPT: "${p.originalText}"` : "");
       const narrativeContext = basePrompt.includes(settings.targetStyle) 
-        ? `${basePrompt}. ${globalFixPrompt}`
-        : `${basePrompt}. STYLE: ${settings.targetStyle}. ${globalFixPrompt}`;
+        ? `${basePrompt}. ${globalFixPrompt}${spreadInstruction}`
+        : `${basePrompt}. STYLE: ${settings.targetStyle}. ${globalFixPrompt}${spreadInstruction}`;
       
       let result;
       let layers;
@@ -1659,19 +1682,72 @@ const App: React.FC = () => {
                     </div>
                     <p className="text-[9px] text-slate-400 px-4 font-medium italic">If ON, the original text will be overlaid on the generated PDF pages.</p>
                     {settings.overlayText && (
-                      <div className="px-4 mt-2">
-                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Font Family</label>
-                        <select 
-                          value={settings.textFont || 'Inter'} 
-                          onChange={(e) => setSettings({...settings, textFont: e.target.value})}
-                          className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
-                        >
-                          <option value="Inter">Inter (Sans)</option>
-                          <option value="Outfit">Outfit (Display)</option>
-                          <option value="Comic Sans MS">Comic Sans (Playful)</option>
-                          <option value="Georgia">Georgia (Serif)</option>
-                          <option value="Courier New">Courier (Mono)</option>
-                        </select>
+                      <div className="px-4 mt-2 space-y-4">
+                        <div>
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Font Family</label>
+                          <select 
+                            value={settings.textFont || 'Inter'} 
+                            onChange={(e) => setSettings({...settings, textFont: e.target.value})}
+                            className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
+                          >
+                            <option value="Inter">Inter (Sans)</option>
+                            <option value="Outfit">Outfit (Display)</option>
+                            <option value="Fredoka">Fredoka (Friendly)</option>
+                            <option value="Patrick Hand">Patrick Hand (Handwritten)</option>
+                            <option value="Chewy">Chewy (Chunky Playful)</option>
+                            <option value="Quicksand">Quicksand (Rounded)</option>
+                            <option value="Nunito">Nunito (Soft Sans)</option>
+                            <option value="Amatic SC">Amatic SC (Tall Quirky)</option>
+                            <option value="Comic Sans MS">Comic Sans (Playful)</option>
+                            <option value="Georgia">Georgia (Serif)</option>
+                            <option value="Courier New">Courier (Mono)</option>
+                          </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Text Color</label>
+                            <input 
+                              type="color" 
+                              value={settings.overlayTextColor || '#000000'}
+                              onChange={(e) => setSettings({...settings, overlayTextColor: e.target.value})}
+                              className="w-full h-12 bg-slate-100 border-none rounded-xl p-1 cursor-pointer"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Text Position</label>
+                            <select 
+                              value={settings.overlayTextPosition || 'bottom'} 
+                              onChange={(e) => setSettings({...settings, overlayTextPosition: e.target.value as any})}
+                              className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
+                            >
+                              <option value="top">Top</option>
+                              <option value="center">Center</option>
+                              <option value="bottom">Bottom</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-2">Background Box</label>
+                          <select 
+                            value={settings.overlayTextBackground || 'transparent'} 
+                            onChange={(e) => setSettings({...settings, overlayTextBackground: e.target.value as any})}
+                            className="w-full bg-slate-100 border-none rounded-xl text-sm font-bold text-slate-700 p-3"
+                          >
+                            <option value="transparent">None (Transparent)</option>
+                            <option value="solid-white">Solid White</option>
+                            <option value="semi-transparent-white">Semi-Transparent White</option>
+                            <option value="semi-transparent-black">Semi-Transparent Black</option>
+                          </select>
+                        </div>
+                        <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
+                          <input 
+                            type="checkbox" 
+                            checked={settings.overlayTextShadow ?? true} 
+                            onChange={(e) => setSettings({...settings, overlayTextShadow: e.target.checked})}
+                            className="w-5 h-5 accent-indigo-600 rounded"
+                          />
+                          <span className="text-sm font-bold text-slate-700 block">Add Text Shadow</span>
+                        </label>
                       </div>
                     )}
                   </div>
@@ -1707,10 +1783,27 @@ const App: React.FC = () => {
                       {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
                       <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
                       {settings.overlayText && p.originalText && (
-                        <div className="absolute inset-0 flex items-end justify-center pb-[10%] pointer-events-none">
-                          <p className="text-center text-black text-2xl font-bold whitespace-pre-wrap px-12" style={{ fontFamily: settings.textFont || 'Inter' }}>
-                            {p.originalText}
-                          </p>
+                        <div className={`absolute inset-0 flex p-[5%] pointer-events-none
+                          ${settings.overlayTextPosition === 'top' ? 'items-start' : 
+                            settings.overlayTextPosition === 'center' ? 'items-center' : 'items-end'
+                          } justify-center`}
+                        >
+                          <div className={`
+                            ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
+                            ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
+                            ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                          `}>
+                            <p 
+                              className={`text-center text-2xl font-bold whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
+                              style={{ 
+                                fontFamily: settings.textFont || 'Inter',
+                                color: settings.overlayTextColor || '#000000',
+                                textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
+                              }}
+                            >
+                              {p.originalText}
+                            </p>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2282,7 +2375,7 @@ const App: React.FC = () => {
                       onClick={async () => {
                         setIsProcessing(true);
                         try {
-                          await generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode, settings.textFont);
+                          await generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode, settings);
                         } catch (err) {
                           console.error("PDF generation failed:", err);
                           showToast("Failed to generate PDF. See console.");
@@ -2600,7 +2693,7 @@ const App: React.FC = () => {
              <div onClick={() => restyleInputRef.current?.click()} className="aspect-video bg-white border-4 border-dashed border-slate-200 rounded-[5rem] flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-all group shadow-inner">
                 <Upload size={80} className="text-slate-200 group-hover:text-emerald-500 mb-8" />
                 <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-xl group-hover:text-emerald-500">Select Frames to Master</p>
-                <input type="file" multiple hidden ref={restyleInputRef} accept="image/*" onChange={handleRestyleUpload} />
+                <input type="file" multiple hidden ref={restyleInputRef} accept="image/*,application/pdf" onChange={handleRestyleUpload} />
              </div>
              <button onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600 underline">Back to Main Suit</button>
           </div>
@@ -2745,7 +2838,7 @@ const App: React.FC = () => {
              <div onClick={() => restyleInputRef.current?.click()} className="aspect-video bg-white border-4 border-dashed border-slate-200 rounded-[6rem] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-600 transition-all group shadow-inner">
                 <Upload size={100} className="text-slate-200 group-hover:text-indigo-600 mb-10 transition-colors" />
                 <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-3xl group-hover:text-indigo-600 transition-colors">Select Illustration Batch</p>
-                <input type="file" multiple hidden ref={restyleInputRef} accept="image/*" onChange={handleRestyleUpload} />
+                <input type="file" multiple hidden ref={restyleInputRef} accept="image/*,application/pdf" onChange={handleRestyleUpload} />
              </div>
              <button onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600 underline text-xl">Cancel</button>
           </div>

@@ -54,7 +54,7 @@ export const generateBookPDF = async (
   totalEstimatedPages: number,
   spreadMode: SpreadExportMode = 'WIDE_SPREAD',
   layeredMode: boolean = false,
-  textFont: string = 'Inter'
+  settings: any = {}
 ) => {
   const validation = validateProjectForKDP(pages, format, totalEstimatedPages);
   if (!validation.isValid) {
@@ -90,10 +90,10 @@ export const generateBookPDF = async (
     if (!ctx) return '';
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.font = `bold ${24 * (dpi/72)}px ${textFont}, sans-serif`;
-    ctx.fillStyle = 'black';
+    const fontSize = 24 * (dpi/72);
+    ctx.font = `bold ${fontSize}px ${settings.textFont || 'Inter'}, sans-serif`;
+    ctx.fillStyle = settings.overlayTextColor || 'black';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
     
     const safeLeftPx = safeLeftIn * dpi;
     const safeRightPx = safeRightIn * dpi;
@@ -118,8 +118,43 @@ export const generateBookPDF = async (
     lines.push(line);
     
     const lineHeight = 30 * (dpi/72);
-    const startY = safeBottomPx - (lines.length - 1) * lineHeight;
+    const totalHeight = lines.length * lineHeight;
+    let startY = safeBottomPx - totalHeight + lineHeight; // default bottom
     
+    if (settings.overlayTextPosition === 'top') {
+        const titleSafeTopPx = 0.5 * dpi; // approx safe top
+        startY = titleSafeTopPx + lineHeight;
+    } else if (settings.overlayTextPosition === 'center') {
+        startY = (canvas.height / 2) - (totalHeight / 2) + lineHeight;
+    }
+
+    if (settings.overlayTextBackground && settings.overlayTextBackground !== 'transparent') {
+      let bgColor = 'rgba(255, 255, 255, 1)';
+      if (settings.overlayTextBackground === 'semi-transparent-white') bgColor = 'rgba(255, 255, 255, 0.7)';
+      if (settings.overlayTextBackground === 'semi-transparent-black') bgColor = 'rgba(0, 0, 0, 0.5)';
+      
+      ctx.fillStyle = bgColor;
+      const boxPad = fontSize * 0.75;
+      ctx.beginPath();
+      // approximate rect
+      ctx.roundRect(
+        centerXPx - (maxWidthPx / 2) - boxPad, 
+        startY - lineHeight - boxPad + (lineHeight * 0.25), 
+        maxWidthPx + (boxPad * 2), 
+        totalHeight + (boxPad * 2),
+        fontSize * 0.5
+      );
+      ctx.fill();
+    }
+
+    if (settings.overlayTextShadow !== false) {
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 2;
+    }
+
+    ctx.fillStyle = settings.overlayTextColor || 'black';
     lines.forEach((l, i) => {
       ctx.fillText(l.trim(), centerXPx, startY + i * lineHeight);
     });
