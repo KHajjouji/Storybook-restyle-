@@ -954,6 +954,40 @@ export const generateLayeredIllustration = async (
 /**
  * Generates a multi-layered book cover.
  */
+export const analyzeTextLayout = async (
+  imageBase64: string,
+  text: string
+): Promise<{ textPositionOverride: 'top' | 'center' | 'bottom', textBackgroundOverride: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black' }> => {
+  const ai = getAIClient();
+  const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+  
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash',
+    contents: {
+      role: 'user',
+      parts: [
+        { text: `Analyze this illustration. We need to overlay this text: "${text}".\n\nWhere is the best position to place the text so that it doesn't cover the main focal points (like character faces) and is readable?\nAnd what background should the text have? If the area is clean and uniform, 'transparent' is best. If it's busy, use 'semi-transparent-white' or 'solid-white'.\n\nReturn ONLY a valid JSON object matching exactly this schema:\n{"textPositionOverride": "top" | "center" | "bottom", "textBackgroundOverride": "transparent" | "solid-white" | "semi-transparent-white" | "semi-transparent-black"}` },
+        { inlineData: { data, mimeType: 'image/jpeg' } }
+      ]
+    },
+    config: {
+      responseMimeType: 'application/json'
+    }
+  });
+
+  const textRes = response.text();
+  try {
+    const res = JSON.parse(textRes);
+    return res;
+  } catch (e) {
+    console.warn("Failed to parse text layout", e);
+    return { textPositionOverride: 'bottom', textBackgroundOverride: 'transparent' };
+  }
+};
+
+/**
+ * Generates a multi-layered book cover.
+ */
 export const generateLayeredCover = async (
   context: string,
   characters: CharacterRef[],

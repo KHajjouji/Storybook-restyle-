@@ -111,21 +111,34 @@ export const generateBookPDF = async (
     const maxWidthPx = safeRightPx - safeLeftPx;
     const centerXPx = safeLeftPx + (maxWidthPx / 2);
     
-    // Simple word wrap
-    const words = text.split(' ');
-    let line = '';
-    const lines = [];
-    for (let n = 0; n < words.length; n++) {
-      const testLine = line + words[n] + ' ';
-      const metrics = ctx.measureText(testLine);
-      if (metrics.width > maxWidthPx && n > 0) {
-        lines.push(line);
-        line = words[n] + ' ';
-      } else {
-        line = testLine;
+    // Simple word wrap with explicit newline and || support
+    let allLines: string[] = [];
+    const paragraphs = text.split(/(?:\n|\|\|)/).map(p => p.trim()).filter(Boolean);
+    
+    for (const p of paragraphs) {
+      const words = p.split(' ');
+      let line = '';
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidthPx && n > 0) {
+          allLines.push(line);
+          line = words[n] + ' ';
+        } else {
+          line = testLine;
+        }
       }
+      allLines.push(line);
+      // add a small gap after paragraph if it's not the last one? 
+      // easiest way is to just let line height handle it, or we could add an empty line
+      allLines.push('');
     }
-    lines.push(line);
+    // Remove the trailing empty line
+    if (allLines.length > 0 && allLines[allLines.length - 1] === '') {
+      allLines.pop();
+    }
+    
+    const lines = allLines;
     
     const maxLineWidthPx = Math.max(...lines.map(l => ctx.measureText(l.trim()).width));
     const actualWidthPx = Math.min(maxWidthPx, maxLineWidthPx);
@@ -216,9 +229,10 @@ export const generateBookPDF = async (
             if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
           } else if (settings.spreadTextSide === 'both') {
             // Bilingual or both pages text
-            const textParts = page.originalText.split('||');
-            const leftText = textParts[0] || page.originalText;
-            const rightText = textParts[1] || page.originalText;
+            const textParts = page.originalText.split('||').map(t => t.trim()).filter(Boolean);
+            const mid = Math.ceil(textParts.length / 2);
+            const leftText = textParts.slice(0, mid).join('\n\n') || page.originalText;
+            const rightText = textParts.slice(mid).join('\n\n') || page.originalText;
             
             const safeLeftL = config.outside + config.bleed;
             const safeRightL = (spreadWidth / 2) - gutter;
@@ -247,9 +261,10 @@ export const generateBookPDF = async (
             const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
             if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
           } else if (settings.spreadTextSide === 'both') {
-            const textParts = page.originalText.split('||');
-            const leftText = textParts[0] || page.originalText;
-            const rightText = textParts[1] || page.originalText;
+            const textParts = page.originalText.split('||').map(t => t.trim()).filter(Boolean);
+            const mid = Math.ceil(textParts.length / 2);
+            const leftText = textParts.slice(0, mid).join('\n\n') || page.originalText;
+            const rightText = textParts.slice(mid).join('\n\n') || page.originalText;
             
             const safeLeftL = config.outside + config.bleed;
             const safeRightL = (spreadWidth / 2) - gutter;

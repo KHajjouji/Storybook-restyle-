@@ -14,7 +14,7 @@ import { CanvaExportModal } from './components/CanvaExportModal';
 import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont } from './geminiService';
+import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, analyzeTextLayout, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont } from './geminiService';
 import { searchBookNiches } from './nicheService';
 import Markdown from 'react-markdown';
 import { generateBookPDF, generateCoverPDF } from './utils/pdfGenerator';
@@ -1893,7 +1893,13 @@ const App: React.FC = () => {
                                     textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
                                   }}
                                 >
-                                  {settings.spreadTextSide === 'both' ? (p.originalText.split('||')[0] || p.originalText) : p.originalText}
+                                  {(() => {
+                                    const parts = p.originalText.split('||').map(t => t.trim()).filter(Boolean);
+                                    const mid = Math.ceil(parts.length / 2);
+                                    const leftHalfText = parts.slice(0, mid).join('\n\n') || p.originalText;
+                                    const fullText = parts.join('\n\n') || p.originalText;
+                                    return settings.spreadTextSide === 'both' ? leftHalfText : fullText;
+                                  })()}
                                 </p>
                               </div>
                             </div>
@@ -1915,7 +1921,10 @@ const App: React.FC = () => {
                                       textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
                                     }}
                                   >
-                                    {p.originalText}
+                                    {(() => {
+                                      const parts = p.originalText.split('||').map(t => t.trim()).filter(Boolean);
+                                      return parts.join('\n\n') || p.originalText;
+                                    })()}
                                   </p>
                                 </div>
                              </div>
@@ -1937,7 +1946,10 @@ const App: React.FC = () => {
                                       textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
                                     }}
                                   >
-                                    {p.originalText}
+                                    {(() => {
+                                      const parts = p.originalText.split('||').map(t => t.trim()).filter(Boolean);
+                                      return parts.join('\n\n') || p.originalText;
+                                    })()}
                                   </p>
                                 </div>
                              </div>
@@ -1959,7 +1971,12 @@ const App: React.FC = () => {
                                      textShadow: settings.overlayTextShadow !== false ? '0px 2px 4px rgba(0,0,0,0.5)' : 'none'
                                    }}
                                  >
-                                   {p.originalText.split('||')[1] || p.originalText}
+                                   {(() => {
+                                     const parts = p.originalText.split('||').map(t => t.trim()).filter(Boolean);
+                                     const mid = Math.ceil(parts.length / 2);
+                                     const rightHalfText = parts.slice(mid).join('\n\n') || p.originalText;
+                                     return rightHalfText;
+                                   })()}
                                  </p>
                                </div>
                              </div>
@@ -2010,6 +2027,28 @@ const App: React.FC = () => {
                                )}
                              </div>
                            </div>
+                           {(p.processedImage || p.originalImage) && (
+                              <button 
+                                onClick={async () => {
+                                  try {
+                                    setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, status: 'processing' } : pg));
+                                    const layout = await analyzeTextLayout(p.processedImage || p.originalImage!, p.originalText || "Hello");
+                                    setPages(curr => curr.map(pg => pg.id === p.id ? { 
+                                      ...pg, 
+                                      status: 'completed',
+                                      textPositionOverride: layout.textPositionOverride,
+                                      textBackgroundOverride: layout.textBackgroundOverride
+                                    } : pg));
+                                  } catch (e) {
+                                    console.error(e);
+                                    setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, status: 'error' } : pg));
+                                  }
+                                }}
+                                className="w-full bg-indigo-50 border-2 border-indigo-100 hover:border-indigo-600 hover:bg-indigo-600 hover:text-white transition-all text-indigo-600 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 mt-2"
+                              >
+                                <Sparkles size={14} /> Auto-Layout with AI
+                              </button>
+                           )}
                          </div>
                       )}
                       
