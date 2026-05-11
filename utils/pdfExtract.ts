@@ -22,7 +22,8 @@ export const extractImagesFromPDF = async (file: File): Promise<string[]> => {
     const renderContext = {
       canvasContext: ctx,
       viewport: viewport,
-    };
+      canvas: canvas,
+    } as any;
 
     await page.render(renderContext).promise;
     images.push(canvas.toDataURL('image/jpeg', 0.9));

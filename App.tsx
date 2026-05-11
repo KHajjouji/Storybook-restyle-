@@ -1059,7 +1059,14 @@ const App: React.FC = () => {
       let result;
       let layers;
       const targetText = settings.embedTextInImage ? p.originalText : undefined;
-      const finalAspectRatio = p.isSpread ? (targetAspectRatio === '9:16' ? '16:9' : targetAspectRatio === '4:3' ? '16:9' : targetAspectRatio) : targetAspectRatio;
+      const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
+        if (ratio === '9:16') return '1:1';
+        if (ratio === '1:1') return '16:9';
+        if (ratio === '4:3') return '16:9';
+        if (ratio === '16:9') return '16:9';
+        return '16:9';
+      };
+      const finalAspectRatio = p.isSpread ? getSpreadRatio(targetAspectRatio) : targetAspectRatio;
 
       let envRefBase64 = undefined;
       if (p.environmentRefId) {
@@ -1122,15 +1129,26 @@ const App: React.FC = () => {
                                 .map(pg => ({ base64: (pg.processedImage || pg.originalImage)!, index: pages.indexOf(pg) + 1 }));
 
       let finalPrompt = fixInstruction;
+      const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
+        if (ratio === '9:16') return '1:1';
+        if (ratio === '1:1') return '16:9';
+        if (ratio === '4:3') return '16:9';
+        if (ratio === '16:9') return '16:9';
+        return '16:9';
+      };
+
       let finalRatio = targetAspectRatio;
       
       if (fixMode === 'outpaint') {
-        finalRatio = p.isSpread ? "4:3" : "16:9";
+        finalRatio = p.isSpread ? targetAspectRatio : getSpreadRatio(targetAspectRatio);
         finalPrompt = `OUTPAINTING TASK: Expand the canvas to ${finalRatio}. Intelligently fill new space to the left and right while keeping the original composition in the center. Request: ${fixInstruction || 'No specific fix, just outpaint.'}`;
-      } else if (fixMode === 'separate-layers') {
-        finalPrompt = `LAYER SEPARATION TASK: Separate the illustration into distinct layers. ${fixInstruction}`;
       } else {
-        finalPrompt = `FIX TASK: ${fixInstruction}. Narrative context: "${p.originalText || 'General Scene'}".`;
+        finalRatio = p.isSpread ? getSpreadRatio(targetAspectRatio) : targetAspectRatio;
+        if (fixMode === 'separate-layers') {
+          finalPrompt = `LAYER SEPARATION TASK: Separate the illustration into distinct layers. ${fixInstruction}`;
+        } else {
+          finalPrompt = `FIX TASK: ${fixInstruction}. Narrative context: "${p.originalText || 'General Scene'}".`;
+        }
       }
 
       const targetText = settings.embedTextInImage ? p.originalText : undefined;
@@ -1210,6 +1228,14 @@ const App: React.FC = () => {
       const targetImg = p.processedImage || p.originalImage!;
       const retargeting = p.retargeting || { sourceHotspots: [], targetHotspots: [], instruction: "" };
 
+      const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
+        if (ratio === '9:16') return '1:1';
+        if (ratio === '1:1') return '16:9';
+        if (ratio === '4:3') return '16:9';
+        if (ratio === '16:9') return '16:9';
+        return '16:9';
+      };
+
       const res = await retargetCharacters(
         retargetSourceImage,
         targetImg,
@@ -1219,7 +1245,7 @@ const App: React.FC = () => {
           instruction: retargetInstruction 
         },
         targetResolution,
-        p.isSpread ? (targetAspectRatio === '9:16' ? '16:9' : targetAspectRatio === '4:3' ? '16:9' : targetAspectRatio) : targetAspectRatio
+        p.isSpread ? getSpreadRatio(targetAspectRatio) : targetAspectRatio
       );
 
       setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'completed', processedImage: res } : pg));

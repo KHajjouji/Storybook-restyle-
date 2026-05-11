@@ -36,46 +36,8 @@ export const getBestAspectRatio = (
   fallbackRatio: string = "16:9"
 ): "1:1" | "3:4" | "4:3" | "9:16" | "16:9" => {
   const supported = ["1:1", "3:4", "4:3", "9:16", "16:9"];
-  if (!format || !PRINT_FORMATS[format]) {
-    return supported.includes(fallbackRatio) ? (fallbackRatio as any) : "16:9";
-  }
-  
-  const config = PRINT_FORMATS[format];
-  let width = config.width;
-  let height = config.height;
-  
-  if (isSpread) {
-    const coverDims = calculateCoverWithBleed(config.width, config.height, estimatedPageCount);
-    width = coverDims.width;
-    height = coverDims.height;
-  } else {
-    width = config.width + config.bleed;
-    height = config.height + (config.bleed * 2);
-  }
-  
-  const targetRatio = width / height;
-  
-  const ratios = [
-    { str: "1:1", val: 1 },
-    { str: "3:4", val: 0.75 },
-    { str: "4:3", val: 1.333 },
-    { str: "9:16", val: 0.5625 },
-    { str: "16:9", val: 1.777 }
-  ];
-  
-  let best = ratios[0];
-  let minDiff = Math.abs(targetRatio - best.val);
-  
-  for (const r of ratios) {
-    const diff = Math.abs(targetRatio - r.val);
-    if (diff < minDiff) {
-      minDiff = diff;
-      best = r;
-    }
-  }
-  
-  return best.str as any;
-}
+  return supported.includes(fallbackRatio) ? (fallbackRatio as any) : "16:9";
+};
 
 /**
  * Parses a raw script text into a structured prompt pack.
