@@ -58,6 +58,8 @@ export interface BookPage {
   isSpread: boolean; 
   overrideStylePrompt?: string; 
   retargeting?: CharacterRetargeting;
+  textPositionOverride?: 'top' | 'center' | 'bottom' | 'hidden';
+  textBackgroundOverride?: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black';
   layers?: BookLayer[];
   environmentRefId?: string;
 }

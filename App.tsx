@@ -1845,18 +1845,18 @@ const App: React.FC = () => {
                     <div className="aspect-[4/3] bg-slate-100 rounded-[3rem] overflow-hidden shadow-inner border-8 border-white relative">
                       {(p.processedImage || p.originalImage) && <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />}
                       <SpreadGuide isSpread={p.isSpread} show={settings.showSafeGuides} format={settings.exportFormat} pageCount={settings.estimatedPageCount} />
-                      {settings.overlayText && p.originalText && (
+                      {settings.overlayText && p.originalText && (p.textPositionOverride !== 'hidden') && (
                         <div className={`absolute inset-0 flex pointer-events-none p-[5%]
-                          ${settings.overlayTextPosition === 'top' ? 'items-start' : 
-                            settings.overlayTextPosition === 'center' ? 'items-center' : 'items-end'
+                          ${(p.textPositionOverride || settings.overlayTextPosition) === 'top' ? 'items-start' : 
+                            (p.textPositionOverride || settings.overlayTextPosition) === 'center' ? 'items-center' : 'items-end'
                           } justify-center`}
                         >
                           {(!p.isSpread || settings.spreadTextSide === 'both') && (
                             <div className={`${p.isSpread ? 'w-1/2 flex justify-center' : 'w-full flex justify-center'}`}>
                               <div className={`
-                                ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
-                                ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
-                                ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'solid-white' ? 'bg-white p-4 rounded-xl shadow-lg' : ''}
+                                ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm shadow-md' : ''}
+                                ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm shadow-md' : ''}
                               `}>
                                 <p 
                                   className={`text-center transition-all whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
@@ -1876,9 +1876,9 @@ const App: React.FC = () => {
                           {p.isSpread && settings.spreadTextSide === 'left' && (
                              <div className="w-1/2 flex justify-center pr-4">
                                 <div className={`
-                                  ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
-                                  ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
-                                  ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                  ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'solid-white' ? 'bg-white p-4 rounded-xl shadow-lg' : ''}
+                                  ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm shadow-md' : ''}
+                                  ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm shadow-md' : ''}
                                 `}>
                                   <p 
                                     className={`text-center transition-all whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
@@ -1898,9 +1898,9 @@ const App: React.FC = () => {
                           {p.isSpread && (settings.spreadTextSide === 'right' || !settings.spreadTextSide) && (
                              <div className="w-1/2 flex justify-center ml-[50%] pl-4 absolute">
                                 <div className={`
-                                  ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
-                                  ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
-                                  ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                  ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'solid-white' ? 'bg-white p-4 rounded-xl shadow-lg' : ''}
+                                  ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm shadow-md' : ''}
+                                  ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm shadow-md' : ''}
                                 `}>
                                   <p 
                                     className={`text-center transition-all whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
@@ -1920,9 +1920,9 @@ const App: React.FC = () => {
                           {p.isSpread && settings.spreadTextSide === 'both' && (
                              <div className="w-1/2 flex justify-center pl-4">
                                <div className={`
-                                 ${settings.overlayTextBackground === 'solid-white' ? 'bg-white p-4 rounded-xl' : ''}
-                                 ${settings.overlayTextBackground === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm' : ''}
-                                 ${settings.overlayTextBackground === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm' : ''}
+                                 ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'solid-white' ? 'bg-white p-4 rounded-xl shadow-lg' : ''}
+                                 ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'semi-transparent-white' ? 'bg-white/70 p-4 rounded-xl backdrop-blur-sm shadow-md' : ''}
+                                 ${(p.textBackgroundOverride || settings.overlayTextBackground) === 'semi-transparent-black' ? 'bg-black/50 p-4 rounded-xl backdrop-blur-sm shadow-md' : ''}
                                `}>
                                  <p 
                                    className={`text-center transition-all whitespace-pre-wrap px-4 ${settings.overlayTextShadow !== false ? 'drop-shadow-md' : ''}`} 
@@ -1943,7 +1943,50 @@ const App: React.FC = () => {
                     </div>
                     {p.originalText && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 italic leading-relaxed">"{p.originalText}"</p>}
                     
-                    <div className="px-4 space-y-2">
+                    <div className="px-4 space-y-4">
+                      {settings.overlayText && (
+                         <div className="bg-slate-50 p-4 rounded-2xl flex flex-col gap-3">
+                           <div className="flex items-center justify-between">
+                             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 leading-tight">Position Override</h4>
+                             <div className="flex bg-slate-200 rounded-lg p-1">
+                               {(['top', 'center', 'bottom', 'hidden'] as const).map(pos => (
+                                 <button
+                                    key={pos}
+                                    onClick={() => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, textPositionOverride: pos } : pg))}
+                                    className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${
+                                      (p.textPositionOverride || settings.overlayTextPosition) === pos ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-slate-300'
+                                    }`}
+                                 >
+                                    {pos}
+                                 </button>
+                               ))}
+                               {p.textPositionOverride && (
+                                  <button onClick={() => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, textPositionOverride: undefined } : pg))} className="px-2 text-slate-400 hover:text-red-500">✕</button>
+                               )}
+                             </div>
+                           </div>
+                           <div className="flex items-center justify-between">
+                             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 leading-tight">Background Override</h4>
+                             <div className="flex bg-slate-200 rounded-lg p-1">
+                               {(['transparent', 'solid-white', 'semi-transparent-white', 'semi-transparent-black'] as const).map(bg => (
+                                 <button
+                                    key={bg}
+                                    onClick={() => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, textBackgroundOverride: bg } : pg))}
+                                    className={`px-2 py-1 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${
+                                      (p.textBackgroundOverride || settings.overlayTextBackground) === bg ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-slate-300'
+                                    }`}
+                                 >
+                                    {bg.split('-').map(w => w[0].toUpperCase()).join('')}
+                                 </button>
+                               ))}
+                               {p.textBackgroundOverride && (
+                                  <button onClick={() => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, textBackgroundOverride: undefined } : pg))} className="px-2 text-slate-400 hover:text-red-500">✕</button>
+                               )}
+                             </div>
+                           </div>
+                         </div>
+                      )}
+                      
                       <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Characters in Scene</h4>
                       <div className="flex flex-wrap gap-2">
                         {settings.characterReferences.map(char => {
