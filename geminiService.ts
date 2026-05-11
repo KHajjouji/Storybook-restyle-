@@ -290,7 +290,8 @@ export const restyleIllustration = async (
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
-  environmentRefBase64?: string
+  environmentRefBase64?: string,
+  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment'
 ): Promise<string> => {
   const ai = getAIClient();
   const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-3.1-flash-image-preview';
@@ -360,7 +361,15 @@ export const restyleIllustration = async (
 
   if (environmentRefBase64) {
     const data = environmentRefBase64.includes(',') ? environmentRefBase64.split(',')[1] : environmentRefBase64;
-    parts.push({ text: "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location." });
+    let refText = "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
+    if (environmentRefType === 'clothing') {
+      refText = "--- STRICT CLOTHING/OUTFIT REFERENCE --- \nCRITICAL: You MUST use the exact clothing and outfits shown in this reference image for the characters. IGNORE the environment and character identities, just use the clothes.";
+    } else if (environmentRefType === 'characters') {
+      refText = "--- STRICT CHARACTER COMPOSITION REFERENCE --- \nCRITICAL: You MUST maintain the exact characters, their poses, and their clothing shown in this reference image. Ensure the characters look identical to this image.";
+    } else if (environmentRefType === 'everything') {
+      refText = "--- STRICT VISUAL LINK REFERENCE --- \nCRITICAL: You MUST maintain the exact environment, location, characters, their clothing, and the general vibe shown in this reference image. Keep the visual continuity perfectly identical.";
+    }
+    parts.push({ text: refText });
     parts.push({ inlineData: { data, mimeType: 'image/png' } });
   }
 
@@ -851,7 +860,8 @@ export const generateLayeredIllustration = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   styleRefBase64?: string,
-  environmentRefBase64?: string
+  environmentRefBase64?: string,
+  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment'
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
   
@@ -878,16 +888,16 @@ export const generateLayeredIllustration = async (
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment. ${layoutRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType);
 
   // 2. CHARACTER LAYER
   const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64);
+  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
   const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64);
+  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER (If applicable)
@@ -957,7 +967,7 @@ export const generateLayeredIllustration = async (
 export const analyzeTextLayout = async (
   imageBase64: string,
   text: string
-): Promise<{ textPositionOverride: 'top' | 'center' | 'bottom', textBackgroundOverride: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black' }> => {
+): Promise<{ textPositionOverride: 'top' | 'center' | 'bottom', textBackgroundOverride: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black', suggestedText?: string }> => {
   const ai = getAIClient();
   const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
   
@@ -966,7 +976,7 @@ export const analyzeTextLayout = async (
     contents: {
       role: 'user',
       parts: [
-        { text: `Analyze this illustration. We need to overlay this text: "${text}".\n\nWhere is the best position to place the text so that it doesn't cover the main focal points (like character faces) and is readable?\nAnd what background should the text have? If the area is clean and uniform, 'transparent' is best. If it's busy, use 'semi-transparent-white' or 'solid-white'.\n\nReturn ONLY a valid JSON object matching exactly this schema:\n{"textPositionOverride": "top" | "center" | "bottom", "textBackgroundOverride": "transparent" | "solid-white" | "semi-transparent-white" | "semi-transparent-black"}` },
+        { text: `Analyze this illustration. We need to overlay this text: "${text}".\n\nNOTE: The text might contain "||" which separates different languages (e.g., English || Spanish || French). This means the text is longer and will need appropriate spacing.\nIf the text does NOT have multiple languages separated by "||", and you think it's just a single language, you MAY optionally provide a translated version in the 'suggestedText' field separated by "||" (e.g. "Original English || Spanish || French") if you think this book is meant to be multilingual.\n\nWhere is the best position to place the text so that it doesn't cover the main focal points (like character faces) and is readable?\nAnd what background should the text have? If the area is clean and uniform, 'transparent' is best. If it's busy, use 'semi-transparent-white' or 'solid-white'.\n\nReturn ONLY a valid JSON object matching exactly this schema:\n{"textPositionOverride": "top" | "center" | "bottom", "textBackgroundOverride": "transparent" | "solid-white" | "semi-transparent-white" | "semi-transparent-black", "suggestedText": "optional multilingual text separated by ||"}` },
         { inlineData: { data, mimeType: 'image/jpeg' } }
       ]
     },

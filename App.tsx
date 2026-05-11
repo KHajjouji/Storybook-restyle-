@@ -1087,7 +1087,8 @@ const App: React.FC = () => {
           settings.exportFormat,
           settings.estimatedPageCount,
           settings.styleReference,
-          envRefBase64
+          envRefBase64,
+          p.environmentRefType
         );
         result = layeredResult.composite;
         layers = layeredResult.layers;
@@ -1098,7 +1099,7 @@ const App: React.FC = () => {
         result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference);
       } else {
         // For activities, use the specific spread prompt as the primary instruction
-        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64);
+        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64, p.environmentRefType);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
     } catch (e) { 
@@ -2037,7 +2038,8 @@ const App: React.FC = () => {
                                       ...pg, 
                                       status: 'completed',
                                       textPositionOverride: layout.textPositionOverride,
-                                      textBackgroundOverride: layout.textBackgroundOverride
+                                      textBackgroundOverride: layout.textBackgroundOverride,
+                                      originalText: layout.suggestedText || pg.originalText
                                     } : pg));
                                   } catch (e) {
                                     console.error(e);
@@ -2379,16 +2381,31 @@ const App: React.FC = () => {
                     </div>
                     <div className="space-y-4">
                        <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><ImageIcon size={20} /> Environment Reference (Visual Link)</h4>
-                       <select 
-                         value={p.environmentRefId || ''} 
-                         onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefId: e.target.value || undefined } : pg))}
-                         className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
-                       >
-                         <option value="">None (Auto-generate environment)</option>
-                         {pages.map((refPg, i) => refPg.id !== p.id ? (
-                           <option key={refPg.id} value={refPg.id}>Link to Scene #{i + 1}</option>
-                         ) : null)}
-                       </select>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         <select 
+                           value={p.environmentRefId || ''} 
+                           onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefId: e.target.value || undefined } : pg))}
+                           className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
+                         >
+                           <option value="">None (Auto-generate environment)</option>
+                           {pages.map((refPg, i) => refPg.id !== p.id ? (
+                             <option key={refPg.id} value={refPg.id}>Link to Scene #{i + 1}</option>
+                           ) : null)}
+                         </select>
+                         
+                         {p.environmentRefId && (
+                           <select 
+                             value={p.environmentRefType || 'environment'} 
+                             onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefType: e.target.value as any } : pg))}
+                             className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
+                           >
+                             <option value="environment">Keep Environment Only</option>
+                             <option value="clothing">Keep Clothing Only</option>
+                             <option value="characters">Keep Characters & Clothing</option>
+                             <option value="everything">Keep Everything (Full Scene Template)</option>
+                           </select>
+                         )}
+                       </div>
                     </div>
 
                     <LayerManager 
