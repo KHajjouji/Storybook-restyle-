@@ -3280,6 +3280,7 @@ const App: React.FC = () => {
           userMode={userMode}
           isAdmin={isAdmin}
           onClose={() => setShowUserDashboard(false)}
+          onOpenProjects={() => { setShowUserDashboard(false); handleOpenProjects(); }}
           onToggleMode={handleToggleUserMode}
           onShowSubscription={() => {
             setShowUserDashboard(false);

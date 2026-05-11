@@ -10,6 +10,7 @@ interface UserDashboardProps {
   userMode: UserMode;
   isAdmin: boolean;
   onClose: () => void;
+  onOpenProjects: () => void;
   onToggleMode: () => void;
   onShowSubscription: () => void;
   onShowAdmin: () => void;
@@ -21,6 +22,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   userMode,
   isAdmin,
   onClose,
+  onOpenProjects,
   onToggleMode,
   onShowSubscription,
   onShowAdmin,
@@ -117,7 +119,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
           {/* My books */}
           <button
-            onClick={onClose}
+            onClick={onOpenProjects}
             className="w-full flex items-center justify-between py-4 px-4 rounded-2xl hover:bg-slate-50 transition-colors group"
           >
             <div className="flex items-center gap-3">
