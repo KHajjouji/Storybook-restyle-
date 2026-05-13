@@ -777,6 +777,7 @@ const App: React.FC = () => {
     }
 
     const reader = new FileReader();
+    setIsProcessing(true);
     reader.onload = async (event) => {
       try {
         const project: Project = JSON.parse(event.target?.result as string);
@@ -801,7 +802,13 @@ const App: React.FC = () => {
       } catch (err) {
         console.error(err);
         showToast("Failed to import project file.");
+      } finally {
+        setIsProcessing(false);
       }
+    };
+    reader.onerror = () => {
+      showToast("Failed to read file.");
+      setIsProcessing(false);
     };
     reader.readAsText(file);
     e.target.value = ''; // Reset input
@@ -3014,12 +3021,21 @@ const App: React.FC = () => {
         return (
           <div className="max-w-4xl mx-auto py-20 px-8 space-y-12 text-center">
              <h2 className="text-6xl font-black">4K Master Enhancement</h2>
-             <div onClick={() => restyleInputRef.current?.click()} className="aspect-video bg-white border-4 border-dashed border-slate-200 rounded-[5rem] flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500 transition-all group shadow-inner">
-                <Upload size={80} className="text-slate-200 group-hover:text-emerald-500 mb-8" />
-                <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-xl group-hover:text-emerald-500">Select Frames to Master</p>
+             <div onClick={() => !isProcessing && restyleInputRef.current?.click()} className={`aspect-video bg-white border-4 border-dashed border-slate-200 rounded-[5rem] flex flex-col items-center justify-center transition-all group shadow-inner ${isProcessing ? 'cursor-not-allowed' : 'cursor-pointer hover:border-emerald-500'}`}>
+                {isProcessing ? (
+                  <div className="flex flex-col items-center gap-6">
+                    <Loader2 size={80} className="animate-spin text-emerald-500" />
+                    <p className="text-emerald-500 font-black uppercase tracking-[0.2em] text-xl animate-pulse">Loading Assets...</p>
+                  </div>
+                ) : (
+                  <>
+                    <Upload size={80} className="text-slate-200 group-hover:text-emerald-500 mb-8" />
+                    <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-xl group-hover:text-emerald-500">Select Frames to Master</p>
+                  </>
+                )}
                 <input type="file" multiple hidden ref={restyleInputRef} accept="image/*,application/pdf" onChange={handleRestyleUpload} />
              </div>
-             <button onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600 underline">Back to Main Suit</button>
+             <button disabled={isProcessing} onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600 underline disabled:opacity-50">Back to Main Suit</button>
           </div>
         );
 
@@ -3159,12 +3175,21 @@ const App: React.FC = () => {
         return (
           <div className="max-w-5xl mx-auto py-24 px-8 space-y-12 text-center">
              <h2 className="text-7xl font-black text-slate-900">Load Production Assets</h2>
-             <div onClick={() => restyleInputRef.current?.click()} className="aspect-video bg-white border-4 border-dashed border-slate-200 rounded-[6rem] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-600 transition-all group shadow-inner">
-                <Upload size={100} className="text-slate-200 group-hover:text-indigo-600 mb-10 transition-colors" />
-                <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-3xl group-hover:text-indigo-600 transition-colors">Select Illustration Batch</p>
+             <div onClick={() => !isProcessing && restyleInputRef.current?.click()} className={`aspect-video bg-white border-4 border-dashed border-slate-200 rounded-[6rem] flex flex-col items-center justify-center transition-all group shadow-inner ${isProcessing ? 'cursor-not-allowed' : 'cursor-pointer hover:border-indigo-600'}`}>
+                {isProcessing ? (
+                  <div className="flex flex-col items-center gap-6">
+                    <Loader2 size={100} className="animate-spin text-indigo-600" />
+                    <p className="text-indigo-600 font-black uppercase tracking-[0.2em] text-3xl animate-pulse">Extracting Elements...</p>
+                  </div>
+                ) : (
+                  <>
+                    <Upload size={100} className="text-slate-200 group-hover:text-indigo-600 mb-10 transition-colors" />
+                    <p className="text-slate-400 font-black uppercase tracking-[0.2em] text-3xl group-hover:text-indigo-600 transition-colors">Select Illustration Batch</p>
+                  </>
+                )}
                 <input type="file" multiple hidden ref={restyleInputRef} accept="image/*,application/pdf" onChange={handleRestyleUpload} />
              </div>
-             <button onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600 underline text-xl">Cancel</button>
+             <button disabled={isProcessing} onClick={() => setCurrentStep('landing')} className="text-slate-400 font-bold hover:text-slate-600 underline text-xl disabled:opacity-50">Cancel</button>
           </div>
         );
 
@@ -3189,9 +3214,9 @@ const App: React.FC = () => {
                    <button onClick={triggerManualSave} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Save Project"><Save size={28} /></button>
                    <button onClick={handleOpenProjects} className="text-indigo-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Load Project"><FolderOpen size={28} /></button>
                    <button onClick={handleExportProjectFile} className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Export Project"><FileDown size={28} /></button>
-                   <label className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform cursor-pointer" title="Import Project">
-                     <FileUp size={28} />
-                     <input type="file" accept=".storyflow,.json,.pdf" className="hidden" onChange={handleImportProjectFile} />
+                   <label className={`text-emerald-600 p-4 bg-white rounded-2xl shadow-xl transition-transform ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110 cursor-pointer'}`} title="Import Project">
+                     {isProcessing ? <Loader2 size={28} className="animate-spin" /> : <FileUp size={28} />}
+                     <input type="file" accept=".storyflow,.json,.pdf" className="hidden" disabled={isProcessing} onChange={handleImportProjectFile} />
                    </label>
                 </div>
              </div>

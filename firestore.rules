@@ -147,14 +147,17 @@ service cloud.firestore {
     }
 
     function isValidUserProfile(data) {
-      let allowedFields = ['uid', 'email', 'tierId', 'credits', 'role'];
+      let allowedFields = ['uid', 'email', 'tierId', 'credits', 'role', 'createdAt', 'stripeCustomerId', 'subscriptionStatus'];
       return hasOnlyAllowedFields(allowedFields) &&
              hasRequiredFields(['uid', 'email', 'tierId', 'credits', 'role']) &&
              data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
              data.email is string && data.email.size() > 0 && data.email.size() < 200 &&
              data.tierId is string && data.tierId.size() > 0 && data.tierId.size() < 100 &&
              data.credits is number && data.credits >= 0 &&
-             data.role in ['admin', 'user'];
+             data.role in ['admin', 'user'] &&
+             (!('createdAt' in data) || data.createdAt is number) &&
+             (!('stripeCustomerId' in data) || data.stripeCustomerId == null || data.stripeCustomerId is string) &&
+             (!('subscriptionStatus' in data) || data.subscriptionStatus == null || data.subscriptionStatus is string);
     }
 
     function isValidTier(data) {
@@ -206,20 +209,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == userId);
-      allow create: if isAuthenticated() && isValidUserProfile(request.resource.data) && request.resource.data.uid == userId && (
-        isAdmin() || 
-        (request.resource.data.role == 'user' && request.resource.data.credits <= 10 && request.resource.data.tierId == 'free')
-      );
-      allow update: if isAuthenticated() && isValidUserProfile(request.resource.data) && request.resource.data.uid == userId && request.resource.data.uid == resource.data.uid && (
-        isAdmin() ||
-        (request.auth.uid == userId && 
-         request.resource.data.role == resource.data.role && 
-         request.resource.data.tierId == resource.data.tierId && 
-         request.resource.data.email == resource.data.email &&
-         request.resource.data.credits <= resource.data.credits) // User can only decrement credits
-      );
-      allow delete: if isAdmin();
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAuthenticated() && request.auth.uid == userId;
     }
 
     match /tiers/{tierId} {

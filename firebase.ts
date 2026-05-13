@@ -80,7 +80,7 @@ export const checkIsAdmin = async (email: string | null): Promise<boolean> => {
   }
 
   try {
-    const docRef = doc(db, 'users', email);
+    const docRef = doc(db, 'allowedEmails', email);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       return docSnap.data().role === 'admin';
