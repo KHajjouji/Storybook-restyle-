@@ -1107,7 +1107,8 @@ export const retargetCharacters = async (
   targetImageBase64: string,
   retargeting: { sourceHotspots: {x: number, y: number, label: number}[], targetHotspots: {x: number, y: number, label: number}[], instruction?: string },
   imageSize: '1K' | '2K' | '4K' = '1K',
-  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  targetStyle?: string
 ): Promise<string> => {
   console.log("Starting retargetCharacters with:", { sourceHotspots: retargeting.sourceHotspots, targetHotspots: retargeting.targetHotspots });
   const ai = getAIClient();
@@ -1122,6 +1123,8 @@ export const retargetCharacters = async (
     return `Character at Source Hotspot ${sh.label} (x:${Math.round(sh.x)}%, y:${Math.round(sh.y)}%) should be mapped to Target Hotspot ${th.label} (x:${Math.round(th.x)}%, y:${Math.round(th.y)}%).`;
   }).filter(Boolean).join("\n");
 
+  const styleInstruction = targetStyle ? `Additionally, heavily apply and enhance the illustration to match this exact TARGET STYLE: "${targetStyle}". The final image must fully embody this visual style.` : "";
+
   const instruction = `CHARACTER RETARGETING TASK:
   
   GOAL: Transfer character identities (faces, clothing, style) from the SOURCE REFERENCE to the TARGET IMAGE.
@@ -1132,10 +1135,13 @@ export const retargetCharacters = async (
   ADDITIONAL INSTRUCTIONS:
   ${retargeting.instruction || "Maintain the exact pose and composition of the target image, but replace the characters with the ones from the source image as mapped by the hotspots."}
   
+  ${styleInstruction}
+  
   RULES:
   1. Keep the background and environment of the TARGET IMAGE.
   2. Ensure character likeness from the SOURCE REFERENCE is preserved.
-  3. Seamlessly blend the new character features into the target scene.`;
+  3. Seamlessly blend the new character features into the target scene.
+  ${targetStyle ? "4. Enforce the requested TARGET STYLE throughout the entire image, refining details to match." : ""}`;
 
   const parts: any[] = [
     { inlineData: { data: targetData, mimeType: 'image/png' } },

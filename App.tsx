@@ -251,6 +251,7 @@ const App: React.FC = () => {
   const [activeRetargetId, setActiveRetargetId] = useState<string | null>(null);
   const [retargetSourceImage, setRetargetSourceImage] = useState<string | null>(null);
   const [retargetInstruction, setRetargetInstruction] = useState("");
+  const [retargetApplyStyle, setRetargetApplyStyle] = useState(false);
   const [activeHotspotLabel, setActiveHotspotLabel] = useState(1);
 
   const [showProjectsModal, setShowProjectsModal] = useState(false);
@@ -1318,7 +1319,8 @@ const App: React.FC = () => {
           instruction: retargetInstruction 
         },
         targetResolution,
-        p.isSpread ? getSpreadRatio(targetAspectRatio) : targetAspectRatio
+        p.isSpread ? getSpreadRatio(targetAspectRatio) : targetAspectRatio,
+        retargetApplyStyle ? settings.targetStyle : undefined
       );
 
       setPages(curr => curr.map(pg => pg.id === targetId ? { ...pg, status: 'completed', processedImage: res } : pg));
@@ -3167,6 +3169,18 @@ const App: React.FC = () => {
                 value={retargetInstruction} 
                 onChange={e => setRetargetInstruction(e.target.value)} 
               />
+              <div className="flex items-center gap-3 px-4">
+                <input 
+                  type="checkbox" 
+                  id="applyStyleCheck" 
+                  checked={retargetApplyStyle} 
+                  onChange={e => setRetargetApplyStyle(e.target.checked)}
+                  className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500" 
+                />
+                <label htmlFor="applyStyleCheck" className="text-sm font-bold text-slate-700 cursor-pointer select-none">
+                  Enhance and completely restyle the image using the project's Master Target Style
+                </label>
+              </div>
             </div>
           </div>
         );
