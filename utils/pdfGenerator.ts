@@ -24,6 +24,14 @@ const calculateGutter = (pageCount: number, format: ExportFormat): number => {
   return base;
 };
 
+const getImageFormat = (dataUri: string) => {
+  if (typeof dataUri === 'string') {
+    if (dataUri.startsWith('data:image/jpeg') || dataUri.startsWith('data:image/jpg')) return 'JPEG';
+    if (dataUri.startsWith('data:image/webp')) return 'WEBP';
+  }
+  return 'PNG';
+};
+
 export const generateCoverPDF = async (
   coverImage: string,
   format: ExportFormat,
@@ -42,7 +50,7 @@ export const generateCoverPDF = async (
     format: [coverDims.width, coverDims.height]
   });
 
-  pdf.addImage(coverImage, 'JPEG', 0, 0, coverDims.width, coverDims.height, undefined, 'FAST');
+  pdf.addImage(coverImage, getImageFormat(coverImage), 0, 0, coverDims.width, coverDims.height, undefined, 'FAST');
   pdf.save(`${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_cover_kdp.pdf`);
 };
 
@@ -234,10 +242,10 @@ export const generateBookPDF = async (
         const textLayer = page.layers.find(l => l.type === 'text' && l.isVisible);
         const foreground = page.layers.find(l => l.type === 'foreground' && l.isVisible);
 
-        if (bg) pdf.addImage(bg.image, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        if (chars) pdf.addImage(chars.image, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        if (foreground) pdf.addImage(foreground.image, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        if (textLayer) pdf.addImage(textLayer.image, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (bg) pdf.addImage(bg.image, getImageFormat(bg.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (chars) pdf.addImage(chars.image, getImageFormat(chars.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (foreground) pdf.addImage(foreground.image, getImageFormat(foreground.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (textLayer) pdf.addImage(textLayer.image, getImageFormat(textLayer.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
         
         // Active Text (Dynamic)
         if (overlayText && page.originalText && !textLayer) {
@@ -272,7 +280,7 @@ export const generateBookPDF = async (
           }
         }
       } else {
-        pdf.addImage(image, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        pdf.addImage(image, getImageFormat(image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
           
@@ -312,7 +320,7 @@ export const generateBookPDF = async (
       
       // Draw left half of the spread. The spread is `spreadWidth` wide. We want to draw it such that the left half fits into `singleFullWidth`.
       // Since the left page has bleed on the left, but NO bleed on the right (gutter), the left half of the spread is exactly `singleFullWidth` wide.
-      pdf.addImage(image, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+      pdf.addImage(image, getImageFormat(image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
       
       // Active Text (Dynamic) for Left Page
       if (overlayText && page.originalText) {
@@ -331,7 +339,7 @@ export const generateBookPDF = async (
       // Wait, the spread image has bleed on the left and right. 
       // The right page needs bleed on the right, but NO bleed on the left (gutter).
       // So we shift the image left by `spreadWidth - singleFullWidth`.
-      pdf.addImage(image, 'PNG', -(spreadWidth - singleFullWidth), 0, spreadWidth, fullHeight, undefined, 'FAST');
+      pdf.addImage(image, getImageFormat(image), -(spreadWidth - singleFullWidth), 0, spreadWidth, fullHeight, undefined, 'FAST');
       
       currentPageNum++;
     } else {
@@ -343,10 +351,10 @@ export const generateBookPDF = async (
         const textLayer = page.layers.find(l => l.type === 'text' && l.isVisible);
         const foreground = page.layers.find(l => l.type === 'foreground' && l.isVisible);
         
-        if (bg) pdf.addImage(bg.image, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
-        if (chars) pdf.addImage(chars.image, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
-        if (foreground) pdf.addImage(foreground.image, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
-        if (textLayer) pdf.addImage(textLayer.image, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (bg) pdf.addImage(bg.image, getImageFormat(bg.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (chars) pdf.addImage(chars.image, getImageFormat(chars.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (foreground) pdf.addImage(foreground.image, getImageFormat(foreground.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (textLayer) pdf.addImage(textLayer.image, getImageFormat(textLayer.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
 
         // Active Text (Dynamic)
         if (overlayText && page.originalText && !textLayer) {
@@ -357,7 +365,7 @@ export const generateBookPDF = async (
           if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
         }
       } else {
-        pdf.addImage(image, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        pdf.addImage(image, getImageFormat(image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
           const safeLeft = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);

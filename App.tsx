@@ -2710,9 +2710,9 @@ const App: React.FC = () => {
                         setIsProcessing(true);
                         try {
                           await generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode, settings);
-                        } catch (err) {
+                        } catch (err: any) {
                           console.error("PDF generation failed:", err);
-                          showToast("Failed to generate PDF. See console.");
+                          showToast("Failed to generate PDF: " + err.message);
                         } finally {
                           setIsProcessing(false);
                         }
