@@ -203,6 +203,32 @@ export const persistenceService = {
     if (!auth.currentUser) return [];
     const path = 'projects';
     
+    // Perform deep local discovery to find orphaned projects not synced to Firestore
+    const localRecoveredProjects: Project[] = [];
+    try {
+      const { keys, get } = await import('idb-keyval');
+      const allKeys = await keys();
+      const projectIds = allKeys
+        .filter((k: any) => typeof k === 'string' && k.startsWith('project_pages_'))
+        .map((k: any) => k.replace('project_pages_', ''));
+      
+      for (const id of projectIds) {
+        const thumbnail = await get(`project_thumbnail_${id}`);
+        // We don't fetch full pages here to save memory, just construct metadata
+        localRecoveredProjects.push({
+          id,
+          name: `Recovered: ${id.substring(0, 5)}`,
+          lastModified: Date.now(), // approximation
+          thumbnail: thumbnail,
+          settings: {} as any,
+          pages: [],
+          currentStep: 'restyle-editor' as any
+        });
+      }
+    } catch (e) {
+      console.error("Discovery failed", e);
+    }
+    
     const fetchWithRetry = async (retries = 2, delay = 1000): Promise<Project[]> => {
       try {
         const q = query(collection(db, path), where("uid", "==", auth.currentUser!.uid));
@@ -211,6 +237,7 @@ export const persistenceService = {
         
         for (const docSnap of querySnapshot.docs) {
           const data = docSnap.data();
+          const { get } = await import('idb-keyval');
           const localThumbnail = await get(`project_thumbnail_${data.id}`);
           const parsedSettings = data.settings ? JSON.parse(data.settings) : {};
 
@@ -236,7 +263,15 @@ export const persistenceService = {
           });
         }
         
+        // Merge recovered projects that aren't in Firestore
+        for (const rec of localRecoveredProjects) {
+          if (!projects.find(p => p.id === rec.id)) {
+            projects.push(rec);
+          }
+        }
+        
         // Update local cache
+        const { set } = await import('idb-keyval');
         const localList = projects.map(p => ({
           id: p.id,
           name: p.name,
@@ -263,35 +298,12 @@ export const persistenceService = {
     } catch (error) {
       console.warn("Firestore listing failed after retries, falling back to local discovery:", error);
       
+      const { get } = await import('idb-keyval');
       // 1. Try local metadata list
       let localProjects: any[] = (await get('local_project_list')) || [];
       
-      if (localProjects.length === 0) {
-        // 2. Deep discovery: Scan IndexedDB keys for project_pages_*
-        try {
-          const { keys } = await import('idb-keyval');
-          const allKeys = await keys();
-          const projectIds = allKeys
-            .filter((k: any) => typeof k === 'string' && k.startsWith('project_pages_'))
-            .map((k: any) => k.replace('project_pages_', ''));
-          
-          for (const id of projectIds) {
-            const thumbnail = await get(`project_thumbnail_${id}`);
-            const pages = await get(`project_pages_${id}`);
-            localProjects.push({
-              id,
-              name: `Recovered: ${id.substring(0, 5)}...`,
-              lastModified: Date.now(), // approximation
-              thumbnail: thumbnail,
-              settings: {}
-            });
-          }
-          if (localProjects.length > 0) {
-            await set('local_project_list', localProjects);
-          }
-        } catch (e) {
-          console.error("Discovery failed", e);
-        }
+      if (localProjects.length === 0 && localRecoveredProjects.length > 0) {
+         localProjects = localRecoveredProjects;
       }
 
       return localProjects.map(p => ({
