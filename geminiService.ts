@@ -985,7 +985,7 @@ export const analyzeTextLayout = async (
     }
   });
 
-  const textRes = response.text();
+  const textRes = response.text;
   try {
     const res = JSON.parse(textRes);
     return res;

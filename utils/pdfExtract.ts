@@ -3,6 +3,29 @@ import * as pdfjsLib from 'pdfjs-dist';
 // We'll use CDN for the worker to avoid bundler issues
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
+export const extractProjectFromPDF = async (file: File): Promise<any> => {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const info = await pdf.getMetadata();
+    
+    // Check if we injected the project in the Subject field
+    const subject = (info?.info as any)?.Subject;
+    if (subject) {
+      try {
+        const metadata = JSON.parse(subject);
+        return { metadata, pdf };
+      } catch (e) {
+        console.warn("Could not parse PDF subject as JSON", e);
+      }
+    }
+    return { metadata: null, pdf };
+  } catch (err) {
+    console.error("Error extracting PDF metadata", err);
+    throw err;
+  }
+};
+
 export const extractImagesFromPDF = async (file: File): Promise<string[]> => {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;

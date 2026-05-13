@@ -73,10 +73,31 @@ export const generateBookPDF = async (
   const fullHeight = config.height + (config.bleed * 2); // Top and bottom get bleed
   const spreadWidth = (config.width * 2) + (config.bleed * 2); // Both outside edges get bleed
 
+  const strippedPages = pages.map(p => ({
+    ...p,
+    originalImage: undefined,
+    processedImage: undefined,
+    layers: undefined
+  }));
+  const strippedSettings = {
+    ...settings,
+    characterReferences: settings.characterReferences?.map((c: any) => ({ ...c, image: undefined }))
+  };
+  const exportMeta = {
+    settings: strippedSettings,
+    pages: strippedPages,
+    title,
+    totalEstimatedPages
+  };
+
   const pdf = new jsPDF({
     orientation: config.width > config.height ? 'landscape' : 'portrait',
     unit: 'in',
     format: [singleFullWidth, fullHeight]
+  });
+  pdf.setProperties({
+    creator: 'Storyflow',
+    subject: JSON.stringify(exportMeta)
   });
 
   const { loadGoogleFont } = await import('./fontLoader');

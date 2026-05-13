@@ -708,9 +708,74 @@ const App: React.FC = () => {
     a.click();
   };
 
-  const handleImportProjectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportProjectFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      // Try to load project from PDF metadata
+      try {
+        const { extractProjectFromPDF, extractImagesFromPDF } = await import('./utils/pdfExtract');
+        setIsProcessing(true);
+        const { metadata, pdf } = await extractProjectFromPDF(file);
+        
+        if (metadata && metadata.pages) {
+          // Reconstruct the project
+          // We need to extract the images to populate the pages and cover
+          showToast("Extracting images from PDF... this may take a moment.");
+          const images = await extractImagesFromPDF(file);
+          
+          const reconstructedPages = metadata.pages.map((p: any, i: number) => ({
+            ...p,
+            processedImage: images[i] || undefined,
+            originalImage: images[i] || undefined,
+            status: 'completed'
+          }));
+          
+          const project: Project = {
+            id: Date.now().toString(),
+            name: metadata.title || 'Imported PDF Project',
+            lastModified: Date.now(),
+            settings: metadata.settings || {
+              mode: 'restyle',
+              targetStyle: 'soft vibrant children’s storybook illustration, painterly, rounded shapes, big expressive eyes, gentle glow lighting, warm pastel palette, minimal outlines',
+              targetLanguage: 'English',
+              exportFormat: 'KDP_8_5x8_5',
+              spreadExportMode: 'WIDE_SPREAD',
+              masterBible: '',
+              styleReference: null,
+              characterReferences: [],
+              textFont: 'Inter',
+              overlayTextSize: 24,
+              overlayTextColor: '#000000',
+              overlayTextBackground: 'transparent',
+              overlayTextShadow: false,
+              overlayTextPosition: 'bottom',
+              spreadTextSide: 'right',
+            },
+            pages: reconstructedPages,
+            currentStep: 'restyle-editor',
+          };
+          
+          await persistenceService.saveProject(project);
+          setProjectId(project.id);
+          setProjectName(project.name);
+          setSettings(project.settings);
+          setPages(project.pages);
+          setCurrentStep('restyle-editor');
+          showToast("PDF Project imported successfully!");
+        } else {
+          showToast("No embedded Storyflow project found in this PDF.");
+        }
+      } catch (err) {
+        console.error(err);
+        showToast("Failed to parse PDF for project data.");
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
@@ -3126,7 +3191,7 @@ const App: React.FC = () => {
                    <button onClick={handleExportProjectFile} className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform" title="Export Project"><FileDown size={28} /></button>
                    <label className="text-emerald-600 p-4 bg-white rounded-2xl shadow-xl hover:scale-110 transition-transform cursor-pointer" title="Import Project">
                      <FileUp size={28} />
-                     <input type="file" accept=".storyflow,.json" className="hidden" onChange={handleImportProjectFile} />
+                     <input type="file" accept=".storyflow,.json,.pdf" className="hidden" onChange={handleImportProjectFile} />
                    </label>
                 </div>
              </div>
