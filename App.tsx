@@ -1161,7 +1161,8 @@ const App: React.FC = () => {
           settings.estimatedPageCount,
           settings.styleReference,
           envRefBase64,
-          p.environmentRefType
+          p.environmentRefType,
+          settings.targetStyle
         );
         result = layeredResult.composite;
         layers = layeredResult.layers;
@@ -1169,10 +1170,10 @@ const App: React.FC = () => {
         result = await upscaleIllustration(p.originalImage, narrativeContext, p.isSpread, targetResolution, finalAspectRatio);
       } else if (p.originalImage) {
         const others = pages.filter(pg => pg.id !== pageId && pg.processedImage).slice(0, 3).map(pg => ({ base64: pg.processedImage!, index: pages.indexOf(pg) + 1 }));
-        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference);
+        result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
       } else {
         // For activities, use the specific spread prompt as the primary instruction
-        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64, p.environmentRefType);
+        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64, p.environmentRefType, settings.targetStyle);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
     } catch (e) { 
@@ -1231,15 +1232,15 @@ const App: React.FC = () => {
       let layers;
 
       if (fixMode === 'separate-layers') {
-        const layeredRes = await separateIllustrationIntoLayers(targetImg, finalPrompt, selectedRefs, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount);
+        const layeredRes = await separateIllustrationIntoLayers(targetImg, finalPrompt, selectedRefs, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else if (settings.layeredMode) {
-        const layeredRes = await refineLayeredIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount);
+        const layeredRes = await refineLayeredIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else {
-        res = await refineIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount);
+        res = await refineIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
       }
       
       setPages(curr => curr.map(pg => pg.id === targetId ? { 

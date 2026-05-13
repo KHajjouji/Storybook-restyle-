@@ -149,20 +149,6 @@ export const persistenceService = {
         retargeting: p.retargeting ? { ...p.retargeting, sourceImage: undefined } : undefined
       }));
       
-      // Save full page images to Firestore chunks
-      for (const p of project.pages) {
-        if (p.originalImage) await this.saveChunks(project.id, 'page_originalImage', p.id, p.originalImage);
-        if (p.processedImage) await this.saveChunks(project.id, 'page_processedImage', p.id, p.processedImage);
-        if (p.layers && p.layers.length > 0) await this.saveChunks(project.id, 'page_layers', p.id, JSON.stringify(p.layers));
-      }
-      
-      if (project.coverImage) {
-        await this.saveChunks(project.id, 'project_coverImage', project.id, project.coverImage);
-      }
-      if (project.coverLayers && project.coverLayers.length > 0) {
-        await this.saveChunks(project.id, 'project_coverLayers', project.id, JSON.stringify(project.coverLayers));
-      }
-
       const strippedSettings = {
         ...project.settings,
         styleReference: undefined,
@@ -193,7 +179,23 @@ export const persistenceService = {
         targetAspectRatio: project.targetAspectRatio || null,
         targetResolution: project.targetResolution || null
       };
+
+      // Save root document first so chunks rules pass get()
       await setDoc(doc(db, 'projects', project.id), projectToSave);
+
+      // Save full page images to Firestore chunks
+      for (const p of project.pages) {
+        if (p.originalImage) await this.saveChunks(project.id, 'page_originalImage', p.id, p.originalImage);
+        if (p.processedImage) await this.saveChunks(project.id, 'page_processedImage', p.id, p.processedImage);
+        if (p.layers && p.layers.length > 0) await this.saveChunks(project.id, 'page_layers', p.id, JSON.stringify(p.layers));
+      }
+      
+      if (project.coverImage) {
+        await this.saveChunks(project.id, 'project_coverImage', project.id, project.coverImage);
+      }
+      if (project.coverLayers && project.coverLayers.length > 0) {
+        await this.saveChunks(project.id, 'project_coverLayers', project.id, JSON.stringify(project.coverLayers));
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
     }

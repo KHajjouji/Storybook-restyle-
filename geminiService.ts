@@ -291,7 +291,8 @@ export const restyleIllustration = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   environmentRefBase64?: string,
-  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment'
+  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment',
+  targetStyle?: string
 ): Promise<string> => {
   const ai = getAIClient();
   const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-3.1-flash-image-preview';
@@ -326,6 +327,10 @@ export const restyleIllustration = async (
   - Ensure the text is readable and fits the artistic style.
   - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : "";
 
+  const styleInstruction = targetStyle ? `
+  TARGET STYLE: "${targetStyle}"
+  CRITICAL: You MUST maintain and strictly enforce this exact visual style. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.` : "";
+
   const instruction = `ILLUSTRATOR TASK:
   SERIES BIBLE: ${masterBible}
   PROJECT CONTEXT: ${projectContext}
@@ -333,8 +338,10 @@ export const restyleIllustration = async (
   SCENE SCRIPT: ${stylePrompt}
   ${layoutRules}
   ${textInstruction}
+  ${styleInstruction}
   
-  CORE RULE: Maintain character facial likeness exactly as shown in refs. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.`;
+  CORE RULE: Maintain character facial likeness exactly as shown in refs. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.
+  CRITICAL: Produce a high-detail, fully rendered, high-quality illustration. Do not output sketches or low-fidelity concepts unless explicitly requested.`;
 
   const parts: any[] = [{ text: instruction }];
   
@@ -403,7 +410,8 @@ export const refineIllustration = async (
   targetText?: string,
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
-  styleRefBase64?: string
+  styleRefBase64?: string,
+  targetStyle?: string
 ): Promise<string> => {
   const ai = getAIClient();
   const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
@@ -436,14 +444,20 @@ export const refineIllustration = async (
   - Include/Update the following text in the illustration: "${targetText}"
   - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : "";
 
+  const styleInstruction = targetStyle ? `
+  TARGET STYLE: "${targetStyle}"
+  CRITICAL: You MUST maintain and strictly enforce this exact visual style while performing the requested edits. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.` : "";
+
   const instruction = `SCENE FIXER TASK:
   SERIES BIBLE: ${masterBible}
   NARRATIVE CONTEXT: ${projectContext}
   FIX REQUEST: "${refinementPrompt}"
   ${layoutRules}
   ${textInstruction}
+  ${styleInstruction}
   
-  GOAL: Modify the TARGET IMAGE to align with the FIX REQUEST while maintaining exact style and character features.`;
+  GOAL: Modify the TARGET IMAGE to align with the FIX REQUEST while maintaining exact style and character features.
+  CRITICAL: Do NOT drop or simplify the detail of the image. The modified image MUST be of EQUAL OR HIGHER visual quality, detail, and resolution as the original target image. Ensure that the original environment and atmosphere is perfectly preserved unless the FIX REQUEST explicitly asks to change it. Ensure high-fidelity rendering.`;
 
   const parts: any[] = [
     { text: instruction }
@@ -634,27 +648,29 @@ export const separateIllustrationIntoLayers = async (
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   targetText?: string,
   exportFormat?: ExportFormat,
-  estimatedPageCount?: number
+  estimatedPageCount?: number,
+  styleRefBase64?: string,
+  targetStyle?: string
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting layer separation...");
   
   // 1. BACKGROUND LAYER
   const bgPrompt = `LAYER SEPARATION: Extract the BACKGROUND ONLY from the provided image. Remove all characters, text bubbles, and text. Fill in the missing background details seamlessly. ${refinementPrompt}`;
-  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
+  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
 
   // 2. CHARACTER LAYER
   const charPrompt = `LAYER SEPARATION: Extract the CHARACTERS ONLY from the provided image. Remove the background, text bubbles, and text. Place the characters on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
-  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio, undefined, exportFormat, estimatedPageCount);
+  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. TEXT BUBBLE LAYER
   const bubblePrompt = `LAYER SEPARATION: Extract the TEXT BUBBLES or SPEECH BALLOONS ONLY from the provided image. Remove the background, characters, and the text inside the bubbles (leave the bubbles blank). Place the empty bubbles on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
-  const bubbleRaw = await refineIllustration(targetImageBase64, bubblePrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
+  const bubbleRaw = await refineIllustration(targetImageBase64, bubblePrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
   const bubbleImage = await removeWhiteBackground(bubbleRaw);
 
   // 4. TEXT LAYER
   const textPrompt = `LAYER SEPARATION: Extract the TEXT ONLY from the provided image. Remove the background, characters, and text bubbles. Place the text on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
-  const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
+  const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
   const textImage = await removeWhiteBackground(textRaw);
 
   const layers: any[] = [
@@ -716,22 +732,24 @@ export const refineLayeredIllustration = async (
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   targetText?: string,
   exportFormat?: ExportFormat,
-  estimatedPageCount?: number
+  estimatedPageCount?: number,
+  styleRefBase64?: string,
+  targetStyle?: string
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered refinement...");
   
   // 1. BACKGROUND LAYER REFINEMENT
   const bgPrompt = `ENVIRONMENT/BACKGROUND FIX: ${refinementPrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment.`;
-  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
+  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
 
   // 2. CHARACTER LAYER REFINEMENT
   const charPrompt = `CHARACTER LAYER FIX: ${refinementPrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND.`;
-  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio, undefined, exportFormat, estimatedPageCount);
+  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER REFINEMENT
   const propsPrompt = `FOREGROUND PROPS FIX: ${refinementPrompt}. Render only the interactive objects, toys, or foreground elements. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND.`;
-  const propsRaw = await refineIllustration(targetImageBase64, propsPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
+  const propsRaw = await refineIllustration(targetImageBase64, propsPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER (If applicable)
@@ -740,7 +758,7 @@ export const refineLayeredIllustration = async (
     const textPrompt = `TEXT LAYER FIX: Render/Update the text "${targetText}" in a professional book font style. 
     IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
-    const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount);
+    const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
     textLayer = await removeWhiteBackground(textRaw);
   }
 
@@ -861,7 +879,8 @@ export const generateLayeredIllustration = async (
   estimatedPageCount?: number,
   styleRefBase64?: string,
   environmentRefBase64?: string,
-  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment'
+  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment',
+  targetStyle?: string
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
   
@@ -888,16 +907,16 @@ export const generateLayeredIllustration = async (
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment. ${layoutRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
 
   // 2. CHARACTER LAYER
   const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType);
+  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
   const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType);
+  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER (If applicable)
@@ -906,7 +925,7 @@ export const generateLayeredIllustration = async (
     const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. 
     IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${layoutRules}`;
-    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount);
+    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, undefined, undefined, targetStyle);
     textLayer = await removeWhiteBackground(textRaw);
   }
 
@@ -972,7 +991,7 @@ export const analyzeTextLayout = async (
   const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
   
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-flash',
+    model: 'gemini-3-flash-preview',
     contents: {
       role: 'user',
       parts: [
