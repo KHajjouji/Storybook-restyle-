@@ -152,10 +152,10 @@ export const persistenceService = {
       const strippedSettings = {
         ...project.settings,
         styleReference: undefined,
-        characterReferences: project.settings.characterReferences.map(c => ({
+        characterReferences: project.settings.characterReferences ? project.settings.characterReferences.map(c => ({
           ...c,
           images: [] // Strip images for Firestore
-        }))
+        })) : []
       };
 
       const projectToSave = {

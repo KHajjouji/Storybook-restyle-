@@ -15,8 +15,8 @@ service cloud.firestore {
       );
     }
     
-    function isOwner(r) {
-      return r == null || !('uid' in r.data) || r.data.uid == null || r.data.uid == request.auth.uid;
+    function isOwner(data) {
+      return data == null || !('uid' in data) || data.uid == null || data.uid == request.auth.uid;
     }
 
     match /users/{userId} {
@@ -25,24 +25,22 @@ service cloud.firestore {
     }
 
     match /projects/{projectId} {
-      allow read: if isAuthenticated() && isOwner(resource);
-      allow create: if isAuthenticated() && isOwner(request.resource);
-      allow update: if isAuthenticated() && isOwner(request.resource) && isOwner(resource);
-      allow delete: if isAuthenticated() && isOwner(resource);
+      allow read, delete: if isAuthenticated() && (resource == null || isOwner(resource.data));
+      allow create: if isAuthenticated() && isOwner(request.resource.data);
+      allow update: if isAuthenticated() && isOwner(request.resource.data) && (resource == null || isOwner(resource.data));
       
       match /{document=**} {
         allow read, write: if isAuthenticated() && (
           !exists(/databases/$(database)/documents/projects/$(projectId)) ||
-          isOwner(get(/databases/$(database)/documents/projects/$(projectId)))
+          isOwner(get(/databases/$(database)/documents/projects/$(projectId)).data)
         );
       }
     }
 
     match /userStyles/{styleId} {
-      allow read: if isAuthenticated() && isOwner(resource);
-      allow create: if isAuthenticated() && isOwner(request.resource);
-      allow update: if isAuthenticated() && isOwner(request.resource) && isOwner(resource);
-      allow delete: if isAuthenticated() && isOwner(resource);
+      allow read, delete: if isAuthenticated() && (resource == null || isOwner(resource.data));
+      allow create: if isAuthenticated() && isOwner(request.resource.data);
+      allow update: if isAuthenticated() && isOwner(request.resource.data) && (resource == null || isOwner(resource.data));
     }
 
     match /allowedEmails/{emailId} {
