@@ -33,28 +33,18 @@ const getImageFormat = (dataUri: string) => {
 };
 
 /**
- * Converts any illustration image to a JPEG at the KDP target resolution.
- * This prevents "Maximum call stack size exceeded" errors in jsPDF when
- * processing very large PNGs (4K images), and keeps PDF file sizes manageable.
- * KDP requires 300 DPI minimum; we target exactly that.
+ * Loads a base64 data URL as an HTMLImageElement using the browser's native
+ * image decoder. Passing an HTMLImageElement to jsPDF's addImage() bypasses
+ * jsPDF's internal base64→binary→PNG-decode chain, which is the source of the
+ * "Maximum call stack size exceeded" error on large 4K images. The image is
+ * rendered at its full natural resolution — no quality loss, no format change.
  */
-const toJpegForPDF = (
-  imageData: string,
-  widthIn: number,
-  heightIn: number,
-  dpi = 300
-): Promise<string> =>
-  new Promise(resolve => {
+const loadImage = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width  = Math.round(widthIn  * dpi);
-      canvas.height = Math.round(heightIn * dpi);
-      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.92));
-    };
-    img.onerror = () => resolve(imageData); // fallback: use original
-    img.src = imageData;
+    img.onload  = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image for PDF'));
+    img.src = src;
   });
 
 /**
@@ -151,12 +141,14 @@ export const generateBookPDF = async (
 
   let currentPageNum = 1;
 
+  // Returns the canvas element directly so jsPDF can read pixel data without an
+  // intermediate PNG data-URL (avoids stack overflow on large canvases).
   const createTextImageAsync = async (
     text: string, widthIn: number, heightIn: number, safeLeftIn: number, safeRightIn: number, safeBottomIn: number,
     textPositionOverride?: 'top' | 'center' | 'bottom' | 'hidden',
     textBackgroundOverride?: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black'
-  ): Promise<string> => {
-    if (textPositionOverride === 'hidden') return '';
+  ): Promise<HTMLCanvasElement | null> => {
+    if (textPositionOverride === 'hidden') return null;
     if (settings.textFont) {
       await loadGoogleFont(settings.textFont);
     }
@@ -165,8 +157,8 @@ export const generateBookPDF = async (
     canvas.width = widthIn * dpi;
     canvas.height = heightIn * dpi;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return '';
-    
+    if (!ctx) return null;
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const fontSize = (settings.overlayTextSize || 24) * (dpi/72);
     ctx.font = `bold ${fontSize}px ${settings.textFont || 'Inter'}, sans-serif`;
@@ -255,7 +247,7 @@ export const generateBookPDF = async (
       ctx.fillText(l.trim(), centerXPx, startY + i * lineHeight);
     });
     
-    return canvas.toDataURL('image/png');
+    return canvas;
   };
 
   for (let i = 0; i < pages.length; i++) {
@@ -281,11 +273,12 @@ export const generateBookPDF = async (
         const textLayer = page.layers.find(l => l.type === 'text' && l.isVisible);
         const foreground = page.layers.find(l => l.type === 'foreground' && l.isVisible);
 
-        // Pre-compress each illustration layer to JPEG to avoid jsPDF stack overflow on large PNGs
-        if (bg)  pdf.addImage(await toJpegForPDF(bg.image,  spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        if (chars) pdf.addImage(await toJpegForPDF(chars.image, spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        if (foreground) pdf.addImage(await toJpegForPDF(foreground.image, spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        if (textLayer) pdf.addImage(await toJpegForPDF(textLayer.image, spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        // Use HTMLImageElement so jsPDF decodes via the native browser engine,
+        // avoiding the recursive stack overflow that occurs with raw base64 PNGs.
+        if (bg)  pdf.addImage(await loadImage(bg.image),  getImageFormat(bg.image),  0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (chars) pdf.addImage(await loadImage(chars.image), getImageFormat(chars.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (foreground) pdf.addImage(await loadImage(foreground.image), getImageFormat(foreground.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (textLayer) pdf.addImage(await loadImage(textLayer.image), getImageFormat(textLayer.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
 
         // Active Text (Dynamic)
         if (overlayText && page.originalText && !textLayer) {
@@ -319,15 +312,15 @@ export const generateBookPDF = async (
           }
         }
       } else {
-        pdf.addImage(await toJpegForPDF(image, spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        pdf.addImage(await loadImage(image), getImageFormat(image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
 
           if (settings.spreadTextSide === 'left') {
             const safeLeft = config.outside + config.bleed;
             const safeRight = (spreadWidth / 2) - gutter;
-            const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
-            if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+            const textCanvas = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
+            if (textCanvas) pdf.addImage(textCanvas, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
           } else if (settings.spreadTextSide === 'both') {
             const textParts = page.originalText.split('||').map(t => t.trim()).filter(Boolean);
             const mid = Math.ceil(textParts.length / 2);
@@ -336,18 +329,18 @@ export const generateBookPDF = async (
 
             const safeLeftL = config.outside + config.bleed;
             const safeRightL = (spreadWidth / 2) - gutter;
-            const textImgL = await createTextImageAsync(leftText, spreadWidth, fullHeight, safeLeftL, safeRightL, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
-            if (textImgL) pdf.addImage(textImgL, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+            const textCanvasL = await createTextImageAsync(leftText, spreadWidth, fullHeight, safeLeftL, safeRightL, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
+            if (textCanvasL) pdf.addImage(textCanvasL, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
 
             const safeLeftR = (spreadWidth / 2) + gutter;
             const safeRightR = spreadWidth - config.outside - config.bleed;
-            const textImgR = await createTextImageAsync(rightText, spreadWidth, fullHeight, safeLeftR, safeRightR, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
-            if (textImgR) pdf.addImage(textImgR, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+            const textCanvasR = await createTextImageAsync(rightText, spreadWidth, fullHeight, safeLeftR, safeRightR, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
+            if (textCanvasR) pdf.addImage(textCanvasR, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
           } else {
             const safeLeft = (spreadWidth / 2) + gutter;
             const safeRight = spreadWidth - config.outside - config.bleed;
-            const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
-            if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+            const textCanvas = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
+            if (textCanvas) pdf.addImage(textCanvas, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
           }
         }
       }
@@ -355,20 +348,20 @@ export const generateBookPDF = async (
     } else if (page.isSpread && spreadMode === 'SPLIT_PAGES') {
       if (currentPageNum > 1) pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? 'landscape' : 'portrait');
 
-      const spreadJpeg = await toJpegForPDF(image, spreadWidth, fullHeight);
-      pdf.addImage(spreadJpeg, 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+      const spreadImg = await loadImage(image);
+      pdf.addImage(spreadImg, getImageFormat(image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
 
       if (overlayText && page.originalText) {
         const safeBottom = fullHeight - config.bottom - config.bleed;
         const safeLeft = config.outside + config.bleed;
         const safeRight = singleFullWidth - gutter;
-        const textImg = await createTextImageAsync(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
-        if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        const textCanvas = await createTextImageAsync(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
+        if (textCanvas) pdf.addImage(textCanvas, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
       }
       currentPageNum++;
 
       pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? 'landscape' : 'portrait');
-      pdf.addImage(spreadJpeg, 'JPEG', -(spreadWidth - singleFullWidth), 0, spreadWidth, fullHeight, undefined, 'FAST');
+      pdf.addImage(spreadImg, getImageFormat(image), -(spreadWidth - singleFullWidth), 0, spreadWidth, fullHeight, undefined, 'FAST');
       currentPageNum++;
 
     } else {
@@ -380,27 +373,26 @@ export const generateBookPDF = async (
         const textLayer = page.layers.find(l => l.type === 'text' && l.isVisible);
         const foreground = page.layers.find(l => l.type === 'foreground' && l.isVisible);
 
-        if (bg)  pdf.addImage(await toJpegForPDF(bg.image,  singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
-        if (chars) pdf.addImage(await toJpegForPDF(chars.image, singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
-        if (foreground) pdf.addImage(await toJpegForPDF(foreground.image, singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
-        if (textLayer) pdf.addImage(await toJpegForPDF(textLayer.image, singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (bg)  pdf.addImage(await loadImage(bg.image),  getImageFormat(bg.image),  0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (chars) pdf.addImage(await loadImage(chars.image), getImageFormat(chars.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (foreground) pdf.addImage(await loadImage(foreground.image), getImageFormat(foreground.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (textLayer) pdf.addImage(await loadImage(textLayer.image), getImageFormat(textLayer.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
 
-        // Active Text (Dynamic)
         if (overlayText && page.originalText && !textLayer) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
           const safeLeft = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);
           const safeRight = isRightPage ? (singleFullWidth - config.outside - config.bleed) : (singleFullWidth - gutter - config.bleed);
-          const textImg = await createTextImageAsync(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
-          if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+          const textCanvas = await createTextImageAsync(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
+          if (textCanvas) pdf.addImage(textCanvas, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
         }
       } else {
-        pdf.addImage(await toJpegForPDF(image, singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        pdf.addImage(await loadImage(image), getImageFormat(image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
           const safeLeft = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);
           const safeRight = isRightPage ? (singleFullWidth - config.outside - config.bleed) : (singleFullWidth - gutter - config.bleed);
-          const textImg = await createTextImageAsync(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
-          if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+          const textCanvas = await createTextImageAsync(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
+          if (textCanvas) pdf.addImage(textCanvas, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
         }
       }
       currentPageNum++;
@@ -476,20 +468,19 @@ export const generateLayeredEditablePDF = async (
     );
   };
 
-  /** Embed & draw a base64 image onto a pdf-lib page at (x, y, w, h) in pts. */
+  /** Embed & draw a base64 image onto a pdf-lib page at (x, y, w, h) in pts.
+   *  Uses base64ToBytes (safe loop) and preserves the original image format
+   *  so illustration quality is not degraded in the editable PDF.
+   */
   const drawImageOnPage = async (
     pdfPage: any,
     imageData: string,
     x: number, y: number, w: number, h: number
   ) => {
     if (!imageData) return;
-    // Convert to JPEG at KDP resolution to avoid stack overflow on large PNGs,
-    // then use the safe loop-based base64ToBytes (not Uint8Array.from with mapFn).
-    const widthIn  = w / 72;
-    const heightIn = h / 72;
-    const jpeg = await toJpegForPDF(imageData, widthIn, heightIn);
-    const bytes = base64ToBytes(jpeg);
-    const img = await doc.embedJpg(bytes);
+    const fmt = getImageFormat(imageData);
+    const bytes = base64ToBytes(imageData);
+    const img = fmt === 'JPEG' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
     pdfPage.drawImage(img, { x, y, width: w, height: h });
   };
 
