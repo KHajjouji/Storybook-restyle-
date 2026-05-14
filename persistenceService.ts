@@ -302,7 +302,7 @@ export const persistenceService = {
       } catch (error: any) {
         const errMsg = error.message || "";
         if ((errMsg.includes('Quota exceeded') || errMsg.includes('resource-exhausted')) && retries > 0) {
-          console.warn(`Quota exceeded, retrying in ${delay}ms... (${retries} retries left)`);
+          console.warn(`Quota exceeded, retrying in 1000ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           return fetchWithRetry(retries - 1, delay * 2);
         }
@@ -363,6 +363,7 @@ export const persistenceService = {
       if (!data) return null;
       
       // Load local data
+      const { get } = await import('idb-keyval');
       const localPages = await get(`project_pages_${data.id}`);
       const localCoverLayers = await get(`project_coverLayers_${data.id}`);
       const localCoverImage = await get(`project_coverImage_${data.id}`);
@@ -482,6 +483,7 @@ export const persistenceService = {
     const path = `projects/${id}`;
     try {
       await deleteDoc(doc(db, 'projects', id));
+      const { del } = await import('idb-keyval');
       await del(`project_pages_${id}`);
       await del(`project_coverLayers_${id}`);
       await del(`project_coverImage_${id}`);
@@ -503,6 +505,7 @@ export const persistenceService = {
       };
       
       // Save locally too
+      const { set, get } = await import('idb-keyval');
       const localStyles: any[] = (await get('local_user_styles')) || [];
       const existingIndex = localStyles.findIndex((s: any) => s.id === style.id);
       if (existingIndex >= 0) {
@@ -537,11 +540,13 @@ export const persistenceService = {
       });
       
       // Update local cache
+      const { set } = await import('idb-keyval');
       await set('local_user_styles', styles);
       
       return styles.sort((a, b) => b.createdAt - a.createdAt);
     } catch (error) {
       console.warn("Firestore userStyles fetch failed, falling back to local cache:", error);
+      const { get } = await import('idb-keyval');
       const localStyles: any[] = (await get('local_user_styles')) || [];
       return localStyles.sort((a, b) => b.createdAt - a.createdAt);
     }
