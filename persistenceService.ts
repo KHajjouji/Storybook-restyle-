@@ -19,6 +19,12 @@ interface FirestoreErrorInfo {
   authInfo: any;
 }
 
+const isPermissionError = (msg: string) =>
+  msg.includes('Missing or insufficient permissions') ||
+  msg.includes('permission-denied') ||
+  msg.includes('PERMISSION_DENIED') ||
+  msg.toLowerCase().includes('insufficient permissions');
+
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errMsg = error instanceof Error ? error.message : String(error);
   const errInfo: FirestoreErrorInfo = {
@@ -39,12 +45,21 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   };
+
+  // Firestore security rules denying access is an expected, recoverable
+  // condition — the app stores everything in IndexedDB too, so we warn
+  // and return without throwing, keeping the app fully usable locally.
+  if (isPermissionError(errMsg)) {
+    console.warn('Firestore access denied by security rules; using local storage only.', JSON.stringify(errInfo));
+    return;
+  }
+
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  
+
   if (errMsg.includes('Quota exceeded') || errMsg.includes('resource-exhausted')) {
     throw new Error('Quota exceeded. Your data is perfectly safe! If you just upgraded to Blaze, it may take a few minutes for the limits to update. Please wait a moment and try again.');
   }
-  
+
   throw new Error(errMsg);
 }
 

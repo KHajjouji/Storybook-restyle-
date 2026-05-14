@@ -209,10 +209,6 @@ import {
   calculateCoverWithBleed,
 } from "../kdpConfig";
 
-/**
- * Calculates the exact gutter requirement based on platform standards
- * Higher page count requires more gutter for spine curve.
- */
 const calculateGutter = (pageCount: number, format: ExportFormat): number => {
   if (format.startsWith("KDP_")) {
     return getInsideMargin(pageCount);
@@ -221,7 +217,6 @@ const calculateGutter = (pageCount: number, format: ExportFormat): number => {
   const config = PRINT_FORMATS[format];
   const base = config?.baseGutter || 0.375;
 
-  // Standard KDP/Lulu paper thickness calculations
   if (pageCount > 600) return base + 0.5;
   if (pageCount > 400) return base + 0.375;
   if (pageCount > 150) return base + 0.25;
@@ -230,10 +225,28 @@ const calculateGutter = (pageCount: number, format: ExportFormat): number => {
   return base;
 };
 
-export const detectTextBoundsFromLayer = async (
-  textLayerImage: string
-): Promise<{ centerXFrac: number, centerYFrac: number, widthFrac: number, heightFrac: number } | null> => {
-  return new Promise((resolve) => {
+/**
+ * Converts any image data URI to a JPEG data URI via an HTML canvas.
+ * Images that are already JPEG are returned untouched so we never
+ * re-encode (and therefore never degrade) the original illustration.
+ * The canvas path is handled entirely by the browser — there are no
+ * JS-level pixel loops that could overflow the call stack.
+ */
+const optimizeImageForPDF = async (
+  dataUri: string,
+  requireTransparency: boolean,
+): Promise<string> => {
+  if (typeof dataUri !== "string") return dataUri;
+
+  if (
+    !requireTransparency &&
+    (dataUri.startsWith("data:image/jpeg") ||
+      dataUri.startsWith("data:image/jpg"))
+  ) {
+    return dataUri;
+  }
+
+  return new Promise<string>((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
@@ -241,59 +254,71 @@ export const detectTextBoundsFromLayer = async (
       canvas.width = img.width;
       canvas.height = img.height;
       const ctx = canvas.getContext("2d");
-      if (!ctx) return resolve(null);
-      ctx.drawImage(img, 0, 0);
-      const imgData = ctx.getImageData(0, 0, img.width, img.height);
-      const data = imgData.data;
-      let minX = img.width, maxX = 0, minY = img.height, maxY = 0;
-      let found = false;
-
-      for (let y = 0; y < img.height; y++) {
-        for (let x = 0; x < img.width; x++) {
-          const idx = (y * img.width + x) * 4;
-          const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
-          // Find non-transparent and non-white pixels
-          if (a > 30 && !(r > 230 && g > 230 && b > 230)) {
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-            found = true;
-          }
+      if (ctx) {
+        if (!requireTransparency) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
+        ctx.drawImage(img, 0, 0);
+        if (requireTransparency) {
+          resolve(canvas.toDataURL("image/png"));
+        } else {
+          resolve(canvas.toDataURL("image/jpeg", 0.95));
+        }
+      } else {
+        resolve(dataUri);
       }
-
-      if (!found) return resolve(null);
-
-      resolve({
-        centerXFrac: ((minX + maxX) / 2) / img.width,
-        centerYFrac: ((minY + maxY) / 2) / img.height,
-        widthFrac: (maxX - minX) / img.width,
-        heightFrac: (maxY - minY) / img.height,
-      });
     };
-    img.onerror = () => resolve(null);
-    img.src = textLayerImage;
-  });
-};
-
-const loadImage = async (dataUri: string): Promise<HTMLImageElement> => {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(img); // or reject
+    img.onerror = () => resolve(dataUri);
     img.src = dataUri;
   });
 };
 
-const getImageFormat = (image: HTMLImageElement | string) => {
-  if (typeof image === "string") {
-    if (image.startsWith("data:image/jpeg") || image.startsWith("data:image/jpg")) return "JPEG";
-    if (image.startsWith("data:image/webp")) return "WEBP";
-    return "PNG";
-  }
-  return "PNG"; // jsPDF handles HTMLImageElement natively
+/**
+ * Builds the project-recovery metadata string embedded in the PDF subject.
+ *
+ * Two constraints that previously caused "Maximum call stack size exceeded":
+ *  1. Strip every heavy / binary field so the metadata string stays small.
+ *  2. Escape every non-ASCII char. jsPDF's to8bitStream() calls
+ *     String.fromCharCode.apply(undefined, hugeArray) only when the string
+ *     contains chars > 0xFF (smart quotes / em-dashes are common in
+ *     children's-book text). Forcing pure ASCII makes jsPDF take its safe
+ *     early-return path instead.
+ */
+const buildSafeMetadata = (
+  pages: BookPage[],
+  settings: any,
+  title: string,
+  totalEstimatedPages: number,
+): string => {
+  const strippedPages = pages.map((p) => ({
+    ...p,
+    originalImage: undefined,
+    processedImage: undefined,
+    layers: undefined,
+    retargeting: undefined,
+  }));
+  const strippedSettings = {
+    ...settings,
+    styleReference: undefined,
+    masterBible: undefined,
+    fullScript: undefined,
+    characterReferences: settings?.characterReferences?.map((c: any) => ({
+      ...c,
+      image: undefined,
+      images: undefined,
+    })),
+  };
+  const meta = {
+    settings: strippedSettings,
+    pages: strippedPages,
+    title,
+    totalEstimatedPages,
+  };
+  return JSON.stringify(meta).replace(
+    /[\u0080-\uFFFF]/g,
+    (ch) => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
 };
 
 export const generateCoverPDF = async (
@@ -320,16 +345,18 @@ export const generateCoverPDF = async (
     format: [coverDims.width, coverDims.height],
   });
 
-  const compressedCover = await compressImageToJPEG(coverImage, 0.85);
-  const finalCoverImage = await loadImage(compressedCover);
+  // Passing the JPEG data URI straight to jsPDF embeds the original bytes
+  // with no canvas re-encode (no quality loss).
+  const finalCoverImage = await optimizeImageForPDF(coverImage, false);
   pdf.addImage(
     finalCoverImage,
-    getImageFormat(compressedCover),
+    "JPEG",
     0,
     0,
     coverDims.width,
     coverDims.height,
-    undefined, "NONE",
+    undefined,
+    "NONE",
   );
   pdf.save(`${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_cover_kdp.pdf`);
 };
@@ -434,10 +461,17 @@ export const generateBookPDF = async (
     unit: "in",
     format: [singleFullWidth, fullHeight],
   });
-  pdf.setProperties({
-    creator: "Storyflow",
-    subject: JSON.stringify(exportMeta),
-  });
+
+  // Embed lightweight project-recovery metadata. Wrapped in try/catch so a
+  // metadata problem can never block the actual PDF from generating.
+  try {
+    pdf.setProperties({
+      creator: "Storyflow",
+      subject: buildSafeMetadata(pages, settings, title, totalEstimatedPages),
+    });
+  } catch (metaErr) {
+    console.warn("Could not embed project metadata in PDF:", metaErr);
+  }
 
   const { loadGoogleFont } = await import("./fontLoader");
 
@@ -535,13 +569,17 @@ export const generateBookPDF = async (
     const rawImage = page.processedImage || page.originalImage;
     if (!rawImage) continue;
 
-    const compressedImage = await compressImageToJPEG(rawImage, 0.85);
-    const image = await loadImage(compressedImage);
-    const safeLayers = page.layers
+    const image = await optimizeImageForPDF(rawImage, false);
+
+    // Build the layer list. The text layer is kept separate so it becomes
+    // real vector text in the PDF rather than a baked-in raster image.
+    const rawLayers = page.layers
       ? await Promise.all(
           page.layers.map(async (l) => ({
             ...l,
-            image: l.image, // no longer optimizing
+            image: l.image
+              ? await optimizeImageForPDF(l.image, l.type !== "background")
+              : l.image,
           })),
         )
       : undefined;
@@ -634,10 +672,9 @@ export const generateBookPDF = async (
       currentPageNum += 2;
     } else if (page.isSpread && spreadMode === "SPLIT_PAGES") {
       if (currentPageNum > 1)
-        pdf.addPage(
-          [singleFullWidth, fullHeight],
-          config.width > config.height ? "landscape" : "portrait",
-        );
+        pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? "landscape" : "portrait");
+
+      pdf.addImage(image, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
 
       if (useLayeredFlattening) {
         const flattened = await flattenLayers(
@@ -697,10 +734,7 @@ export const generateBookPDF = async (
       currentPageNum++;
     } else {
       if (currentPageNum > 1)
-        pdf.addPage(
-          [singleFullWidth, fullHeight],
-          config.width > config.height ? "landscape" : "portrait",
-        );
+        pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? "landscape" : "portrait");
 
       if (useLayeredFlattening) {
         const flattened = await flattenLayers(
