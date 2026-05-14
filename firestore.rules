@@ -3,16 +3,20 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAuthenticated() {
-      return request.auth != null;
+      return request.auth != null && request.auth.uid != null;
     }
     
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.email == 'hypocritic2002@gmail.com' ||
+        ('email' in request.auth.token && request.auth.token.email == 'hypocritic2002@gmail.com') ||
         ('email' in request.auth.token &&
          exists(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email)) &&
          get(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email)).data.role == 'admin')
       );
+    }
+    
+    function isOwner(r) {
+      return r == null || !('uid' in r.data) || r.data.uid == null || r.data.uid == request.auth.uid;
     }
 
     match /users/{userId} {
@@ -21,25 +25,24 @@ service cloud.firestore {
     }
 
     match /projects/{projectId} {
-      allow read: if isAuthenticated() && (!('uid' in resource.data) || resource.data.uid == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && request.resource.data.uid == request.auth.uid && (!('uid' in resource.data) || resource.data.uid == request.auth.uid);
-      allow delete: if isAuthenticated() && (!('uid' in resource.data) || resource.data.uid == request.auth.uid);
+      allow read: if isAuthenticated() && isOwner(resource);
+      allow create: if isAuthenticated() && isOwner(request.resource);
+      allow update: if isAuthenticated() && isOwner(request.resource) && isOwner(resource);
+      allow delete: if isAuthenticated() && isOwner(resource);
       
       match /{document=**} {
         allow read, write: if isAuthenticated() && (
           !exists(/databases/$(database)/documents/projects/$(projectId)) ||
-          !('uid' in get(/databases/$(database)/documents/projects/$(projectId)).data) || 
-          get(/databases/$(database)/documents/projects/$(projectId)).data.uid == request.auth.uid
+          isOwner(get(/databases/$(database)/documents/projects/$(projectId)))
         );
       }
     }
 
     match /userStyles/{styleId} {
-      allow read: if isAuthenticated() && (!('uid' in resource.data) || resource.data.uid == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && request.resource.data.uid == request.auth.uid && (!('uid' in resource.data) || resource.data.uid == request.auth.uid);
-      allow delete: if isAuthenticated() && (!('uid' in resource.data) || resource.data.uid == request.auth.uid);
+      allow read: if isAuthenticated() && isOwner(resource);
+      allow create: if isAuthenticated() && isOwner(request.resource);
+      allow update: if isAuthenticated() && isOwner(request.resource) && isOwner(resource);
+      allow delete: if isAuthenticated() && isOwner(resource);
     }
 
     match /allowedEmails/{emailId} {
