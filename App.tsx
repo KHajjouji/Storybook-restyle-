@@ -17,7 +17,7 @@ import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, analyzeTextLayout, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont } from './geminiService';
 import { searchBookNiches } from './nicheService';
 import Markdown from 'react-markdown';
-import { generateBookPDF, generateCoverPDF, generateLayeredEditablePDF } from './utils/pdfGenerator';
+import { generateBookPDF, generateCoverPDF } from './utils/pdfGenerator';
 import { exportProjectAssetsForCanva } from './utils/exportUtils';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
@@ -333,12 +333,21 @@ const App: React.FC = () => {
             setUserProfile(docSnap.data() as import('./types').UserProfile);
           }
         }, (error: any) => {
-          if (!error.message?.includes('Quota exceeded') && !error.message?.includes('resource-exhausted')) {
-            console.error("Profile snapshot error:", error);
-          } else {
+          const msg = error?.message || String(error);
+          const isQuota = msg.includes('Quota exceeded') || msg.includes('resource-exhausted');
+          const isPermission =
+            msg.includes('Missing or insufficient permissions') ||
+            msg.includes('permission-denied') ||
+            msg.includes('PERMISSION_DENIED') ||
+            msg.toLowerCase().includes('insufficient permissions');
+          if (isQuota) {
             console.warn("Profile snapshot quota exceeded, using local fallback.");
+          } else if (isPermission) {
+            console.warn("Profile snapshot access denied by security rules; using local fallback.");
+          } else {
+            console.error("Profile snapshot error:", error);
           }
-          // Fallback to basic free profile if Firestore quota is exceeded
+          // Fallback to basic free profile when Firestore is unavailable
           setUserProfile({
              uid: currentUser.uid,
              email: currentUser.email,
@@ -2723,24 +2732,6 @@ const App: React.FC = () => {
                       {isProcessing ? "GENERATING PDF (MAY TAKE A WHILE)..." : "DOWNLOAD INTERIOR PDF"}
                     </button>
 
-                    <button 
-                      disabled={isProcessing}
-                      onClick={async () => {
-                        setIsProcessing(true);
-                        try {
-                          await generateLayeredEditablePDF(pages, settings.exportFormat, projectName, settings.estimatedPageCount, settings.textFont, settings);
-                        } catch (err: any) {
-                          console.error("Editable PDF generation failed:", err);
-                          showToast("Failed to generate editable PDF: " + (err?.message || (typeof err === "string" ? err : "Unknown error")));
-                        } finally {
-                          setIsProcessing(false);
-                        }
-                      }} 
-                      className="w-full py-8 bg-violet-600 text-white rounded-[3rem] font-black text-3xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6 disabled:opacity-50"
-                    >
-                      {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <FileText size={32} />} 
-                      DOWNLOAD EDITABLE TEXT PDF
-                    </button>
                     <button onClick={() => exportProjectAssetsForCanva(pages, projectName)} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-4"><Layers size={32} /> DOWNLOAD ASSETS FOR CANVA / PHOTOSHOP</button>
                     <button onClick={() => setCurrentStep('cover-master')} className="w-full py-8 bg-amber-50 text-amber-600 rounded-[3rem] font-black text-2xl shadow-sm hover:bg-amber-100 transition-all flex items-center justify-center gap-4">GO TO COVER DESIGNER <ChevronRight size={32} /></button>
                   </div>

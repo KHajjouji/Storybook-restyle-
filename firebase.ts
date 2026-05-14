@@ -64,8 +64,17 @@ export const initializeUserProfile = async (user: any) => {
       });
     }
   } catch (error: any) {
-    if (error.message?.includes('Quota exceeded') || error.message?.includes('resource-exhausted')) {
+    const msg = error?.message || String(error);
+    const isQuota = msg.includes('Quota exceeded') || msg.includes('resource-exhausted');
+    const isPermission =
+      msg.includes('Missing or insufficient permissions') ||
+      msg.includes('permission-denied') ||
+      msg.includes('PERMISSION_DENIED') ||
+      msg.toLowerCase().includes('insufficient permissions');
+    if (isQuota) {
       console.warn("Firestore quota exceeded during profile init, using local default.");
+    } else if (isPermission) {
+      console.warn("Firestore profile access denied by security rules; using local default profile.");
     } else {
       console.error("Error initializing user profile:", error);
     }
