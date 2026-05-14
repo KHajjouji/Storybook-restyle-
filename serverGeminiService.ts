@@ -61,7 +61,7 @@ export const getBestAspectRatio = (
 export const parsePromptPack = async (rawText: string): Promise<{ 
   masterBible: string, 
   characterIdentities: { name: string, description: string }[],
-  scenes: { prompt: string, isSpread: boolean }[] 
+  scenes: { prompt: string, isSpread: boolean, text?: string }[] 
 }> => {
   const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY || process.env.GEMINI_API_KEY) as string });
   const response: GenerateContentResponse = await ai.models.generateContent({
@@ -70,7 +70,7 @@ export const parsePromptPack = async (rawText: string): Promise<{
     
     1. EXTRACT MASTER BIBLE: Look for style lock instructions.
     2. EXTRACT CHARACTER IDENTITIES: Find consistent characters and descriptions.
-    3. EXTRACT SCENES: Find scene descriptions. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the scene descriptions.
+    3. EXTRACT SCENES: Find scene descriptions as 'prompt'. Extract any narration text or dialogue belonging to the scene as 'text'. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the scene descriptions. ALSO CRITICAL: Strip out text from 'prompt', but keep it in 'text'.
     
     Script:
     ${rawText}`,
@@ -97,7 +97,8 @@ export const parsePromptPack = async (rawText: string): Promise<{
               type: Type.OBJECT,
               properties: {
                 prompt: { type: Type.STRING },
-                isSpread: { type: Type.BOOLEAN }
+                isSpread: { type: Type.BOOLEAN },
+                text: { type: Type.STRING }
               },
               required: ['prompt', 'isSpread']
             }
@@ -546,17 +547,18 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
     Extract any "GLOBAL" style or layout instructions into 'globalInstructions'. 
     Extract all distinct characters and their descriptions into 'characterIdentities'.
     For each page or spread:
-    - Provide a visual description in 'text'. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description. ALSO CRITICAL: Strip out any specific text that is meant to be written on the page. The image generator should NOT draw text.
-    - Extract the exact text that is meant to be written on the page into 'pageText'. This includes titles, vocabulary words, dialogue, etc.
+    - Provide a visual description in 'text'. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description. ALSO CRITICAL: DO NOT include the storytelling text here. The image generator should NOT draw text.
+    - Extract the exact storytelling text that is meant to be written on the page into 'pageText'. This includes all languages, narrations, dialogue, etc. DO NOT omit this text.
     - Set 'isSpread' to true if it spans 2 pages, false if 1 page.
     - List character names present in 'mappedCharacterNames'.
-    - If it's an activity or requires specific layout logic, provide a 'fullPrompt' with the detailed layout and style instructions. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the fullPrompt. ALSO CRITICAL: Strip out any specific text that is meant to be written on the page.
+    - If it's an activity or requires specific layout logic, provide a 'fullPrompt' with the detailed layout and style instructions. CRITICAL: DO NOT include storytelling text in fullPrompt.
     Script: ${fullScript}`
     : `Break this script into distinct pages/spreads. 
+    Extract any "GLOBAL" style or layout instructions into 'globalInstructions'. 
     Extract all distinct characters and their descriptions into 'characterIdentities'. 
     For each page:
-    1. Provide a detailed visual description in 'fullPrompt'. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description. The visual description should ONLY describe what is happening in the scene for an AI image generator. ALSO CRITICAL: Strip out any specific text that is meant to be written on the page.
-    2. Extract the exact text that is meant to be written on the page into 'pageText'.
+    1. Provide a detailed visual description in 'fullPrompt'. CRITICAL: Strip out any mention of bleeds, margins, crop marks, or print layout dimensions from the visual description. The visual description should ONLY describe what is happening in the scene for an AI image generator. DO NOT include storytelling text here.
+    2. Extract the exact text that is meant to be written on the page into 'pageText'. This is the full narration/dialogue for the page (e.g. Darija, Arabic, Spanish). DO NOT leave this empty if there is text for the page.
     3. 'text' can be a brief summary of the scene.
     4. Set whether it's a 2-page spread (isSpread), and an array of character names present (mappedCharacterNames).
     Script: ${fullScript}`;
