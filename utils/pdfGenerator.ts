@@ -11,16 +11,16 @@ const calculateGutter = (pageCount: number, format: ExportFormat): number => {
   if (format.startsWith('KDP_')) {
     return getInsideMargin(pageCount);
   }
-  
+
   const config = PRINT_FORMATS[format];
   const base = config?.baseGutter || 0.375;
-  
+
   // Standard KDP/Lulu paper thickness calculations
   if (pageCount > 600) return base + 0.5;
   if (pageCount > 400) return base + 0.375;
   if (pageCount > 150) return base + 0.25;
   if (pageCount > 76) return base + 0.125;
-  
+
   return base;
 };
 
@@ -30,6 +30,45 @@ const getImageFormat = (dataUri: string) => {
     if (dataUri.startsWith('data:image/webp')) return 'WEBP';
   }
   return 'PNG';
+};
+
+/**
+ * Converts any illustration image to a JPEG at the KDP target resolution.
+ * This prevents "Maximum call stack size exceeded" errors in jsPDF when
+ * processing very large PNGs (4K images), and keeps PDF file sizes manageable.
+ * KDP requires 300 DPI minimum; we target exactly that.
+ */
+const toJpegForPDF = (
+  imageData: string,
+  widthIn: number,
+  heightIn: number,
+  dpi = 300
+): Promise<string> =>
+  new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(widthIn  * dpi);
+      canvas.height = Math.round(heightIn * dpi);
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
+    };
+    img.onerror = () => resolve(imageData); // fallback: use original
+    img.src = imageData;
+  });
+
+/**
+ * Safe base64 → Uint8Array conversion that avoids the
+ * "Maximum call stack size exceeded" error caused by
+ * Uint8Array.from(string, mapFn) on very large strings.
+ */
+const base64ToBytes = (b64: string): Uint8Array => {
+  const binary = atob(b64.includes(',') ? b64.split(',')[1] : b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 };
 
 export const generateCoverPDF = async (
@@ -242,37 +281,37 @@ export const generateBookPDF = async (
         const textLayer = page.layers.find(l => l.type === 'text' && l.isVisible);
         const foreground = page.layers.find(l => l.type === 'foreground' && l.isVisible);
 
-        if (bg) pdf.addImage(bg.image, getImageFormat(bg.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        if (chars) pdf.addImage(chars.image, getImageFormat(chars.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        if (foreground) pdf.addImage(foreground.image, getImageFormat(foreground.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        if (textLayer) pdf.addImage(textLayer.image, getImageFormat(textLayer.image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-        
+        // Pre-compress each illustration layer to JPEG to avoid jsPDF stack overflow on large PNGs
+        if (bg)  pdf.addImage(await toJpegForPDF(bg.image,  spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (chars) pdf.addImage(await toJpegForPDF(chars.image, spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (foreground) pdf.addImage(await toJpegForPDF(foreground.image, spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        if (textLayer) pdf.addImage(await toJpegForPDF(textLayer.image, spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+
         // Active Text (Dynamic)
         if (overlayText && page.originalText && !textLayer) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
-          
+
           if (settings.spreadTextSide === 'left') {
             const safeLeft = config.outside + config.bleed;
             const safeRight = (spreadWidth / 2) - gutter;
             const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
             if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
           } else if (settings.spreadTextSide === 'both') {
-            // Bilingual or both pages text
             const textParts = page.originalText.split('||').map(t => t.trim()).filter(Boolean);
             const mid = Math.ceil(textParts.length / 2);
             const leftText = textParts.slice(0, mid).join('\n\n') || page.originalText;
             const rightText = textParts.slice(mid).join('\n\n') || page.originalText;
-            
+
             const safeLeftL = config.outside + config.bleed;
             const safeRightL = (spreadWidth / 2) - gutter;
             const textImgL = await createTextImageAsync(leftText, spreadWidth, fullHeight, safeLeftL, safeRightL, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
             if (textImgL) pdf.addImage(textImgL, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-            
+
             const safeLeftR = (spreadWidth / 2) + gutter;
             const safeRightR = spreadWidth - config.outside - config.bleed;
             const textImgR = await createTextImageAsync(rightText, spreadWidth, fullHeight, safeLeftR, safeRightR, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
             if (textImgR) pdf.addImage(textImgR, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-          } else { // default 'right'
+          } else {
             const safeLeft = (spreadWidth / 2) + gutter;
             const safeRight = spreadWidth - config.outside - config.bleed;
             const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
@@ -280,10 +319,10 @@ export const generateBookPDF = async (
           }
         }
       } else {
-        pdf.addImage(image, getImageFormat(image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+        pdf.addImage(await toJpegForPDF(image, spreadWidth, fullHeight), 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
-          
+
           if (settings.spreadTextSide === 'left') {
             const safeLeft = config.outside + config.bleed;
             const safeRight = (spreadWidth / 2) - gutter;
@@ -294,17 +333,17 @@ export const generateBookPDF = async (
             const mid = Math.ceil(textParts.length / 2);
             const leftText = textParts.slice(0, mid).join('\n\n') || page.originalText;
             const rightText = textParts.slice(mid).join('\n\n') || page.originalText;
-            
+
             const safeLeftL = config.outside + config.bleed;
             const safeRightL = (spreadWidth / 2) - gutter;
             const textImgL = await createTextImageAsync(leftText, spreadWidth, fullHeight, safeLeftL, safeRightL, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
             if (textImgL) pdf.addImage(textImgL, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-            
+
             const safeLeftR = (spreadWidth / 2) + gutter;
             const safeRightR = spreadWidth - config.outside - config.bleed;
             const textImgR = await createTextImageAsync(rightText, spreadWidth, fullHeight, safeLeftR, safeRightR, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
             if (textImgR) pdf.addImage(textImgR, 'PNG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-          } else { // default 'right'
+          } else {
             const safeLeft = (spreadWidth / 2) + gutter;
             const safeRight = spreadWidth - config.outside - config.bleed;
             const textImg = await createTextImageAsync(page.originalText, spreadWidth, fullHeight, safeLeft, safeRight, safeBottom, page.textPositionOverride, page.textBackgroundOverride);
@@ -314,15 +353,11 @@ export const generateBookPDF = async (
       }
       currentPageNum += 2;
     } else if (page.isSpread && spreadMode === 'SPLIT_PAGES') {
-      // Split the spread into two single pages
-      // Left Page (Even page, usually page 2, 4, etc. if starting from 1)
       if (currentPageNum > 1) pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? 'landscape' : 'portrait');
-      
-      // Draw left half of the spread. The spread is `spreadWidth` wide. We want to draw it such that the left half fits into `singleFullWidth`.
-      // Since the left page has bleed on the left, but NO bleed on the right (gutter), the left half of the spread is exactly `singleFullWidth` wide.
-      pdf.addImage(image, getImageFormat(image), 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
-      
-      // Active Text (Dynamic) for Left Page
+
+      const spreadJpeg = await toJpegForPDF(image, spreadWidth, fullHeight);
+      pdf.addImage(spreadJpeg, 'JPEG', 0, 0, spreadWidth, fullHeight, undefined, 'FAST');
+
       if (overlayText && page.originalText) {
         const safeBottom = fullHeight - config.bottom - config.bleed;
         const safeLeft = config.outside + config.bleed;
@@ -332,29 +367,23 @@ export const generateBookPDF = async (
       }
       currentPageNum++;
 
-      // Right Page (Odd page)
       pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? 'landscape' : 'portrait');
-      
-      // Draw right half of the spread. We shift the image left by `singleFullWidth`.
-      // Wait, the spread image has bleed on the left and right. 
-      // The right page needs bleed on the right, but NO bleed on the left (gutter).
-      // So we shift the image left by `spreadWidth - singleFullWidth`.
-      pdf.addImage(image, getImageFormat(image), -(spreadWidth - singleFullWidth), 0, spreadWidth, fullHeight, undefined, 'FAST');
-      
+      pdf.addImage(spreadJpeg, 'JPEG', -(spreadWidth - singleFullWidth), 0, spreadWidth, fullHeight, undefined, 'FAST');
       currentPageNum++;
+
     } else {
       if (currentPageNum > 1) pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? 'landscape' : 'portrait');
-      
+
       if ((layeredMode || (page.layers && page.layers.length > 0)) && page.layers) {
         const bg = page.layers.find(l => l.type === 'background' && l.isVisible);
         const chars = page.layers.find(l => l.type === 'character' && l.isVisible);
         const textLayer = page.layers.find(l => l.type === 'text' && l.isVisible);
         const foreground = page.layers.find(l => l.type === 'foreground' && l.isVisible);
-        
-        if (bg) pdf.addImage(bg.image, getImageFormat(bg.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
-        if (chars) pdf.addImage(chars.image, getImageFormat(chars.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
-        if (foreground) pdf.addImage(foreground.image, getImageFormat(foreground.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
-        if (textLayer) pdf.addImage(textLayer.image, getImageFormat(textLayer.image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+
+        if (bg)  pdf.addImage(await toJpegForPDF(bg.image,  singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (chars) pdf.addImage(await toJpegForPDF(chars.image, singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (foreground) pdf.addImage(await toJpegForPDF(foreground.image, singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        if (textLayer) pdf.addImage(await toJpegForPDF(textLayer.image, singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
 
         // Active Text (Dynamic)
         if (overlayText && page.originalText && !textLayer) {
@@ -365,7 +394,7 @@ export const generateBookPDF = async (
           if (textImg) pdf.addImage(textImg, 'PNG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
         }
       } else {
-        pdf.addImage(image, getImageFormat(image), 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
+        pdf.addImage(await toJpegForPDF(image, singleFullWidth, fullHeight), 'JPEG', 0, 0, singleFullWidth, fullHeight, undefined, 'FAST');
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
           const safeLeft = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);
@@ -454,10 +483,13 @@ export const generateLayeredEditablePDF = async (
     x: number, y: number, w: number, h: number
   ) => {
     if (!imageData) return;
-    const fmt = getImageFormat(imageData);
-    const b64 = imageData.includes(',') ? imageData.split(',')[1] : imageData;
-    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const img = fmt === 'JPEG' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
+    // Convert to JPEG at KDP resolution to avoid stack overflow on large PNGs,
+    // then use the safe loop-based base64ToBytes (not Uint8Array.from with mapFn).
+    const widthIn  = w / 72;
+    const heightIn = h / 72;
+    const jpeg = await toJpegForPDF(imageData, widthIn, heightIn);
+    const bytes = base64ToBytes(jpeg);
+    const img = await doc.embedJpg(bytes);
     pdfPage.drawImage(img, { x, y, width: w, height: h });
   };
 
