@@ -383,3 +383,303 @@ export const generateBookPDF = async (
 
   pdf.save(`${title.replace(/\s+/g, '_')}_PRINT_INTERIOR.pdf`);
 };
+
+/**
+ * Generates a PDF where the story text is real, selectable, editable PDF text
+ * (embedded Google Font or Helvetica fallback) positioned exactly where the
+ * canvas-rendered overlay would appear. A clean background rectangle is drawn
+ * beneath the text as a separate vector element so designers can restyle it.
+ *
+ * Illustration layers (background / character / foreground) are embedded as
+ * images; the AI-generated text layer is intentionally omitted so the editable
+ * text stands alone.
+ */
+export const generateLayeredEditablePDF = async (
+  pages: BookPage[],
+  format: ExportFormat,
+  title: string,
+  overlayText: boolean,
+  totalEstimatedPages: number,
+  spreadMode: SpreadExportMode = 'WIDE_SPREAD',
+  settings: any = {}
+) => {
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+  const fontkitModule = await import('@pdf-lib/fontkit');
+  const fontkit = (fontkitModule as any).default ?? fontkitModule;
+  const { fetchFontBytesForPDF } = await import('./fontLoader');
+
+  const config = PRINT_FORMATS[format] || PRINT_FORMATS.KDP_8_5x8_5;
+  const gutter = calculateGutter(totalEstimatedPages, format);
+
+  const singleFullWidth = config.width + config.bleed;
+  const fullHeight = config.height + (config.bleed * 2);
+  const spreadWidth = (config.width * 2) + (config.bleed * 2);
+
+  // 1 inch = 72 PDF points
+  const singleWidthPts = singleFullWidth * 72;
+  const spreadWidthPts = spreadWidth * 72;
+  const heightPts = fullHeight * 72;
+
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+
+  // Embed the selected Google Font; fall back to Helvetica Bold
+  let embeddedFont = await doc.embedFont(StandardFonts.HelveticaBold);
+  if (settings.textFont) {
+    const fontBytes = await fetchFontBytesForPDF(settings.textFont);
+    if (fontBytes) {
+      try {
+        embeddedFont = await doc.embedFont(fontBytes);
+      } catch {
+        console.warn('Could not embed custom font; falling back to Helvetica');
+      }
+    }
+  }
+
+  // --- helpers -----------------------------------------------------------
+
+  const parseHexColor = (hex: string) => {
+    const h = hex.replace('#', '');
+    return rgb(
+      parseInt(h.slice(0, 2), 16) / 255,
+      parseInt(h.slice(2, 4), 16) / 255,
+      parseInt(h.slice(4, 6), 16) / 255
+    );
+  };
+
+  /** Embed & draw a base64 image onto a pdf-lib page at (x, y, w, h) in pts. */
+  const drawImageOnPage = async (
+    pdfPage: any,
+    imageData: string,
+    x: number, y: number, w: number, h: number
+  ) => {
+    if (!imageData) return;
+    const fmt = getImageFormat(imageData);
+    const b64 = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const img = fmt === 'JPEG' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
+    pdfPage.drawImage(img, { x, y, width: w, height: h });
+  };
+
+  /**
+   * Compute word-wrapped text layout identical to createTextImageAsync, then
+   * draw background rectangle + editable text onto the pdf-lib page.
+   *
+   * Coordinate note: pdf-lib origin is BOTTOM-LEFT; canvas origin is TOP-LEFT.
+   * safeBottomIn is measured from the TOP (= fullHeight - bottomMargin - bleed).
+   */
+  const drawEditableText = (
+    pdfPage: any,
+    text: string,
+    pageWidthIn: number,
+    pageHeightIn: number,
+    safeLeftIn: number,
+    safeRightIn: number,
+    safeBottomIn: number,   // distance from TOP to safe-bottom boundary (inches)
+    textPositionOverride?: string,
+    textBackgroundOverride?: string
+  ) => {
+    if (textPositionOverride === 'hidden') return;
+    if (!text.trim()) return;
+
+    const wPts = pageWidthIn * 72;
+    const hPts = pageHeightIn * 72;
+
+    const safeLeftPts  = safeLeftIn  * 72;
+    const safeRightPts = safeRightIn * 72;
+    const maxWidthPts  = safeRightPts - safeLeftPts;
+    const centerXPts   = safeLeftPts + maxWidthPts / 2;
+
+    // safeBottomIn is from top → convert to pdf-lib (from bottom)
+    const safeBottomFromBottomPts = (pageHeightIn - safeBottomIn) * 72;
+
+    const fontSizePts  = settings.overlayTextSize || 24;
+    const lineHeightPts = fontSizePts * 1.25;
+
+    // Word-wrap (mirrors createTextImageAsync logic)
+    const allLines: string[] = [];
+    const paragraphs = text.split(/(?:\n|\|\|)/).map(p => p.trim()).filter(Boolean);
+    for (const para of paragraphs) {
+      const words = para.split(' ');
+      let line = '';
+      for (const word of words) {
+        const testLine = line + word + ' ';
+        if (embeddedFont.widthOfTextAtSize(testLine, fontSizePts) > maxWidthPts && line) {
+          allLines.push(line.trim());
+          line = word + ' ';
+        } else {
+          line = testLine;
+        }
+      }
+      allLines.push(line.trim());
+      allLines.push(''); // paragraph gap (empty line)
+    }
+    if (allLines.length > 0 && allLines[allLines.length - 1] === '') allLines.pop();
+
+    const totalHeightPts = allLines.length * lineHeightPts;
+
+    // Y of the FIRST (topmost) line's baseline, in pdf-lib coords (from bottom)
+    const pos = textPositionOverride || settings.overlayTextPosition || 'bottom';
+    let firstLineY: number;
+    if (pos === 'top') {
+      // mirror: startY = 0.5*dpi + lineHeight (from canvas top)
+      firstLineY = hPts - 0.5 * 72 - lineHeightPts;
+    } else if (pos === 'center') {
+      // mirror: startY = canvas.height/2 - totalHeight/2 + lineHeight (from canvas top)
+      firstLineY = hPts / 2 + totalHeightPts / 2 - lineHeightPts;
+    } else {
+      // bottom: last line baseline at safeBottomFromBottomPts
+      firstLineY = safeBottomFromBottomPts + (allLines.length - 1) * lineHeightPts;
+    }
+
+    // Actual text width for a tight background box
+    const maxLineWidthPts = Math.max(
+      ...allLines.map(l => embeddedFont.widthOfTextAtSize(l || ' ', fontSizePts))
+    );
+    const actualWidthPts = Math.min(maxWidthPts, maxLineWidthPts);
+    const boxPadPts = fontSizePts * 0.75;
+
+    // Background rectangle (vector, editable)
+    const bgSetting = textBackgroundOverride || settings.overlayTextBackground || 'transparent';
+    if (bgSetting !== 'transparent') {
+      let bgColorRgb = rgb(1, 1, 1);
+      let bgOpacity = 1;
+      if (bgSetting === 'semi-transparent-white') { bgColorRgb = rgb(1, 1, 1); bgOpacity = 0.7; }
+      if (bgSetting === 'semi-transparent-black') { bgColorRgb = rgb(0, 0, 0); bgOpacity = 0.5; }
+
+      // Mirror canvas roundRect: top of box = startY - lineHeight - boxPad + lineHeight*0.25
+      //   → pdf-lib bgBottom = firstLineY - (n - 0.75)*lineHeightPts - boxPadPts
+      const bgY = firstLineY - (allLines.length - 0.75) * lineHeightPts - boxPadPts;
+      pdfPage.drawRectangle({
+        x: centerXPts - actualWidthPts / 2 - boxPadPts,
+        y: bgY,
+        width: actualWidthPts + 2 * boxPadPts,
+        height: allLines.length * lineHeightPts + 2 * boxPadPts,
+        color: bgColorRgb,
+        opacity: bgOpacity,
+      });
+    }
+
+    // Editable text lines
+    const textColor = parseHexColor(settings.overlayTextColor || '#000000');
+    allLines.forEach((line, i) => {
+      if (!line) return;
+      const lineWidth = embeddedFont.widthOfTextAtSize(line, fontSizePts);
+      const lineX = centerXPts - lineWidth / 2; // centre-align
+      const lineY = firstLineY - i * lineHeightPts;
+      pdfPage.drawText(line, {
+        x: lineX,
+        y: lineY,
+        font: embeddedFont,
+        size: fontSizePts,
+        color: textColor,
+      });
+    });
+  };
+
+  // --- page rendering ----------------------------------------------------
+
+  let currentPageNum = 1;
+
+  for (const page of pages) {
+    const image = page.processedImage || page.originalImage;
+    if (!image) continue;
+
+    if (page.isSpread && spreadMode === 'WIDE_SPREAD') {
+      const pdfPage = doc.addPage([spreadWidthPts, heightPts]);
+
+      if (page.layers && page.layers.length > 0) {
+        const bg  = page.layers.find(l => l.type === 'background'  && l.isVisible);
+        const chr = page.layers.find(l => l.type === 'character'   && l.isVisible);
+        const fg  = page.layers.find(l => l.type === 'foreground'  && l.isVisible);
+        // Intentionally skip AI text layer — replaced by editable text below
+        if (bg)  await drawImageOnPage(pdfPage, bg.image,  0, 0, spreadWidthPts, heightPts);
+        if (chr) await drawImageOnPage(pdfPage, chr.image, 0, 0, spreadWidthPts, heightPts);
+        if (fg)  await drawImageOnPage(pdfPage, fg.image,  0, 0, spreadWidthPts, heightPts);
+      } else {
+        await drawImageOnPage(pdfPage, image, 0, 0, spreadWidthPts, heightPts);
+      }
+
+      if (overlayText && page.originalText && page.textPositionOverride !== 'hidden') {
+        const safeBottom = fullHeight - config.bottom - config.bleed;
+        if (settings.spreadTextSide === 'left') {
+          drawEditableText(pdfPage, page.originalText, spreadWidth, fullHeight,
+            config.outside + config.bleed, (spreadWidth / 2) - gutter, safeBottom,
+            page.textPositionOverride, page.textBackgroundOverride);
+        } else if (settings.spreadTextSide === 'both') {
+          const parts = page.originalText.split('||').map((t: string) => t.trim()).filter(Boolean);
+          const mid = Math.ceil(parts.length / 2);
+          drawEditableText(pdfPage, parts.slice(0, mid).join('\n\n') || page.originalText, spreadWidth, fullHeight,
+            config.outside + config.bleed, (spreadWidth / 2) - gutter, safeBottom,
+            page.textPositionOverride, page.textBackgroundOverride);
+          drawEditableText(pdfPage, parts.slice(mid).join('\n\n') || page.originalText, spreadWidth, fullHeight,
+            (spreadWidth / 2) + gutter, spreadWidth - config.outside - config.bleed, safeBottom,
+            page.textPositionOverride, page.textBackgroundOverride);
+        } else {
+          drawEditableText(pdfPage, page.originalText, spreadWidth, fullHeight,
+            (spreadWidth / 2) + gutter, spreadWidth - config.outside - config.bleed, safeBottom,
+            page.textPositionOverride, page.textBackgroundOverride);
+        }
+      }
+      currentPageNum += 2;
+
+    } else if (page.isSpread && spreadMode === 'SPLIT_PAGES') {
+      // Left page
+      const leftPage = doc.addPage([singleWidthPts, heightPts]);
+      await drawImageOnPage(leftPage, image, 0, 0, spreadWidthPts, heightPts);
+      if (overlayText && page.originalText && page.textPositionOverride !== 'hidden') {
+        const safeBottom = fullHeight - config.bottom - config.bleed;
+        drawEditableText(leftPage, page.originalText, singleFullWidth, fullHeight,
+          config.outside + config.bleed, singleFullWidth - gutter, safeBottom,
+          page.textPositionOverride, page.textBackgroundOverride);
+      }
+      currentPageNum++;
+
+      // Right page
+      const rightPage = doc.addPage([singleWidthPts, heightPts]);
+      // Shift image so the right half is visible
+      await drawImageOnPage(rightPage, image, -(spreadWidthPts - singleWidthPts), 0, spreadWidthPts, heightPts);
+      currentPageNum++;
+
+    } else {
+      const pdfPage = doc.addPage([singleWidthPts, heightPts]);
+      const isRightPage = currentPageNum % 2 !== 0;
+
+      if (page.layers && page.layers.length > 0) {
+        const bg  = page.layers.find(l => l.type === 'background' && l.isVisible);
+        const chr = page.layers.find(l => l.type === 'character'  && l.isVisible);
+        const fg  = page.layers.find(l => l.type === 'foreground' && l.isVisible);
+        if (bg)  await drawImageOnPage(pdfPage, bg.image,  0, 0, singleWidthPts, heightPts);
+        if (chr) await drawImageOnPage(pdfPage, chr.image, 0, 0, singleWidthPts, heightPts);
+        if (fg)  await drawImageOnPage(pdfPage, fg.image,  0, 0, singleWidthPts, heightPts);
+      } else {
+        await drawImageOnPage(pdfPage, image, 0, 0, singleWidthPts, heightPts);
+      }
+
+      if (overlayText && page.originalText && page.textPositionOverride !== 'hidden') {
+        const safeBottom = fullHeight - config.bottom - config.bleed;
+        const safeLeft  = isRightPage ? (gutter + config.bleed) : (config.outside + config.bleed);
+        const safeRight = isRightPage
+          ? (singleFullWidth - config.outside - config.bleed)
+          : (singleFullWidth - gutter - config.bleed);
+        drawEditableText(pdfPage, page.originalText, singleFullWidth, fullHeight,
+          safeLeft, safeRight, safeBottom,
+          page.textPositionOverride, page.textBackgroundOverride);
+      }
+      currentPageNum++;
+    }
+
+    // Yield to the main thread
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  const pdfBytes = await doc.save();
+  const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${title.replace(/\s+/g, '_')}_LAYERED_EDITABLE.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+};

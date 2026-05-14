@@ -17,7 +17,7 @@ import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, analyzeTextLayout, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont } from './geminiService';
 import { searchBookNiches } from './nicheService';
 import Markdown from 'react-markdown';
-import { generateBookPDF, generateCoverPDF } from './utils/pdfGenerator';
+import { generateBookPDF, generateCoverPDF, generateLayeredEditablePDF } from './utils/pdfGenerator';
 import { exportProjectAssetsForCanva } from './utils/exportUtils';
 import { persistenceService } from './persistenceService';
 import { SERIES_PRESETS, GLOBAL_STYLE_LOCK } from './seriesData';
@@ -2722,6 +2722,27 @@ const App: React.FC = () => {
                       {isProcessing ? <Loader2 className="animate-spin" size={48} /> : <Download size={48} />} 
                       {isProcessing ? "GENERATING PDF (MAY TAKE A WHILE)..." : "DOWNLOAD INTERIOR PDF"}
                     </button>
+                    {settings.overlayText && (
+                      <button
+                        disabled={isProcessing}
+                        onClick={async () => {
+                          setIsProcessing(true);
+                          try {
+                            await generateLayeredEditablePDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings);
+                          } catch (err: any) {
+                            console.error("Layered PDF generation failed:", err);
+                            showToast("Failed to generate layered PDF: " + err.message);
+                          } finally {
+                            setIsProcessing(false);
+                          }
+                        }}
+                        className="w-full py-10 bg-violet-600 text-white rounded-[3.5rem] font-black text-3xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6 disabled:opacity-50"
+                        title="Download a PDF with real editable text at the same position as the rendered overlay — using the selected font, with a clean background box behind each text block."
+                      >
+                        {isProcessing ? <Loader2 className="animate-spin" size={40} /> : <Layers size={40} />}
+                        {isProcessing ? "GENERATING..." : "DOWNLOAD LAYERED PDF (EDITABLE TEXT)"}
+                      </button>
+                    )}
                     <button onClick={() => exportProjectAssetsForCanva(pages, projectName)} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-4"><Layers size={32} /> DOWNLOAD ASSETS FOR CANVA / PHOTOSHOP</button>
                     <button onClick={() => setCurrentStep('cover-master')} className="w-full py-8 bg-amber-50 text-amber-600 rounded-[3rem] font-black text-2xl shadow-sm hover:bg-amber-100 transition-all flex items-center justify-center gap-4">GO TO COVER DESIGNER <ChevronRight size={32} /></button>
                   </div>
