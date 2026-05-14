@@ -485,11 +485,70 @@ export const generateLayeredEditablePDF = async (
   };
 
   /**
+   * Scan the AI-generated text layer PNG for non-transparent, non-white pixels
+   * and return the bounding box as fractions of image dimensions (0–1).
+   * Returns null if nothing is found or the image cannot be decoded.
+   */
+  const detectTextBoundsFromLayer = (textLayerImage: string): Promise<{
+    centerXFrac: number;
+    centerYFrac: number;
+    widthFrac: number;
+    heightFrac: number;
+  } | null> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(null); return; }
+        ctx.drawImage(img, 0, 0);
+        const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        let minX = width, maxX = 0, minY = height, maxY = 0;
+        let found = false;
+
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 4;
+            const alpha = data[idx + 3];
+            const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+            // Count non-transparent pixels that are not near-white background
+            if (alpha > 30 && !(r > 230 && g > 230 && b > 230)) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+              found = true;
+            }
+          }
+        }
+
+        if (!found || maxX <= minX || maxY <= minY) { resolve(null); return; }
+
+        resolve({
+          centerXFrac: (minX + maxX) / 2 / width,
+          centerYFrac: (minY + maxY) / 2 / height,
+          widthFrac:   (maxX - minX) / width,
+          heightFrac:  (maxY - minY) / height,
+        });
+      };
+      img.onerror = () => resolve(null);
+      img.src = textLayerImage;
+    });
+  };
+
+  /**
    * Compute word-wrapped text layout identical to createTextImageAsync, then
    * draw background rectangle + editable text onto the pdf-lib page.
    *
    * Coordinate note: pdf-lib origin is BOTTOM-LEFT; canvas origin is TOP-LEFT.
    * safeBottomIn is measured from the TOP (= fullHeight - bottomMargin - bleed).
+   *
+   * When detectedBounds is provided (from detectTextBoundsFromLayer), the text
+   * is placed at the pixel-precise location where the AI rendered it in the
+   * illustration, instead of using the configured top/center/bottom position.
    */
   const drawEditableText = (
     pdfPage: any,
@@ -500,7 +559,8 @@ export const generateLayeredEditablePDF = async (
     safeRightIn: number,
     safeBottomIn: number,   // distance from TOP to safe-bottom boundary (inches)
     textPositionOverride?: string,
-    textBackgroundOverride?: string
+    textBackgroundOverride?: string,
+    detectedBounds?: { centerXFrac: number; centerYFrac: number; widthFrac: number; heightFrac: number } | null
   ) => {
     if (textPositionOverride === 'hidden') return;
     if (!text.trim()) return;
@@ -508,10 +568,19 @@ export const generateLayeredEditablePDF = async (
     const wPts = pageWidthIn * 72;
     const hPts = pageHeightIn * 72;
 
-    const safeLeftPts  = safeLeftIn  * 72;
-    const safeRightPts = safeRightIn * 72;
-    const maxWidthPts  = safeRightPts - safeLeftPts;
-    const centerXPts   = safeLeftPts + maxWidthPts / 2;
+    // When the AI text layer was detected, use its exact bounding box for
+    // centering and width; otherwise fall back to safe-area margins.
+    let centerXPts: number;
+    let maxWidthPts: number;
+    if (detectedBounds) {
+      centerXPts  = detectedBounds.centerXFrac * wPts;
+      maxWidthPts = Math.max(detectedBounds.widthFrac * wPts, 72); // at least 1 inch
+    } else {
+      const safeLeftPts  = safeLeftIn  * 72;
+      const safeRightPts = safeRightIn * 72;
+      maxWidthPts = safeRightPts - safeLeftPts;
+      centerXPts  = safeLeftPts + maxWidthPts / 2;
+    }
 
     // safeBottomIn is from top → convert to pdf-lib (from bottom)
     const safeBottomFromBottomPts = (pageHeightIn - safeBottomIn) * 72;
@@ -542,17 +611,23 @@ export const generateLayeredEditablePDF = async (
     const totalHeightPts = allLines.length * lineHeightPts;
 
     // Y of the FIRST (topmost) line's baseline, in pdf-lib coords (from bottom)
-    const pos = textPositionOverride || settings.overlayTextPosition || 'bottom';
     let firstLineY: number;
-    if (pos === 'top') {
-      // mirror: startY = 0.5*dpi + lineHeight (from canvas top)
-      firstLineY = hPts - 0.5 * 72 - lineHeightPts;
-    } else if (pos === 'center') {
-      // mirror: startY = canvas.height/2 - totalHeight/2 + lineHeight (from canvas top)
-      firstLineY = hPts / 2 + totalHeightPts / 2 - lineHeightPts;
+    if (detectedBounds) {
+      // centerYFrac is from top → convert to pdf-lib bottom-left origin
+      const centerYFromBottom = hPts * (1 - detectedBounds.centerYFrac);
+      firstLineY = centerYFromBottom + totalHeightPts / 2 - lineHeightPts;
     } else {
-      // bottom: last line baseline at safeBottomFromBottomPts
-      firstLineY = safeBottomFromBottomPts + (allLines.length - 1) * lineHeightPts;
+      const pos = textPositionOverride || settings.overlayTextPosition || 'bottom';
+      if (pos === 'top') {
+        // mirror: startY = 0.5*dpi + lineHeight (from canvas top)
+        firstLineY = hPts - 0.5 * 72 - lineHeightPts;
+      } else if (pos === 'center') {
+        // mirror: startY = canvas.height/2 - totalHeight/2 + lineHeight (from canvas top)
+        firstLineY = hPts / 2 + totalHeightPts / 2 - lineHeightPts;
+      } else {
+        // bottom: last line baseline at safeBottomFromBottomPts
+        firstLineY = safeBottomFromBottomPts + (allLines.length - 1) * lineHeightPts;
+      }
     }
 
     // Actual text width for a tight background box
@@ -625,23 +700,25 @@ export const generateLayeredEditablePDF = async (
 
       if (overlayText && page.originalText && page.textPositionOverride !== 'hidden') {
         const safeBottom = fullHeight - config.bottom - config.bleed;
+        const textLayer = page.layers?.find((l: any) => l.type === 'text' && l.isVisible);
+        const detectedBounds = textLayer ? await detectTextBoundsFromLayer(textLayer.image) : null;
         if (settings.spreadTextSide === 'left') {
           drawEditableText(pdfPage, page.originalText, spreadWidth, fullHeight,
             config.outside + config.bleed, (spreadWidth / 2) - gutter, safeBottom,
-            page.textPositionOverride, page.textBackgroundOverride);
+            page.textPositionOverride, page.textBackgroundOverride, detectedBounds);
         } else if (settings.spreadTextSide === 'both') {
           const parts = page.originalText.split('||').map((t: string) => t.trim()).filter(Boolean);
           const mid = Math.ceil(parts.length / 2);
           drawEditableText(pdfPage, parts.slice(0, mid).join('\n\n') || page.originalText, spreadWidth, fullHeight,
             config.outside + config.bleed, (spreadWidth / 2) - gutter, safeBottom,
-            page.textPositionOverride, page.textBackgroundOverride);
+            page.textPositionOverride, page.textBackgroundOverride, detectedBounds);
           drawEditableText(pdfPage, parts.slice(mid).join('\n\n') || page.originalText, spreadWidth, fullHeight,
             (spreadWidth / 2) + gutter, spreadWidth - config.outside - config.bleed, safeBottom,
-            page.textPositionOverride, page.textBackgroundOverride);
+            page.textPositionOverride, page.textBackgroundOverride, detectedBounds);
         } else {
           drawEditableText(pdfPage, page.originalText, spreadWidth, fullHeight,
             (spreadWidth / 2) + gutter, spreadWidth - config.outside - config.bleed, safeBottom,
-            page.textPositionOverride, page.textBackgroundOverride);
+            page.textPositionOverride, page.textBackgroundOverride, detectedBounds);
         }
       }
       currentPageNum += 2;
@@ -652,9 +729,11 @@ export const generateLayeredEditablePDF = async (
       await drawImageOnPage(leftPage, image, 0, 0, spreadWidthPts, heightPts);
       if (overlayText && page.originalText && page.textPositionOverride !== 'hidden') {
         const safeBottom = fullHeight - config.bottom - config.bleed;
+        const textLayer = page.layers?.find((l: any) => l.type === 'text' && l.isVisible);
+        const detectedBounds = textLayer ? await detectTextBoundsFromLayer(textLayer.image) : null;
         drawEditableText(leftPage, page.originalText, singleFullWidth, fullHeight,
           config.outside + config.bleed, singleFullWidth - gutter, safeBottom,
-          page.textPositionOverride, page.textBackgroundOverride);
+          page.textPositionOverride, page.textBackgroundOverride, detectedBounds);
       }
       currentPageNum++;
 
@@ -685,9 +764,11 @@ export const generateLayeredEditablePDF = async (
         const safeRight = isRightPage
           ? (singleFullWidth - config.outside - config.bleed)
           : (singleFullWidth - gutter - config.bleed);
+        const textLayer = page.layers?.find((l: any) => l.type === 'text' && l.isVisible);
+        const detectedBounds = textLayer ? await detectTextBoundsFromLayer(textLayer.image) : null;
         drawEditableText(pdfPage, page.originalText, singleFullWidth, fullHeight,
           safeLeft, safeRight, safeBottom,
-          page.textPositionOverride, page.textBackgroundOverride);
+          page.textPositionOverride, page.textBackgroundOverride, detectedBounds);
       }
       currentPageNum++;
     }
