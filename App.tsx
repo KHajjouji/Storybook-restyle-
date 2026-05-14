@@ -333,12 +333,22 @@ const App: React.FC = () => {
             setUserProfile(docSnap.data() as import('./types').UserProfile);
           }
         }, (error: any) => {
-          if (!error.message?.includes('Quota exceeded') && !error.message?.includes('resource-exhausted')) {
-            console.error("Profile snapshot error:", error);
-          } else {
+          const msg = error?.message || String(error);
+          const isQuota = msg.includes('Quota exceeded') || msg.includes('resource-exhausted');
+          const isPermission =
+            msg.includes('Missing or insufficient permissions') ||
+            msg.includes('permission-denied') ||
+            msg.includes('PERMISSION_DENIED') ||
+            msg.toLowerCase().includes('insufficient permissions');
+          if (isQuota) {
             console.warn("Profile snapshot quota exceeded, using local fallback.");
+          } else if (isPermission) {
+            // Security rules deny profile reads — fall back to a local profile.
+            console.warn("Profile snapshot access denied by security rules; using local fallback.");
+          } else {
+            console.error("Profile snapshot error:", error);
           }
-          // Fallback to basic free profile if Firestore quota is exceeded
+          // Fallback to basic free profile if Firestore is unavailable
           setUserProfile({
              uid: currentUser.uid,
              email: currentUser.email,
