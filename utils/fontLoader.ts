@@ -27,35 +27,6 @@ export const STORY_TYPES = [
   { id: 'bilingual', name: "Bilingual / Inclusive", defaultFont: 'Noto Sans' }
 ];
 
-/**
- * Fetches font bytes (WOFF2/TTF) for a Google Font family for embedding in pdf-lib.
- * Returns null for system fonts or if the fetch fails.
- */
-export const fetchFontBytesForPDF = async (fontFamily: string): Promise<Uint8Array | null> => {
-  const fontObj = GOOGLE_FONTS.find(f => f.name === fontFamily || f.family === fontFamily);
-  if (!fontObj || fontObj.system) return null;
-
-  try {
-    const encodedFamily = fontFamily.replace(/\s+/g, '+');
-    // Request the CSS - the browser sends its UA so Google returns the right format (WOFF2)
-    const cssResp = await fetch(
-      `https://fonts.googleapis.com/css2?family=${encodedFamily}:wght@700&display=swap`
-    );
-    const css = await cssResp.text();
-
-    // Parse the first font URL from the CSS (woff2 in modern browsers)
-    const match = css.match(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/);
-    if (!match) return null;
-
-    const fontResp = await fetch(match[1]);
-    const buffer = await fontResp.arrayBuffer();
-    return new Uint8Array(buffer);
-  } catch (e) {
-    console.warn(`Could not fetch font bytes for "${fontFamily}":`, e);
-    return null;
-  }
-};
-
 export const loadGoogleFont = async (fontFamily: string) => {
   const fontObj = GOOGLE_FONTS.find(f => f.name === fontFamily || f.family === fontFamily);
   if (!fontObj || fontObj.system) return;
