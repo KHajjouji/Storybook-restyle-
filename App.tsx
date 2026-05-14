@@ -2731,7 +2731,7 @@ const App: React.FC = () => {
                           await generateLayeredEditablePDF(pages, settings.exportFormat, projectName, settings.estimatedPageCount, settings.textFont, settings);
                         } catch (err: any) {
                           console.error("Editable PDF generation failed:", err);
-                          showToast("Failed to generate editable PDF: " + err.message);
+                          showToast("Failed to generate editable PDF: " + (err?.message || (typeof err === "string" ? err : "Unknown error")));
                         } finally {
                           setIsProcessing(false);
                         }

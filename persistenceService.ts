@@ -180,27 +180,30 @@ export const persistenceService = {
         targetResolution: project.targetResolution || null
       };
 
-      // Save root document first so chunks rules pass get()
-      let rootSaved = false;
+      // Attempt to sync metadata to Firestore; fall back to IDB-only if rules deny it.
+      let firestoreAvailable = false;
       try {
         await setDoc(doc(db, 'projects', project.id), projectToSave);
-        rootSaved = true;
-      } catch (rootErr: any) {
-        if (rootErr.message?.includes('Missing or insufficient permissions') || rootErr.code === 'permission-denied') {
-          console.warn("Firestore write denied; project saved locally only.");
+        firestoreAvailable = true;
+      } catch (fsError: any) {
+        const msg = fsError instanceof Error ? fsError.message : String(fsError);
+        if (msg.includes('permission') || msg.includes('Permission') || msg.includes('PERMISSION_DENIED')) {
+          // Firestore security rules are blocking this write — silently continue with IDB only.
+          console.warn('Firestore write denied (permissions); project saved locally only.', msg);
         } else {
-          throw rootErr;
+          // Re-throw unexpected errors (quota, network, etc.)
+          handleFirestoreError(fsError, OperationType.WRITE, path);
         }
       }
 
-      if (rootSaved) {
-        // Save full page images to Firestore chunks
+      // Only attempt chunk uploads when the root document succeeded
+      if (firestoreAvailable) {
         for (const p of project.pages) {
           if (p.originalImage) await this.saveChunks(project.id, 'page_originalImage', p.id, p.originalImage);
           if (p.processedImage) await this.saveChunks(project.id, 'page_processedImage', p.id, p.processedImage);
           if (p.layers && p.layers.length > 0) await this.saveChunks(project.id, 'page_layers', p.id, JSON.stringify(p.layers));
         }
-        
+
         if (project.coverImage) {
           await this.saveChunks(project.id, 'project_coverImage', project.id, project.coverImage);
         }
@@ -299,7 +302,7 @@ export const persistenceService = {
       } catch (error: any) {
         const errMsg = error.message || "";
         if ((errMsg.includes('Quota exceeded') || errMsg.includes('resource-exhausted')) && retries > 0) {
-          console.warn(`Quota exceeded, retrying in ${delay}ms... (${retries} retries left)`);
+          console.warn(`Quota exceeded, retrying in 1000ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           return fetchWithRetry(retries - 1, delay * 2);
         }
@@ -360,6 +363,7 @@ export const persistenceService = {
       if (!data) return null;
       
       // Load local data
+      const { get } = await import('idb-keyval');
       const localPages = await get(`project_pages_${data.id}`);
       const localCoverLayers = await get(`project_coverLayers_${data.id}`);
       const localCoverImage = await get(`project_coverImage_${data.id}`);
@@ -479,6 +483,7 @@ export const persistenceService = {
     const path = `projects/${id}`;
     try {
       await deleteDoc(doc(db, 'projects', id));
+      const { del } = await import('idb-keyval');
       await del(`project_pages_${id}`);
       await del(`project_coverLayers_${id}`);
       await del(`project_coverImage_${id}`);
@@ -500,6 +505,7 @@ export const persistenceService = {
       };
       
       // Save locally too
+      const { set, get } = await import('idb-keyval');
       const localStyles: any[] = (await get('local_user_styles')) || [];
       const existingIndex = localStyles.findIndex((s: any) => s.id === style.id);
       if (existingIndex >= 0) {
@@ -534,11 +540,13 @@ export const persistenceService = {
       });
       
       // Update local cache
+      const { set } = await import('idb-keyval');
       await set('local_user_styles', styles);
       
       return styles.sort((a, b) => b.createdAt - a.createdAt);
     } catch (error) {
       console.warn("Firestore userStyles fetch failed, falling back to local cache:", error);
+      const { get } = await import('idb-keyval');
       const localStyles: any[] = (await get('local_user_styles')) || [];
       return localStyles.sort((a, b) => b.createdAt - a.createdAt);
     }

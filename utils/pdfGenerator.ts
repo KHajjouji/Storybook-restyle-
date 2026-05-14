@@ -8,13 +8,49 @@ import {
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 
-const base64ToBytes = (base64: string): Uint8Array => {
-  const binaryString = atob(base64.split(',')[1] || base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+const compressImageToJPEG = async (dataUri: string, quality: number = 0.85): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!dataUri || !dataUri.startsWith('data:image')) return resolve(dataUri);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const MAX_SIZE = 2048; // Max size to prevent jsPDF stack overflow
+      let w = img.width;
+      let h = img.height;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        const ratio = Math.min(MAX_SIZE / w, MAX_SIZE / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(dataUri);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => resolve(dataUri);
+    img.src = dataUri;
+  });
+};
+
+const safeBase64ToBytes = async (dataUri: string): Promise<Uint8Array> => {
+  try {
+    const res = await fetch(dataUri);
+    const buf = await res.arrayBuffer();
+    return new Uint8Array(buf);
+  } catch (e) {
+    const b64Data = dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
+    const binaryString = atob(b64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
   }
-  return bytes;
 };
 
 export const generateLayeredEditablePDF = async (
@@ -25,121 +61,146 @@ export const generateLayeredEditablePDF = async (
   textFont: string = 'Inter',
   settings: any = {}
 ) => {
-  const config = PRINT_FORMATS[format] || PRINT_FORMATS.KDP_8_5x8_5;
-  const singleFullWidthDPI = (config.width + config.bleed) * 72; // pdf-lib uses 72 dpi (points)
-  const fullHeightDPI = (config.height + config.bleed * 2) * 72;
-
-  const pdfDoc = await PDFDocument.create();
-  pdfDoc.registerFontkit(fontkit);
-
-  // Try to load user-selected Google Font
-  let customFont;
   try {
-    const fontUrl = `https://fonts.googleapis.com/css2?family=${textFont.replace(/\s+/g, '+')}:wght@700&text=` + encodeURIComponent("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;':,./<>?`~ \"");
-    const cssResp = await fetch(fontUrl);
-    const cssText = await cssResp.text();
-    const ttfUrlMatch = cssText.match(/url\((https:\/\/[^)]+)\)/);
-    if (ttfUrlMatch && ttfUrlMatch[1]) {
-      const fontResp = await fetch(ttfUrlMatch[1]);
-      const fontBytes = await fontResp.arrayBuffer();
-      customFont = await pdfDoc.embedFont(fontBytes);
+    const safeTextFont = textFont || 'Inter';
+    const config = PRINT_FORMATS[format] || PRINT_FORMATS.KDP_8_5x8_5;
+    const singleFullWidthDPI = (config.width + config.bleed) * 72; // pdf-lib uses 72 dpi (points)
+    const fullHeightDPI = (config.height + config.bleed * 2) * 72;
+
+    const pdfDoc = await PDFDocument.create();
+    // Vite / ESM compatibility for fontkit
+    const safeFontkit = fontkit && (fontkit as any).default ? (fontkit as any).default : fontkit;
+    if (safeFontkit) {
+      pdfDoc.registerFontkit(safeFontkit);
     } else {
+      console.warn('Fontkit is undefined, custom fonts may fail to load');
+    }
+
+    // Try to load user-selected Google Font
+    let customFont;
+    try {
+      const fontUrl = `https://fonts.googleapis.com/css2?family=${safeTextFont.replace(/\s+/g, '+')}:wght@700&text=` + encodeURIComponent("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;':,./<>?`~ \"");
+      const cssResp = await fetch(fontUrl);
+      const cssText = await cssResp.text();
+      const ttfUrlMatch = cssText.match(/url\((https:\/\/[^)]+)\)/);
+      if (ttfUrlMatch && ttfUrlMatch[1]) {
+        const fontResp = await fetch(ttfUrlMatch[1]);
+        const fontBytes = await fontResp.arrayBuffer();
+        customFont = await pdfDoc.embedFont(fontBytes);
+      } else {
+        customFont = await pdfDoc.embedFont('Helvetica-Bold');
+      }
+    } catch (e) {
+      console.warn("Failed to load Google font, using Helvetica", e);
       customFont = await pdfDoc.embedFont('Helvetica-Bold');
     }
-  } catch (e) {
-    console.warn("Failed to load Google font, using Helvetica", e);
-    customFont = await pdfDoc.embedFont('Helvetica-Bold');
-  }
 
-  const drawImageOnPage = async (page: any, dataUri: string, x: number, y: number, width: number, height: number) => {
-    let embeddedImage;
-    const format = getImageFormat(dataUri);
-    const bytes = base64ToBytes(dataUri);
-    if (format === 'JPEG') {
-      embeddedImage = await pdfDoc.embedJpg(bytes);
-    } else {
-      embeddedImage = await pdfDoc.embedPng(bytes);
-    }
-    page.drawImage(embeddedImage, {
-      x, y, width, height,
-    });
-  };
-
-  const drawEditableText = async (pdfPage: any, text: string, textFont: any, detectedBounds?: { centerXFrac: number, centerYFrac: number, widthFrac: number, heightFrac: number } | null) => {
-    const fontSize = settings.overlayTextSize || 24;
-    
-    let xOffset, yOffset, fieldWidth, fieldHeight;
-
-    if (detectedBounds) {
-      fieldWidth = detectedBounds.widthFrac * singleFullWidthDPI;
-      fieldHeight = detectedBounds.heightFrac * fullHeightDPI;
-      xOffset = detectedBounds.centerXFrac * singleFullWidthDPI - fieldWidth / 2;
-      // pdf-lib y=0 is bottom
-      yOffset = (1 - detectedBounds.centerYFrac) * fullHeightDPI - fieldHeight / 2;
-    } else {
-      fieldWidth = singleFullWidthDPI - 72; // default safe area margins
-      fieldHeight = 100;
-      xOffset = 36;
-      yOffset = 100; // default bottom
-    }
-
-    const form = pdfDoc.getForm();
-    const textField = form.createTextField(`text_${Math.random().toString()}`);
-    textField.setText(text || "");
-    textField.addToPage(pdfPage, {
-      x: xOffset,
-      y: yOffset,
-      width: fieldWidth,
-      height: fieldHeight,
-      textColor: rgb(0, 0, 0),
-      backgroundColor: undefined,
-      borderColor: undefined,
-      font: textFont,
-    });
-    textField.setFontSize(fontSize);
-    textField.enableMultiline();
-  };
-
-  for (let i = 0; i < pages.length; i++) {
-    const bookPage = pages[i];
-    const pdfPage = pdfDoc.addPage([singleFullWidthDPI, fullHeightDPI]);
-    
-    // Background layer
-    const bgLayer = bookPage.layers?.find(l => l.type === 'background' && l.isVisible);
-    if (bgLayer && bgLayer.image) {
-      await drawImageOnPage(pdfPage, bgLayer.image, 0, 0, singleFullWidthDPI, fullHeightDPI);
-    } else if (bookPage.processedImage || bookPage.originalImage) {
-      await drawImageOnPage(pdfPage, bookPage.processedImage || bookPage.originalImage || '', 0, 0, singleFullWidthDPI, fullHeightDPI);
-    }
-
-    // Characters & Foreground
-    const chars = bookPage.layers?.filter(l => (l.type === 'character' || l.type === 'foreground') && l.isVisible);
-    if (chars) {
-      for (const char of chars) {
-        if (char.image) {
-          await drawImageOnPage(pdfPage, char.image, 0, 0, singleFullWidthDPI, fullHeightDPI);
+    const drawImageOnPage = async (page: any, dataUri: string, x: number, y: number, width: number, height: number) => {
+      if (!dataUri) return;
+      try {
+        let embeddedImage;
+        const format = getImageFormat(dataUri);
+        
+        // If it's not a valid base64 data URI (e.g. standard URL), we can't embed it easily with base64ToBytes
+        if (!dataUri.startsWith('data:')) {
+          console.warn('Skipping non-data URI image for export');
+          return;
         }
+
+        const bytes = await safeBase64ToBytes(dataUri);
+        if (format === 'JPEG') {
+          embeddedImage = await pdfDoc.embedJpg(bytes);
+        } else {
+          embeddedImage = await pdfDoc.embedPng(bytes);
+        }
+        page.drawImage(embeddedImage, {
+          x, y, width, height,
+        });
+      } catch (err) {
+        console.error("Failed to embed image on PDF page", err);
+      }
+    };
+
+    const drawEditableText = async (pdfPage: any, text: string, textFont: any, detectedBounds?: { centerXFrac: number, centerYFrac: number, widthFrac: number, heightFrac: number } | null) => {
+      const fontSize = settings?.overlayTextSize || 24;
+      
+      let xOffset, yOffset, fieldWidth, fieldHeight;
+
+      if (detectedBounds) {
+        fieldWidth = detectedBounds.widthFrac * singleFullWidthDPI;
+        fieldHeight = detectedBounds.heightFrac * fullHeightDPI;
+        xOffset = detectedBounds.centerXFrac * singleFullWidthDPI - fieldWidth / 2;
+        // pdf-lib y=0 is bottom
+        yOffset = (1 - detectedBounds.centerYFrac) * fullHeightDPI - fieldHeight / 2;
+      } else {
+        fieldWidth = singleFullWidthDPI - 72; // default safe area margins
+        fieldHeight = 100;
+        xOffset = 36;
+        yOffset = 100; // default bottom
+      }
+
+      const form = pdfDoc.getForm();
+      const textField = form.createTextField(`text_${Math.random().toString()}`);
+      textField.setText(text || "");
+      textField.addToPage(pdfPage, {
+        x: xOffset,
+        y: yOffset,
+        width: fieldWidth,
+        height: fieldHeight,
+        textColor: rgb(0, 0, 0),
+        backgroundColor: undefined,
+        borderColor: undefined,
+        font: textFont,
+      });
+      textField.setFontSize(fontSize);
+      textField.enableMultiline();
+    };
+
+    for (let i = 0; i < pages.length; i++) {
+      const bookPage = pages[i];
+      const pdfPage = pdfDoc.addPage([singleFullWidthDPI, fullHeightDPI]);
+      
+      // Background layer
+      const bgLayer = bookPage.layers?.find(l => l.type === 'background' && l.isVisible);
+      if (bgLayer && bgLayer.image) {
+        await drawImageOnPage(pdfPage, bgLayer.image, 0, 0, singleFullWidthDPI, fullHeightDPI);
+      } else if (bookPage.processedImage || bookPage.originalImage) {
+        await drawImageOnPage(pdfPage, bookPage.processedImage || bookPage.originalImage || '', 0, 0, singleFullWidthDPI, fullHeightDPI);
+      }
+
+      // Characters & Foreground
+      const chars = bookPage.layers?.filter(l => (l.type === 'character' || l.type === 'foreground') && l.isVisible);
+      if (chars) {
+        for (const char of chars) {
+          if (char.image) {
+            await drawImageOnPage(pdfPage, char.image, 0, 0, singleFullWidthDPI, fullHeightDPI);
+          }
+        }
+      }
+
+      // Editable text logic
+      const textLayer = bookPage.layers?.find(l => l.type === 'text' && l.isVisible);
+      let detectedBounds = null;
+      if (textLayer && textLayer.image) {
+        detectedBounds = await detectTextBoundsFromLayer(textLayer.image);
+      }
+
+      if (bookPage.originalText) {
+         await drawEditableText(pdfPage, bookPage.originalText, customFont, detectedBounds);
       }
     }
 
-    // Editable text logic
-    const textLayer = bookPage.layers?.find(l => l.type === 'text' && l.isVisible);
-    let detectedBounds = null;
-    if (textLayer && textLayer.image) {
-      detectedBounds = await detectTextBoundsFromLayer(textLayer.image);
-    }
-
-    if (bookPage.originalText) {
-       await drawEditableText(pdfPage, bookPage.originalText, customFont, detectedBounds);
-    }
+    const pdfBytes = await pdfDoc.save();
+    const blob = new Blob([pdfBytes], { type: "application/pdf" });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${(title || 'book').replace(/\s+/g, '_')}_EDITABLE.pdf`;
+    link.click();
+  } catch (error: any) {
+    console.error("FATAL ERROR in generateLayeredEditablePDF:", error);
+    const msg = error instanceof Error ? error.message : (typeof error === 'string' ? error : JSON.stringify(error));
+    throw new Error(msg || "Unknown error generating editable PDF");
   }
-
-  const pdfBytes = await pdfDoc.save();
-  const blob = new Blob([pdfBytes], { type: "application/pdf" });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = `${title.replace(/\s+/g, '_')}_EDITABLE.pdf`;
-  link.click();
 };
 import {
   getInsideMargin,
@@ -258,10 +319,11 @@ export const generateCoverPDF = async (
     format: [coverDims.width, coverDims.height],
   });
 
-  const finalCoverImage = await loadImage(coverImage);
+  const compressedCover = await compressImageToJPEG(coverImage, 0.85);
+  const finalCoverImage = await loadImage(compressedCover);
   pdf.addImage(
     finalCoverImage,
-    getImageFormat(coverImage),
+    getImageFormat(compressedCover),
     0,
     0,
     coverDims.width,
@@ -502,7 +564,8 @@ export const generateBookPDF = async (
     const rawImage = page.processedImage || page.originalImage;
     if (!rawImage) continue;
 
-    const image = await loadImage(rawImage);
+    const compressedImage = await compressImageToJPEG(rawImage, 0.85);
+    const image = await loadImage(compressedImage);
     const safeLayers = page.layers
       ? await Promise.all(
           page.layers.map(async (l) => ({
