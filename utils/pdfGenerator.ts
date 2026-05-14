@@ -336,7 +336,7 @@ export const generateCoverPDF = async (
 const flattenLayers = async (layers: { type: string; image: string; isVisible: boolean }[], width: number, height: number, bleed: number): Promise<string> => {
   return new Promise((resolve) => {
     const canvas = document.createElement("canvas");
-    canvas.width = width * 300; // assumed 300 dpi
+    canvas.width = width * 300;
     canvas.height = height * 300;
     const ctx = canvas.getContext("2d");
     if (!ctx) return resolve("");
@@ -351,7 +351,6 @@ const flattenLayers = async (layers: { type: string; image: string; isVisible: b
       layers.find((l) => l.type === "text" && l.isVisible)
     ].filter(Boolean) as { type: string; image: string; isVisible: boolean }[];
 
-    let loaded = 0;
     if (orderedLayers.length === 0) return resolve("");
 
     const render = async () => {
@@ -360,15 +359,12 @@ const flattenLayers = async (layers: { type: string; image: string; isVisible: b
         await new Promise<void>((res) => {
           const img = new Image();
           img.crossOrigin = "anonymous";
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            res();
-          };
-          img.onerror = () => res(); // skip on error
+          img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); res(); };
+          img.onerror = () => res();
           img.src = layer.image;
         });
       }
-      resolve(canvas.toDataURL("image/jpeg", 0.95)); // output standard JPEG layout!
+      resolve(canvas.toDataURL("image/jpeg", 0.95));
     };
     render();
   });
@@ -559,6 +555,83 @@ export const generateBookPDF = async (
     return canvas;
   };
 
+  /**
+   * Draw text directly onto the jsPDF page using the PDF vector text API.
+   * This completely avoids the PNG canvas encode/decode cycle that causes
+   * "Maximum call stack size exceeded" on large (4K / spread) pages.
+   *
+   * Coordinates are in inches, origin top-left (same as jsPDF with unit:'in').
+   */
+  const drawTextWithJsPDF = (
+    text: string,
+    widthIn: number, heightIn: number,
+    safeLeftIn: number, safeRightIn: number, safeBottomIn: number,
+    textPositionOverride?: string, textBackgroundOverride?: string
+  ) => {
+    if (textPositionOverride === 'hidden' || !text.trim()) return;
+
+    const fontSizePt = settings.overlayTextSize || 24;
+    const lineHeightIn = fontSizePt * 1.25 / 72;
+    const maxWidthIn   = safeRightIn - safeLeftIn;
+    const centerXIn    = safeLeftIn + maxWidthIn / 2;
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(fontSizePt);
+
+    const allLines: string[] = [];
+    const paragraphs = text.split(/(?:\n|\|\|)/).map((p: string) => p.trim()).filter(Boolean);
+    for (const para of paragraphs) {
+      const wrapped: string[] = pdf.splitTextToSize(para, maxWidthIn);
+      allLines.push(...wrapped, '');
+    }
+    if (allLines.length && allLines[allLines.length - 1] === '') allLines.pop();
+
+    const totalHeightIn = allLines.length * lineHeightIn;
+    const pos = textPositionOverride || settings.overlayTextPosition || 'bottom';
+
+    let firstLineY: number;
+    if (pos === 'top') {
+      firstLineY = 0.5 + lineHeightIn;
+    } else if (pos === 'center') {
+      firstLineY = heightIn / 2 - totalHeightIn / 2 + lineHeightIn;
+    } else {
+      firstLineY = safeBottomIn - (allLines.length - 1) * lineHeightIn;
+    }
+
+    // Background rectangle
+    const bgSetting = textBackgroundOverride || settings.overlayTextBackground;
+    if (bgSetting && bgSetting !== 'transparent') {
+      const boxPadIn = fontSizePt * 0.75 / 72;
+      const bgW = maxWidthIn * 0.92 + boxPadIn * 2;
+      const bgX = centerXIn - bgW / 2;
+      const bgY = firstLineY - lineHeightIn * 0.75 - boxPadIn;
+      const bgH = totalHeightIn + boxPadIn * 2;
+      if (bgSetting === 'solid-white') {
+        pdf.setFillColor(255, 255, 255);
+      } else if (bgSetting === 'semi-transparent-white') {
+        pdf.setFillColor(240, 240, 240); // approximate; full opacity
+      } else if (bgSetting === 'semi-transparent-black') {
+        pdf.setFillColor(60, 60, 60);
+      }
+      pdf.rect(bgX, bgY, bgW, bgH, 'F');
+    }
+
+    // Text color
+    const hex = (settings.overlayTextColor || '#000000').replace('#', '');
+    pdf.setTextColor(
+      parseInt(hex.slice(0, 2), 16),
+      parseInt(hex.slice(2, 4), 16),
+      parseInt(hex.slice(4, 6), 16)
+    );
+
+    allLines.forEach((line: string, i: number) => {
+      if (!line.trim()) return;
+      pdf.text(line.trim(), centerXIn, firstLineY + i * lineHeightIn, { align: 'center' });
+    });
+
+    pdf.setTextColor(0, 0, 0); // reset
+  };
+
   for (let i = 0; i < pages.length; i++) {
     const page = pages[i];
     const rawImage = page.processedImage || page.originalImage;
@@ -603,114 +676,26 @@ export const generateBookPDF = async (
           );
         }
 
-        // Active Text (Dynamic)
-        if (overlayText && page.originalText && !safeLayers.find((l) => l.type === "text" && l.isVisible)) {
+        // Active Text — jsPDF vector text; no PNG canvas to avoid stack overflow
+        if (overlayText && page.originalText && !safeLayers.find((l: any) => l.type === "text" && l.isVisible)) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
-
           if (settings.spreadTextSide === "left") {
-            const safeLeft = config.outside + config.bleed;
-            const safeRight = spreadWidth / 2 - gutter;
-            const textImg = await createTextImageAsync(
-              page.originalText,
-              spreadWidth,
-              fullHeight,
-              safeLeft,
-              safeRight,
-              safeBottom,
-              page.textPositionOverride,
-              page.textBackgroundOverride,
-            );
-            if (textImg)
-              pdf.addImage(
-                textImg,
-                "PNG",
-                0,
-                0,
-                spreadWidth,
-                fullHeight,
-                undefined, "NONE",
-              );
+            drawTextWithJsPDF(page.originalText, spreadWidth, fullHeight,
+              config.outside + config.bleed, spreadWidth / 2 - gutter, safeBottom,
+              page.textPositionOverride, page.textBackgroundOverride);
           } else if (settings.spreadTextSide === "both") {
-            // Bilingual or both pages text
-            const textParts = page.originalText
-              .split("||")
-              .map((t) => t.trim())
-              .filter(Boolean);
+            const textParts = page.originalText.split("||").map((t: string) => t.trim()).filter(Boolean);
             const mid = Math.ceil(textParts.length / 2);
-            const leftText =
-              textParts.slice(0, mid).join("\n\n") || page.originalText;
-            const rightText =
-              textParts.slice(mid).join("\n\n") || page.originalText;
-
-            const safeLeftL = config.outside + config.bleed;
-            const safeRightL = spreadWidth / 2 - gutter;
-            const textImgL = await createTextImageAsync(
-              leftText,
-              spreadWidth,
-              fullHeight,
-              safeLeftL,
-              safeRightL,
-              safeBottom,
-              page.textPositionOverride,
-              page.textBackgroundOverride,
-            );
-            if (textImgL)
-              pdf.addImage(
-                textImgL,
-                "PNG",
-                0,
-                0,
-                spreadWidth,
-                fullHeight,
-                undefined, "NONE",
-              );
-
-            const safeLeftR = spreadWidth / 2 + gutter;
-            const safeRightR = spreadWidth - config.outside - config.bleed;
-            const textImgR = await createTextImageAsync(
-              rightText,
-              spreadWidth,
-              fullHeight,
-              safeLeftR,
-              safeRightR,
-              safeBottom,
-              page.textPositionOverride,
-              page.textBackgroundOverride,
-            );
-            if (textImgR)
-              pdf.addImage(
-                textImgR,
-                "PNG",
-                0,
-                0,
-                spreadWidth,
-                fullHeight,
-                undefined, "NONE",
-              );
+            drawTextWithJsPDF(textParts.slice(0, mid).join("\n\n") || page.originalText, spreadWidth, fullHeight,
+              config.outside + config.bleed, spreadWidth / 2 - gutter, safeBottom,
+              page.textPositionOverride, page.textBackgroundOverride);
+            drawTextWithJsPDF(textParts.slice(mid).join("\n\n") || page.originalText, spreadWidth, fullHeight,
+              spreadWidth / 2 + gutter, spreadWidth - config.outside - config.bleed, safeBottom,
+              page.textPositionOverride, page.textBackgroundOverride);
           } else {
-            // default 'right'
-            const safeLeft = spreadWidth / 2 + gutter;
-            const safeRight = spreadWidth - config.outside - config.bleed;
-            const textImg = await createTextImageAsync(
-              page.originalText,
-              spreadWidth,
-              fullHeight,
-              safeLeft,
-              safeRight,
-              safeBottom,
-              page.textPositionOverride,
-              page.textBackgroundOverride,
-            );
-            if (textImg)
-              pdf.addImage(
-                textImg,
-                "PNG",
-                0,
-                0,
-                spreadWidth,
-                fullHeight,
-                undefined, "NONE",
-              );
+            drawTextWithJsPDF(page.originalText, spreadWidth, fullHeight,
+              spreadWidth / 2 + gutter, spreadWidth - config.outside - config.bleed, safeBottom,
+              page.textPositionOverride, page.textBackgroundOverride);
           }
         }
       } else {
@@ -725,110 +710,23 @@ export const generateBookPDF = async (
         );
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
-
           if (settings.spreadTextSide === "left") {
-            const safeLeft = config.outside + config.bleed;
-            const safeRight = spreadWidth / 2 - gutter;
-            const textImg = await createTextImageAsync(
-              page.originalText,
-              spreadWidth,
-              fullHeight,
-              safeLeft,
-              safeRight,
-              safeBottom,
-              page.textPositionOverride,
-              page.textBackgroundOverride,
-            );
-            if (textImg)
-              pdf.addImage(
-                textImg,
-                "PNG",
-                0,
-                0,
-                spreadWidth,
-                fullHeight,
-                undefined, "NONE",
-              );
+            drawTextWithJsPDF(page.originalText, spreadWidth, fullHeight,
+              config.outside + config.bleed, spreadWidth / 2 - gutter, safeBottom,
+              page.textPositionOverride, page.textBackgroundOverride);
           } else if (settings.spreadTextSide === "both") {
-            const textParts = page.originalText
-              .split("||")
-              .map((t) => t.trim())
-              .filter(Boolean);
+            const textParts = page.originalText.split("||").map((t: string) => t.trim()).filter(Boolean);
             const mid = Math.ceil(textParts.length / 2);
-            const leftText =
-              textParts.slice(0, mid).join("\n\n") || page.originalText;
-            const rightText =
-              textParts.slice(mid).join("\n\n") || page.originalText;
-
-            const safeLeftL = config.outside + config.bleed;
-            const safeRightL = spreadWidth / 2 - gutter;
-            const textImgL = await createTextImageAsync(
-              leftText,
-              spreadWidth,
-              fullHeight,
-              safeLeftL,
-              safeRightL,
-              safeBottom,
-              page.textPositionOverride,
-              page.textBackgroundOverride,
-            );
-            if (textImgL)
-              pdf.addImage(
-                textImgL,
-                "PNG",
-                0,
-                0,
-                spreadWidth,
-                fullHeight,
-                undefined, "NONE",
-              );
-
-            const safeLeftR = spreadWidth / 2 + gutter;
-            const safeRightR = spreadWidth - config.outside - config.bleed;
-            const textImgR = await createTextImageAsync(
-              rightText,
-              spreadWidth,
-              fullHeight,
-              safeLeftR,
-              safeRightR,
-              safeBottom,
-              page.textPositionOverride,
-              page.textBackgroundOverride,
-            );
-            if (textImgR)
-              pdf.addImage(
-                textImgR,
-                "PNG",
-                0,
-                0,
-                spreadWidth,
-                fullHeight,
-                undefined, "NONE",
-              );
+            drawTextWithJsPDF(textParts.slice(0, mid).join("\n\n") || page.originalText, spreadWidth, fullHeight,
+              config.outside + config.bleed, spreadWidth / 2 - gutter, safeBottom,
+              page.textPositionOverride, page.textBackgroundOverride);
+            drawTextWithJsPDF(textParts.slice(mid).join("\n\n") || page.originalText, spreadWidth, fullHeight,
+              spreadWidth / 2 + gutter, spreadWidth - config.outside - config.bleed, safeBottom,
+              page.textPositionOverride, page.textBackgroundOverride);
           } else {
-            // default 'right'
-            const safeLeft = spreadWidth / 2 + gutter;
-            const safeRight = spreadWidth - config.outside - config.bleed;
-            const textImg = await createTextImageAsync(
-              page.originalText,
-              spreadWidth,
-              fullHeight,
-              safeLeft,
-              safeRight,
-              safeBottom,
-              page.textPositionOverride,
-              page.textBackgroundOverride,
-            );
-            if (textImg)
-              pdf.addImage(
-                textImg,
-                "PNG",
-                0,
-                0,
-                spreadWidth,
-                fullHeight,
-                undefined, "NONE",
-              );
+            drawTextWithJsPDF(page.originalText, spreadWidth, fullHeight,
+              spreadWidth / 2 + gutter, spreadWidth - config.outside - config.bleed, safeBottom,
+              page.textPositionOverride, page.textBackgroundOverride);
           }
         }
       }
@@ -857,28 +755,9 @@ export const generateBookPDF = async (
       // Active Text (Dynamic) for Left Page
       if (overlayText && page.originalText) {
         const safeBottom = fullHeight - config.bottom - config.bleed;
-        const safeLeft = config.outside + config.bleed;
-        const safeRight = singleFullWidth - gutter;
-        const textImg = await createTextImageAsync(
-          page.originalText,
-          singleFullWidth,
-          fullHeight,
-          safeLeft,
-          safeRight,
-          safeBottom,
-          page.textPositionOverride,
-          page.textBackgroundOverride,
-        );
-        if (textImg)
-          pdf.addImage(
-            textImg,
-            "PNG",
-            0,
-            0,
-            singleFullWidth,
-            fullHeight,
-            undefined, "NONE",
-          );
+        drawTextWithJsPDF(page.originalText, singleFullWidth, fullHeight,
+          config.outside + config.bleed, singleFullWidth - gutter, safeBottom,
+          page.textPositionOverride, page.textBackgroundOverride);
       }
       currentPageNum++;
 
@@ -928,34 +807,12 @@ export const generateBookPDF = async (
         }
 
         // Active Text (Dynamic)
-        if (overlayText && page.originalText && !safeLayers.find((l) => l.type === "text" && l.isVisible)) {
+        if (overlayText && page.originalText && !safeLayers.find((l: any) => l.type === "text" && l.isVisible)) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
-          const safeLeft = isRightPage
-            ? gutter + config.bleed
-            : config.outside + config.bleed;
-          const safeRight = isRightPage
-            ? singleFullWidth - config.outside - config.bleed
-            : singleFullWidth - gutter - config.bleed;
-          const textImg = await createTextImageAsync(
-            page.originalText,
-            singleFullWidth,
-            fullHeight,
-            safeLeft,
-            safeRight,
-            safeBottom,
-            page.textPositionOverride,
-            page.textBackgroundOverride,
-          );
-          if (textImg)
-            pdf.addImage(
-              textImg,
-              "PNG",
-              0,
-              0,
-              singleFullWidth,
-              fullHeight,
-              undefined, "NONE",
-            );
+          const safeLeft  = isRightPage ? gutter + config.bleed : config.outside + config.bleed;
+          const safeRight = isRightPage ? singleFullWidth - config.outside - config.bleed : singleFullWidth - gutter - config.bleed;
+          drawTextWithJsPDF(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom,
+            page.textPositionOverride, page.textBackgroundOverride);
         }
       } else {
         pdf.addImage(
@@ -969,32 +826,10 @@ export const generateBookPDF = async (
         );
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
-          const safeLeft = isRightPage
-            ? gutter + config.bleed
-            : config.outside + config.bleed;
-          const safeRight = isRightPage
-            ? singleFullWidth - config.outside - config.bleed
-            : singleFullWidth - gutter - config.bleed;
-          const textImg = await createTextImageAsync(
-            page.originalText,
-            singleFullWidth,
-            fullHeight,
-            safeLeft,
-            safeRight,
-            safeBottom,
-            page.textPositionOverride,
-            page.textBackgroundOverride,
-          );
-          if (textImg)
-            pdf.addImage(
-              textImg,
-              "PNG",
-              0,
-              0,
-              singleFullWidth,
-              fullHeight,
-              undefined, "NONE",
-            );
+          const safeLeft  = isRightPage ? gutter + config.bleed : config.outside + config.bleed;
+          const safeRight = isRightPage ? singleFullWidth - config.outside - config.bleed : singleFullWidth - gutter - config.bleed;
+          drawTextWithJsPDF(page.originalText, singleFullWidth, fullHeight, safeLeft, safeRight, safeBottom,
+            page.textPositionOverride, page.textBackgroundOverride);
         }
       }
       currentPageNum++;
