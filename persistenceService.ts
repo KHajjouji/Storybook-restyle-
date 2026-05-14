@@ -180,36 +180,21 @@ export const persistenceService = {
         targetResolution: project.targetResolution || null
       };
 
-      // Attempt to sync metadata to Firestore; fall back to IDB-only if rules deny it.
-      let firestoreAvailable = false;
-      try {
-        await setDoc(doc(db, 'projects', project.id), projectToSave);
-        firestoreAvailable = true;
-      } catch (fsError: any) {
-        const msg = fsError instanceof Error ? fsError.message : String(fsError);
-        if (msg.includes('permission') || msg.includes('Permission') || msg.includes('PERMISSION_DENIED')) {
-          // Firestore security rules are blocking this write — silently continue with IDB only.
-          console.warn('Firestore write denied (permissions); project saved locally only.', msg);
-        } else {
-          // Re-throw unexpected errors (quota, network, etc.)
-          handleFirestoreError(fsError, OperationType.WRITE, path);
-        }
+      // Save root document first so chunks rules pass get()
+      await setDoc(doc(db, 'projects', project.id), projectToSave);
+
+      // Save full page images to Firestore chunks
+      for (const p of project.pages) {
+        if (p.originalImage) await this.saveChunks(project.id, 'page_originalImage', p.id, p.originalImage);
+        if (p.processedImage) await this.saveChunks(project.id, 'page_processedImage', p.id, p.processedImage);
+        if (p.layers && p.layers.length > 0) await this.saveChunks(project.id, 'page_layers', p.id, JSON.stringify(p.layers));
       }
-
-      // Only attempt chunk uploads when the root document succeeded
-      if (firestoreAvailable) {
-        for (const p of project.pages) {
-          if (p.originalImage) await this.saveChunks(project.id, 'page_originalImage', p.id, p.originalImage);
-          if (p.processedImage) await this.saveChunks(project.id, 'page_processedImage', p.id, p.processedImage);
-          if (p.layers && p.layers.length > 0) await this.saveChunks(project.id, 'page_layers', p.id, JSON.stringify(p.layers));
-        }
-
-        if (project.coverImage) {
-          await this.saveChunks(project.id, 'project_coverImage', project.id, project.coverImage);
-        }
-        if (project.coverLayers && project.coverLayers.length > 0) {
-          await this.saveChunks(project.id, 'project_coverLayers', project.id, JSON.stringify(project.coverLayers));
-        }
+      
+      if (project.coverImage) {
+        await this.saveChunks(project.id, 'project_coverImage', project.id, project.coverImage);
+      }
+      if (project.coverLayers && project.coverLayers.length > 0) {
+        await this.saveChunks(project.id, 'project_coverLayers', project.id, JSON.stringify(project.coverLayers));
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);

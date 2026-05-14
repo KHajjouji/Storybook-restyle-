@@ -88,35 +88,6 @@ const getImageFormat = (dataUri: string) => {
   return "PNG";
 };
 
-/**
- * Loads a base64 data URL as an HTMLImageElement using the browser's native
- * image decoder. Passing an HTMLImageElement to jsPDF's addImage() bypasses
- * jsPDF's internal base64→binary→PNG-decode chain, which is the source of the
- * "Maximum call stack size exceeded" error on large 4K images. The image is
- * rendered at its full natural resolution — no quality loss, no format change.
- */
-const loadImage = (src: string): Promise<HTMLImageElement> =>
-  new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload  = () => resolve(img);
-    img.onerror = () => reject(new Error('Failed to load image for PDF'));
-    img.src = src;
-  });
-
-/**
- * Safe base64 → Uint8Array conversion that avoids the
- * "Maximum call stack size exceeded" error caused by
- * Uint8Array.from(string, mapFn) on very large strings.
- */
-const base64ToBytes = (b64: string): Uint8Array => {
-  const binary = atob(b64.includes(',') ? b64.split(',')[1] : b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-};
-
 export const generateCoverPDF = async (
   coverImage: string,
   format: ExportFormat,
@@ -256,8 +227,6 @@ export const generateBookPDF = async (
 
   let currentPageNum = 1;
 
-  // Returns the canvas element directly so jsPDF can read pixel data without an
-  // intermediate PNG data-URL (avoids stack overflow on large canvases).
   const createTextImageAsync = async (
     text: string,
     widthIn: number,
@@ -727,7 +696,6 @@ export const generateBookPDF = async (
       );
 
       currentPageNum++;
-
     } else {
       if (currentPageNum > 1)
         pdf.addPage(
