@@ -5,6 +5,204 @@ import {
   ExportFormat,
   SpreadExportMode,
 } from "../types";
+import { PDFDocument, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+
+const compressImageToJPEG = async (dataUri: string, quality: number = 0.85): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!dataUri || !dataUri.startsWith('data:image')) return resolve(dataUri);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const MAX_SIZE = 2048; // Max size to prevent jsPDF stack overflow
+      let w = img.width;
+      let h = img.height;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        const ratio = Math.min(MAX_SIZE / w, MAX_SIZE / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(dataUri);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => resolve(dataUri);
+    img.src = dataUri;
+  });
+};
+
+const safeBase64ToBytes = async (dataUri: string): Promise<Uint8Array> => {
+  try {
+    const res = await fetch(dataUri);
+    const buf = await res.arrayBuffer();
+    return new Uint8Array(buf);
+  } catch (e) {
+    let b64Data = dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
+    b64Data = b64Data.replace(/[^A-Za-z0-9+/=]/g, ""); // Sanitize
+    const binaryString = atob(b64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  }
+};
+
+export const generateLayeredEditablePDF = async (
+  pages: BookPage[],
+  format: ExportFormat,
+  title: string,
+  totalEstimatedPages: number,
+  textFont: string = 'Inter',
+  settings: any = {}
+) => {
+  try {
+    const safeTextFont = textFont || 'Inter';
+    const config = PRINT_FORMATS[format] || PRINT_FORMATS.KDP_8_5x8_5;
+    const singleFullWidthDPI = (config.width + config.bleed) * 72; // pdf-lib uses 72 dpi (points)
+    const fullHeightDPI = (config.height + config.bleed * 2) * 72;
+
+    const pdfDoc = await PDFDocument.create();
+    // Vite / ESM compatibility for fontkit
+    const safeFontkit = fontkit && (fontkit as any).default ? (fontkit as any).default : fontkit;
+    if (safeFontkit) {
+      pdfDoc.registerFontkit(safeFontkit);
+    } else {
+      console.warn('Fontkit is undefined, custom fonts may fail to load');
+    }
+
+    // Try to load user-selected Google Font
+    let customFont;
+    try {
+      const fontUrl = `https://fonts.googleapis.com/css2?family=${safeTextFont.replace(/\s+/g, '+')}:wght@700&text=` + encodeURIComponent("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;':,./<>?`~ \"");
+      const cssResp = await fetch(fontUrl);
+      const cssText = await cssResp.text();
+      const ttfUrlMatch = cssText.match(/url\((https:\/\/[^)]+)\)/);
+      if (ttfUrlMatch && ttfUrlMatch[1]) {
+        const fontResp = await fetch(ttfUrlMatch[1]);
+        const fontBytes = await fontResp.arrayBuffer();
+        customFont = await pdfDoc.embedFont(fontBytes);
+      } else {
+        customFont = await pdfDoc.embedFont('Helvetica-Bold');
+      }
+    } catch (e) {
+      console.warn("Failed to load Google font, using Helvetica", e);
+      customFont = await pdfDoc.embedFont('Helvetica-Bold');
+    }
+
+    const drawImageOnPage = async (page: any, dataUri: string, x: number, y: number, width: number, height: number) => {
+      if (!dataUri) return;
+      try {
+        let embeddedImage;
+        const format = getImageFormat(dataUri);
+        
+        // If it's not a valid base64 data URI (e.g. standard URL), we can't embed it easily with base64ToBytes
+        if (!dataUri.startsWith('data:')) {
+          console.warn('Skipping non-data URI image for export');
+          return;
+        }
+
+        const bytes = await safeBase64ToBytes(dataUri);
+        if (format === 'JPEG') {
+          embeddedImage = await pdfDoc.embedJpg(bytes);
+        } else {
+          embeddedImage = await pdfDoc.embedPng(bytes);
+        }
+        page.drawImage(embeddedImage, {
+          x, y, width, height,
+        });
+      } catch (err) {
+        console.error("Failed to embed image on PDF page", err);
+      }
+    };
+
+    const drawEditableText = async (pdfPage: any, text: string, textFont: any, detectedBounds?: { centerXFrac: number, centerYFrac: number, widthFrac: number, heightFrac: number } | null) => {
+      const fontSize = settings?.overlayTextSize || 24;
+      
+      let xOffset, yOffset, fieldWidth, fieldHeight;
+
+      if (detectedBounds) {
+        fieldWidth = detectedBounds.widthFrac * singleFullWidthDPI;
+        fieldHeight = detectedBounds.heightFrac * fullHeightDPI;
+        xOffset = detectedBounds.centerXFrac * singleFullWidthDPI - fieldWidth / 2;
+        // pdf-lib y=0 is bottom
+        yOffset = (1 - detectedBounds.centerYFrac) * fullHeightDPI - fieldHeight / 2;
+      } else {
+        fieldWidth = singleFullWidthDPI - 72; // default safe area margins
+        fieldHeight = 100;
+        xOffset = 36;
+        yOffset = 100; // default bottom
+      }
+
+      const form = pdfDoc.getForm();
+      const textField = form.createTextField(`text_${Math.random().toString()}`);
+      textField.setText(text || "");
+      textField.addToPage(pdfPage, {
+        x: xOffset,
+        y: yOffset,
+        width: fieldWidth,
+        height: fieldHeight,
+        textColor: rgb(0, 0, 0),
+        backgroundColor: undefined,
+        borderColor: undefined,
+        font: textFont,
+      });
+      textField.setFontSize(fontSize);
+      textField.enableMultiline();
+    };
+
+    for (let i = 0; i < pages.length; i++) {
+      const bookPage = pages[i];
+      const pdfPage = pdfDoc.addPage([singleFullWidthDPI, fullHeightDPI]);
+      
+      // Background layer
+      const bgLayer = bookPage.layers?.find(l => l.type === 'background' && l.isVisible);
+      if (bgLayer && bgLayer.image) {
+        await drawImageOnPage(pdfPage, bgLayer.image, 0, 0, singleFullWidthDPI, fullHeightDPI);
+      } else if (bookPage.processedImage || bookPage.originalImage) {
+        await drawImageOnPage(pdfPage, bookPage.processedImage || bookPage.originalImage || '', 0, 0, singleFullWidthDPI, fullHeightDPI);
+      }
+
+      // Characters & Foreground
+      const chars = bookPage.layers?.filter(l => (l.type === 'character' || l.type === 'foreground') && l.isVisible);
+      if (chars) {
+        for (const char of chars) {
+          if (char.image) {
+            await drawImageOnPage(pdfPage, char.image, 0, 0, singleFullWidthDPI, fullHeightDPI);
+          }
+        }
+      }
+
+      // Editable text logic
+      const textLayer = bookPage.layers?.find(l => l.type === 'text' && l.isVisible);
+      let detectedBounds = null;
+      if (textLayer && textLayer.image) {
+        detectedBounds = await detectTextBoundsFromLayer(textLayer.image);
+      }
+
+      if (bookPage.originalText) {
+         await drawEditableText(pdfPage, bookPage.originalText, customFont, detectedBounds);
+      }
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    const blob = new Blob([pdfBytes], { type: "application/pdf" });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${(title || 'book').replace(/\s+/g, '_')}_EDITABLE.pdf`;
+    link.click();
+  } catch (error: any) {
+    console.error("FATAL ERROR in generateLayeredEditablePDF:", error);
+    const msg = error instanceof Error ? error.message : (typeof error === 'string' ? error : JSON.stringify(error));
+    throw new Error(msg || "Unknown error generating editable PDF");
+  }
+};
 import {
   getInsideMargin,
   validateProjectForKDP,
@@ -164,10 +362,10 @@ export const generateCoverPDF = async (
 };
 
 /**
- * Composites visual layers (background / character / foreground) onto a
- * 300 DPI canvas and returns a JPEG data URI.
- * The text layer is excluded by the caller so it can be written as real
- * selectable vector text instead of being baked into the raster image.
+ * Composites an ordered list of image layers onto a canvas and returns
+ * a JPEG data URI.  The text layer is intentionally excluded from the
+ * caller before this function is invoked so that text can be added as a
+ * separate, selectable vector layer in the PDF.
  */
 const flattenLayers = async (
   layers: { type: string; image: string; isVisible: boolean }[],
@@ -238,6 +436,26 @@ export const generateBookPDF = async (
   const fullHeight = config.height + config.bleed * 2;
   const spreadWidth = config.width * 2 + config.bleed * 2;
 
+  const strippedPages = pages.map((p) => ({
+    ...p,
+    originalImage: undefined,
+    processedImage: undefined,
+    layers: undefined,
+  }));
+  const strippedSettings = {
+    ...settings,
+    characterReferences: settings.characterReferences?.map((c: any) => ({
+      ...c,
+      image: undefined,
+    })),
+  };
+  const exportMeta = {
+    settings: strippedSettings,
+    pages: strippedPages,
+    title,
+    totalEstimatedPages,
+  };
+
   const pdf = new jsPDF({
     orientation: config.width > config.height ? "landscape" : "portrait",
     unit: "in",
@@ -260,19 +478,17 @@ export const generateBookPDF = async (
   let currentPageNum = 1;
 
   /**
-   * Draws text directly onto the jsPDF page as real vector PDF text.
-   * Uses jsPDF's native text API — no canvas, no PNG, no base64 loop —
-   * so the text is selectable / editable in any PDF viewer.
+   * Draw text directly onto the jsPDF page using the PDF vector text API.
+   * This completely avoids the PNG canvas encode/decode cycle that causes
+   * "Maximum call stack size exceeded" on large (4K / spread) pages.
+   *
+   * Coordinates are in inches, origin top-left (same as jsPDF with unit:'in').
    */
   const drawTextWithJsPDF = (
     text: string,
-    widthIn: number,
-    heightIn: number,
-    safeLeftIn: number,
-    safeRightIn: number,
-    safeBottomIn: number,
-    textPositionOverride?: string,
-    textBackgroundOverride?: string,
+    widthIn: number, heightIn: number,
+    safeLeftIn: number, safeRightIn: number, safeBottomIn: number,
+    textPositionOverride?: string, textBackgroundOverride?: string
   ) => {
     if (textPositionOverride === "hidden" || !text.trim()) return;
 
@@ -342,7 +558,8 @@ export const generateBookPDF = async (
     pdf.setTextColor(0, 0, 0);
   };
 
-  // Pre-load the user's chosen font for the in-browser preview.
+  // Pre-load the user's chosen font so it renders correctly in the browser
+  // preview (the PDF will fall back to helvetica which is a standard PDF font).
   if (settings.textFont) {
     await loadGoogleFont(settings.textFont).catch(() => {});
   }
@@ -367,20 +584,24 @@ export const generateBookPDF = async (
         )
       : undefined;
 
+    // A visible text layer means the AI generated text as its own PNG layer.
+    // We exclude it from the raster composite and add the text as real PDF
+    // vector text instead, making it selectable / editable in any PDF viewer.
     const hasTextLayer = Boolean(
-      rawLayers?.some((l) => l.type === "text" && l.isVisible && l.image),
+      page.layers?.some((l) => l.type === "text" && l.isVisible && l.image),
     );
-    const visualLayers = rawLayers
-      ? rawLayers.filter((l) => l.type !== "text")
+    const visualLayers = page.layers
+      ? page.layers.filter((l) => l.type !== "text")
       : undefined;
-    const useLayeredFlattening = Boolean(
+    const useLayeredFlattening =
       (layeredMode || (visualLayers && visualLayers.length > 0)) &&
-        visualLayers &&
-        visualLayers.length > 0,
-    );
+      visualLayers &&
+      visualLayers.length > 0;
 
-    // Emit vector text when overlayText is on, or when the AI produced a
-    // dedicated text layer (we replace that raster with real PDF text).
+    // Emit vector text when:
+    //  - overlayText is explicitly enabled by the user, OR
+    //  - the AI generated a separate text layer (hasTextLayer) so we replace
+    //    the raster text with a real PDF text vector.
     const shouldDrawText =
       page.originalText &&
       page.textPositionOverride !== "hidden" &&
@@ -398,12 +619,19 @@ export const generateBookPDF = async (
       }
 
       if (useLayeredFlattening) {
-        const flattened = await flattenLayers(visualLayers!, spreadWidth, fullHeight);
+        const flattened = await flattenLayers(
+          visualLayers!,
+          spreadWidth,
+          fullHeight,
+        );
         if (flattened) {
-          pdf.addImage(flattened, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
+          // Use HTMLImageElement to bypass jsPDF's internal base64 decode chain
+          const flatImg = await loadImage(flattened);
+          pdf.addImage(flatImg, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
         }
       } else {
-        pdf.addImage(image, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
+        const imgEl = await loadImage(compressedImage);
+        pdf.addImage(imgEl, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
       }
 
       if (shouldDrawText && page.originalText) {
@@ -415,7 +643,10 @@ export const generateBookPDF = async (
             page.textPositionOverride, page.textBackgroundOverride,
           );
         } else if (settings.spreadTextSide === "both") {
-          const textParts = page.originalText.split("||").map((t: string) => t.trim()).filter(Boolean);
+          const textParts = page.originalText
+            .split("||")
+            .map((t: string) => t.trim())
+            .filter(Boolean);
           const mid = Math.ceil(textParts.length / 2);
           drawTextWithJsPDF(
             textParts.slice(0, mid).join("\n\n") || page.originalText,
@@ -445,7 +676,22 @@ export const generateBookPDF = async (
 
       pdf.addImage(image, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
 
-      if (overlayText && page.originalText) {
+      if (useLayeredFlattening) {
+        const flattened = await flattenLayers(
+          visualLayers!,
+          spreadWidth,
+          fullHeight,
+        );
+        if (flattened) {
+          const spreadImgEl = await loadImage(flattened);
+          pdf.addImage(spreadImgEl, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
+        }
+      } else {
+          const spreadImgEl = await loadImage(compressedImage);
+          pdf.addImage(spreadImgEl, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
+      }
+
+      if (shouldDrawText && page.originalText) {
         const safeBottom = fullHeight - config.bottom - config.bleed;
         drawTextWithJsPDF(
           page.originalText, singleFullWidth, fullHeight,
@@ -455,25 +701,61 @@ export const generateBookPDF = async (
       }
       currentPageNum++;
 
-      pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? "landscape" : "portrait");
-      pdf.addImage(image, "JPEG", -(spreadWidth - singleFullWidth), 0, spreadWidth, fullHeight, undefined, "NONE");
+      pdf.addPage(
+        [singleFullWidth, fullHeight],
+        config.width > config.height ? "landscape" : "portrait",
+      );
+
+      if (useLayeredFlattening) {
+        const flattened = await flattenLayers(
+          visualLayers!,
+          spreadWidth,
+          fullHeight,
+        );
+        if (flattened) {
+          const spreadImgEl2 = await loadImage(flattened);
+          pdf.addImage(
+            spreadImgEl2, "JPEG",
+            -(spreadWidth - singleFullWidth), 0,
+            spreadWidth, fullHeight,
+            undefined, "NONE",
+          );
+        }
+      } else {
+        const spreadImgEl2 = await loadImage(compressedImage);
+        pdf.addImage(
+          spreadImgEl2, "JPEG",
+          -(spreadWidth - singleFullWidth), 0,
+          spreadWidth, fullHeight,
+          undefined, "NONE",
+        );
+      }
+
       currentPageNum++;
     } else {
       if (currentPageNum > 1)
         pdf.addPage([singleFullWidth, fullHeight], config.width > config.height ? "landscape" : "portrait");
 
       if (useLayeredFlattening) {
-        const flattened = await flattenLayers(visualLayers!, singleFullWidth, fullHeight);
+        const flattened = await flattenLayers(
+          visualLayers!,
+          singleFullWidth,
+          fullHeight,
+        );
         if (flattened) {
-          pdf.addImage(flattened, "JPEG", 0, 0, singleFullWidth, fullHeight, undefined, "NONE");
+          const flatImg = await loadImage(flattened);
+          pdf.addImage(flatImg, "JPEG", 0, 0, singleFullWidth, fullHeight, undefined, "NONE");
         }
       } else {
-        pdf.addImage(image, "JPEG", 0, 0, singleFullWidth, fullHeight, undefined, "NONE");
+        const imgEl = await loadImage(compressedImage);
+        pdf.addImage(imgEl, "JPEG", 0, 0, singleFullWidth, fullHeight, undefined, "NONE");
       }
 
       if (shouldDrawText && page.originalText) {
         const safeBottom = fullHeight - config.bottom - config.bleed;
-        const safeLeft = isRightPage ? gutter + config.bleed : config.outside + config.bleed;
+        const safeLeft = isRightPage
+          ? gutter + config.bleed
+          : config.outside + config.bleed;
         const safeRight = isRightPage
           ? singleFullWidth - config.outside - config.bleed
           : singleFullWidth - gutter - config.bleed;
@@ -487,6 +769,7 @@ export const generateBookPDF = async (
       currentPageNum++;
     }
 
+    // Yield to the main thread to avoid UI freeze on large books
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
