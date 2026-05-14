@@ -199,7 +199,7 @@ export const generateBookCover = async (
   RULES:
   1. Generate a SINGLE professional book cover illustration.
   2. NO TITLE TEXT. NO LOGOS. Pure illustration only.
-  3. Include the consistent characters provided in the reference images.
+  3. Include the characters provided in the reference images using their FACIAL FEATURES ONLY. Do NOT copy their clothes or expressions; adapt those to the cover concept.
   4. Use a cinematic, high-end children's book layout.
   5. Composition: Must feel like a series "Master Cover" that makes people eager to buy.`;
 
@@ -340,7 +340,7 @@ export const restyleIllustration = async (
   ${textInstruction}
   ${styleInstruction}
   
-  CORE RULE: Maintain character facial likeness exactly as shown in refs. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.
+  CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.
   CRITICAL: Produce a high-detail, fully rendered, high-quality illustration. Do not output sketches or low-fidelity concepts unless explicitly requested.`;
 
   const parts: any[] = [{ text: instruction }];
@@ -456,7 +456,8 @@ export const refineIllustration = async (
   ${textInstruction}
   ${styleInstruction}
   
-  GOAL: Modify the TARGET IMAGE to align with the FIX REQUEST while maintaining exact style and character features.
+  GOAL: Modify the TARGET IMAGE to align with the FIX REQUEST while maintaining exact style.
+  CORE RULE: When modifying characters, maintain their FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references unless requested. Ensure their clothing, pose, and emotions perfectly match the FIX REQUEST and MASTER BIBLE.
   CRITICAL: Do NOT drop or simplify the detail of the image. The modified image MUST be of EQUAL OR HIGHER visual quality, detail, and resolution as the original target image. Ensure that the original environment and atmosphere is perfectly preserved unless the FIX REQUEST explicitly asks to change it. Ensure high-fidelity rendering.`;
 
   const parts: any[] = [

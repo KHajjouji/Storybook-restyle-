@@ -120,10 +120,50 @@ export const generateCoverPDF = async (
     0,
     coverDims.width,
     coverDims.height,
-    undefined,
-    "FAST",
+    undefined, "NONE",
   );
   pdf.save(`${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_cover_kdp.pdf`);
+};
+
+const flattenLayers = async (layers: { type: string; image: string; isVisible: boolean }[], width: number, height: number, bleed: number): Promise<string> => {
+  return new Promise((resolve) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = width * 300; // assumed 300 dpi
+    canvas.height = height * 300;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return resolve("");
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const orderedLayers = [
+      layers.find((l) => l.type === "background" && l.isVisible),
+      layers.find((l) => l.type === "character" && l.isVisible),
+      layers.find((l) => l.type === "foreground" && l.isVisible),
+      layers.find((l) => l.type === "text" && l.isVisible)
+    ].filter(Boolean) as { type: string; image: string; isVisible: boolean }[];
+
+    let loaded = 0;
+    if (orderedLayers.length === 0) return resolve("");
+
+    const render = async () => {
+      for (const layer of orderedLayers) {
+        if (!layer.image) continue;
+        await new Promise<void>((res) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            res();
+          };
+          img.onerror = () => res(); // skip on error
+          img.src = layer.image;
+        });
+      }
+      resolve(canvas.toDataURL("image/jpeg", 0.95)); // output standard JPEG layout!
+    };
+    render();
+  });
 };
 
 export const generateBookPDF = async (
@@ -343,67 +383,21 @@ export const generateBookPDF = async (
         (layeredMode || (safeLayers && safeLayers.length > 0)) &&
         safeLayers
       ) {
-        // Draw layers separately
-        const bg = safeLayers.find(
-          (l) => l.type === "background" && l.isVisible,
-        );
-        const chars = safeLayers.find(
-          (l) => l.type === "character" && l.isVisible,
-        );
-        const textLayer = safeLayers.find(
-          (l) => l.type === "text" && l.isVisible,
-        );
-        const foreground = safeLayers.find(
-          (l) => l.type === "foreground" && l.isVisible,
-        );
-
-        if (bg)
+        const flattened = await flattenLayers(safeLayers, spreadWidth, fullHeight, config.bleed);
+        if (flattened) {
           pdf.addImage(
-            bg.image,
-            getImageFormat(bg.image),
+            flattened,
+            getImageFormat(flattened),
             0,
             0,
             spreadWidth,
             fullHeight,
-            undefined,
-            "FAST",
+            undefined, "NONE",
           );
-        if (chars)
-          pdf.addImage(
-            chars.image,
-            getImageFormat(chars.image),
-            0,
-            0,
-            spreadWidth,
-            fullHeight,
-            undefined,
-            "FAST",
-          );
-        if (foreground)
-          pdf.addImage(
-            foreground.image,
-            getImageFormat(foreground.image),
-            0,
-            0,
-            spreadWidth,
-            fullHeight,
-            undefined,
-            "FAST",
-          );
-        if (textLayer)
-          pdf.addImage(
-            textLayer.image,
-            getImageFormat(textLayer.image),
-            0,
-            0,
-            spreadWidth,
-            fullHeight,
-            undefined,
-            "FAST",
-          );
+        }
 
         // Active Text (Dynamic)
-        if (overlayText && page.originalText && !textLayer) {
+        if (overlayText && page.originalText && !safeLayers.find((l) => l.type === "text" && l.isVisible)) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
 
           if (settings.spreadTextSide === "left") {
@@ -427,8 +421,7 @@ export const generateBookPDF = async (
                 0,
                 spreadWidth,
                 fullHeight,
-                undefined,
-                "FAST",
+                undefined, "NONE",
               );
           } else if (settings.spreadTextSide === "both") {
             // Bilingual or both pages text
@@ -462,8 +455,7 @@ export const generateBookPDF = async (
                 0,
                 spreadWidth,
                 fullHeight,
-                undefined,
-                "FAST",
+                undefined, "NONE",
               );
 
             const safeLeftR = spreadWidth / 2 + gutter;
@@ -486,8 +478,7 @@ export const generateBookPDF = async (
                 0,
                 spreadWidth,
                 fullHeight,
-                undefined,
-                "FAST",
+                undefined, "NONE",
               );
           } else {
             // default 'right'
@@ -511,8 +502,7 @@ export const generateBookPDF = async (
                 0,
                 spreadWidth,
                 fullHeight,
-                undefined,
-                "FAST",
+                undefined, "NONE",
               );
           }
         }
@@ -524,8 +514,7 @@ export const generateBookPDF = async (
           0,
           spreadWidth,
           fullHeight,
-          undefined,
-          "FAST",
+          undefined, "NONE",
         );
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
@@ -551,8 +540,7 @@ export const generateBookPDF = async (
                 0,
                 spreadWidth,
                 fullHeight,
-                undefined,
-                "FAST",
+                undefined, "NONE",
               );
           } else if (settings.spreadTextSide === "both") {
             const textParts = page.originalText
@@ -585,8 +573,7 @@ export const generateBookPDF = async (
                 0,
                 spreadWidth,
                 fullHeight,
-                undefined,
-                "FAST",
+                undefined, "NONE",
               );
 
             const safeLeftR = spreadWidth / 2 + gutter;
@@ -609,8 +596,7 @@ export const generateBookPDF = async (
                 0,
                 spreadWidth,
                 fullHeight,
-                undefined,
-                "FAST",
+                undefined, "NONE",
               );
           } else {
             // default 'right'
@@ -634,8 +620,7 @@ export const generateBookPDF = async (
                 0,
                 spreadWidth,
                 fullHeight,
-                undefined,
-                "FAST",
+                undefined, "NONE",
               );
           }
         }
@@ -659,8 +644,7 @@ export const generateBookPDF = async (
         0,
         spreadWidth,
         fullHeight,
-        undefined,
-        "FAST",
+        undefined, "NONE",
       );
 
       // Active Text (Dynamic) for Left Page
@@ -686,8 +670,7 @@ export const generateBookPDF = async (
             0,
             singleFullWidth,
             fullHeight,
-            undefined,
-            "FAST",
+            undefined, "NONE",
           );
       }
       currentPageNum++;
@@ -709,8 +692,7 @@ export const generateBookPDF = async (
         0,
         spreadWidth,
         fullHeight,
-        undefined,
-        "FAST",
+        undefined, "NONE",
       );
 
       currentPageNum++;
@@ -725,66 +707,21 @@ export const generateBookPDF = async (
         (layeredMode || (safeLayers && safeLayers.length > 0)) &&
         safeLayers
       ) {
-        const bg = safeLayers.find(
-          (l) => l.type === "background" && l.isVisible,
-        );
-        const chars = safeLayers.find(
-          (l) => l.type === "character" && l.isVisible,
-        );
-        const textLayer = safeLayers.find(
-          (l) => l.type === "text" && l.isVisible,
-        );
-        const foreground = safeLayers.find(
-          (l) => l.type === "foreground" && l.isVisible,
-        );
-
-        if (bg)
+        const flattened = await flattenLayers(safeLayers, singleFullWidth, fullHeight, config.bleed);
+        if (flattened) {
           pdf.addImage(
-            bg.image,
-            getImageFormat(bg.image),
+            flattened,
+            getImageFormat(flattened),
             0,
             0,
             singleFullWidth,
             fullHeight,
-            undefined,
-            "FAST",
+            undefined, "NONE",
           );
-        if (chars)
-          pdf.addImage(
-            chars.image,
-            getImageFormat(chars.image),
-            0,
-            0,
-            singleFullWidth,
-            fullHeight,
-            undefined,
-            "FAST",
-          );
-        if (foreground)
-          pdf.addImage(
-            foreground.image,
-            getImageFormat(foreground.image),
-            0,
-            0,
-            singleFullWidth,
-            fullHeight,
-            undefined,
-            "FAST",
-          );
-        if (textLayer)
-          pdf.addImage(
-            textLayer.image,
-            getImageFormat(textLayer.image),
-            0,
-            0,
-            singleFullWidth,
-            fullHeight,
-            undefined,
-            "FAST",
-          );
+        }
 
         // Active Text (Dynamic)
-        if (overlayText && page.originalText && !textLayer) {
+        if (overlayText && page.originalText && !safeLayers.find((l) => l.type === "text" && l.isVisible)) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
           const safeLeft = isRightPage
             ? gutter + config.bleed
@@ -810,8 +747,7 @@ export const generateBookPDF = async (
               0,
               singleFullWidth,
               fullHeight,
-              undefined,
-              "FAST",
+              undefined, "NONE",
             );
         }
       } else {
@@ -822,8 +758,7 @@ export const generateBookPDF = async (
           0,
           singleFullWidth,
           fullHeight,
-          undefined,
-          "FAST",
+          undefined, "NONE",
         );
         if (overlayText && page.originalText) {
           const safeBottom = fullHeight - config.bottom - config.bleed;
@@ -851,8 +786,7 @@ export const generateBookPDF = async (
               0,
               singleFullWidth,
               fullHeight,
-              undefined,
-              "FAST",
+              undefined, "NONE",
             );
         }
       }
