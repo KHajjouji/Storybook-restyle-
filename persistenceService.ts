@@ -441,15 +441,17 @@ export const persistenceService = {
           status = 'idle';
         }
         
+        const pageBase = { ...remotePage, ...localPage };
+
         return {
-          ...remotePage,
+          ...pageBase,
           status,
           originalImage: originalImg,
           processedImage: processedImg,
           layers: layers,
-          overrideStylePrompt: remotePage.overrideStylePrompt !== undefined ? remotePage.overrideStylePrompt : (remotePage.originalText || ''),
-          retargeting: remotePage.retargeting ? {
-            ...remotePage.retargeting,
+          overrideStylePrompt: pageBase.overrideStylePrompt !== undefined ? pageBase.overrideStylePrompt : (pageBase.originalText || ''),
+          retargeting: pageBase.retargeting ? {
+            ...pageBase.retargeting,
             sourceImage: localPage?.retargeting?.sourceImage || remotePage.retargeting?.sourceImage
           } : undefined
         };

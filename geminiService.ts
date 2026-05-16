@@ -325,7 +325,8 @@ export const restyleIllustration = async (
   const textInstruction = targetText ? `
   TEXT EMBEDDING TASK:
   - Include the following text in the illustration: "${targetText}"
-  - Ensure the text is readable and fits the artistic style.
+  - Ensure the text is readable but CRITICALLY it MUST be artistically integrated into the environment (e.g., written in the sky, blending into backgrounds, floating naturally without harsh boundaries).
+  - ABSOLUTELY NO generic rectangular text banners, solid color text boxes, or square frames behind the text. The text must naturally merge into the illustration's composition.
   - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : 
   (isTextTask ? "" : `CRITICAL ANTI-TEXT RULE: YOU MUST NOT RENDER ANY TEXT, WORDS, LETTERS, DIALOGUE BUBBLES, OR SIGNAGE IN THE IMAGE AT ALL. DO NOT EMBED ANY PART OF THE SCRIPT OR NARRATIVE AS VISUAL TEXT IN THE ARTWORK. THE SCENE SCRIPT IS JUST CONTEXT FOR THE ACTION.`);
 
@@ -445,6 +446,8 @@ export const refineIllustration = async (
   const textInstruction = targetText ? `
   TEXT EMBEDDING TASK:
   - Include/Update the following text in the illustration: "${targetText}"
+  - Ensure the text is readable but CRITICALLY it MUST be artistically integrated into the environment. 
+  - ABSOLUTELY NO generic rectangular text banners, solid color text boxes, or square frames behind the text. The text must naturally merge into the illustration's composition.
   - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : 
   (isTextTask ? "" : `CRITICAL ANTI-TEXT RULE: YOU MUST NOT RENDER ANY TEXT, WORDS, LETTERS, DIALOGUE BUBBLES, OR SIGNAGE IN THE IMAGE AT ALL. DO NOT EMBED ANY PART OF THE SCRIPT OR NARRATIVE AS VISUAL TEXT IN THE ARTWORK.`);
 
