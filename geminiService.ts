@@ -722,6 +722,31 @@ export const separateIllustrationIntoLayers = async (
   return { layers, composite };
 };
 
+/**
+ * Generates only the stylized text layer for a given illustration.
+ */
+export const generateTextLayerForIllustration = async (
+  targetImageBase64: string,
+  targetText: string,
+  isSpread: boolean = false,
+  imageSize: '1K' | '2K' | '4K' = '1K',
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number,
+  styleRefBase64?: string,
+  targetStyle?: string
+): Promise<string> => {
+  const textPrompt = `TEXT LAYER CREATION: The text to add is "${targetText}".
+Analyze the provided illustration and generate ONLY the text layer that overlays it. 
+CRITICAL: The text must be artistically integrated, well-spaced, highly readable, and formatted to imitate or fit seamlessly with the existing style of the image. 
+ABSOLUTELY NO backgrounds, no characters, no props.
+Place the stylized text on a SOLID PURE WHITE BACKGROUND. Do not draw the surrounding art.`;
+
+  const textRaw = await refineIllustration(targetImageBase64, textPrompt, [], isSpread, imageSize, "", "", [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  const textLayer = await removeWhiteBackground(textRaw);
+  return textLayer;
+};
+
 export const refineLayeredIllustration = async (
   targetImageBase64: string,
   refinementPrompt: string,
