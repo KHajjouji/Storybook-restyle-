@@ -1340,60 +1340,6 @@ const App: React.FC = () => {
     }
   };
 
-  const generateAITextLayer = async (p: BookPage) => {
-    if (!p.processedImage && !p.originalImage) return;
-    
-    try {
-      if (settings.useProModel) {
-        const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-        if (!hasKey) { 
-          await (window as any).aistudio?.openSelectKey(); 
-          const stillNoKey = !await (window as any).aistudio?.hasSelectedApiKey();
-          if (stillNoKey) return;
-        }
-      }
-      setIsProcessing(true);
-      setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, status: 'processing' } : pg));
-
-      const textLayerBase64 = await generateTextLayerForIllustration(
-        p.processedImage || p.originalImage!,
-        p.originalText,
-        p.isSpread,
-        targetResolution,
-        settings.targetAspectRatio || '4:3',
-        settings.exportFormat,
-        settings.estimatedPageCount,
-        settings.styleReference,
-        settings.targetStyle
-      );
-
-      setPages(curr => curr.map(pg => {
-        if (pg.id !== p.id) return pg;
-        const baseLayers = pg.layers && pg.layers.length > 0
-          ? pg.layers
-          : [{ id: 'base', name: 'Base Image', image: pg.processedImage || pg.originalImage!, isVisible: true, type: 'background' }];
-
-        return {
-          ...pg,
-          layers: [...baseLayers, {
-            id: 'text-' + Math.random(),
-            name: 'AI Rendered Text',
-            image: textLayerBase64,
-            isVisible: true,
-            type: 'text'
-          }],
-          status: 'completed'
-        };
-      }));
-    } catch (err: any) {
-      console.error(err);
-      showToast("Failed to generate AI Text Layer.");
-      setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, status: 'error' } : pg));
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   const HotspotOverlay: React.FC<{ 
     image: string, 
     hotspots: Hotspot[], 
@@ -2188,14 +2134,6 @@ const App: React.FC = () => {
                                   className="w-full bg-indigo-50 border-2 border-indigo-100 hover:border-indigo-600 hover:bg-indigo-600 hover:text-white transition-all text-indigo-600 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 mt-2"
                                 >
                                   <Sparkles size={14} /> Auto-Layout with AI
-                                </button>
-                                
-                                <button 
-                                  onClick={() => generateAITextLayer(p)}
-                                  disabled={isProcessing}
-                                  className="w-full bg-pink-50 border-2 border-pink-100 hover:border-pink-600 hover:bg-pink-600 hover:text-white transition-all text-pink-600 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
-                                >
-                                  <Sparkles size={14} /> Render AI Text Layer
                                 </button>
                               </>
                            )}

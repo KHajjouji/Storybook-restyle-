@@ -781,23 +781,12 @@ export const refineLayeredIllustration = async (
   const propsRaw = await refineIllustration(targetImageBase64, propsPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
   const propsImage = await removeWhiteBackground(propsRaw);
 
-  // 4. TEXT LAYER (If applicable)
-  let textLayer = null;
-  if (targetText) {
-    const textPrompt = `TEXT LAYER FIX: The text is "${targetText}". Update or render this text while maintaining the exact same spatial position, layout, scale, and artistic integration as the text in the surrounding illustration context. ABSOLUTELY NO generic text boxes or banners. Place the text on a SOLID PURE WHITE BACKGROUND. No other elements, characters, or backgrounds.`;
-    const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
-    textLayer = await removeWhiteBackground(textRaw);
-  }
-
+  // 4. TEXT LAYER REMOVED (handled natively or by base composite)
   const layers: any[] = [
     { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
     { id: 'props-' + Math.random(), name: 'Foreground Props', image: propsImage, isVisible: true, type: 'foreground' },
     { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' }
   ];
-
-  if (textLayer) {
-    layers.push({ id: 'text-' + Math.random(), name: 'Text', image: textLayer, isVisible: true, type: 'text' });
-  }
 
   // Create a composite for the main preview
   const composite = await new Promise<string>((resolve) => {
@@ -955,23 +944,12 @@ export const generateLayeredIllustration = async (
   const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
   const propsImage = await removeWhiteBackground(propsRaw);
 
-  // 4. TEXT LAYER (If applicable)
-  let textLayer = null;
-  if (targetText) {
-    const textPrompt = `TEXT LAYER: Render the text "${targetText}". Ensure the text layout, scale, and artistic integration precisely match the target design style. ABSOLUTELY NO generic text boxes or square banners. The text MUST be placed on a SOLID PURE WHITE BACKGROUND. No other elements, characters, or backgrounds. ${layoutRules}`;
-    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, undefined, undefined, targetStyle);
-    textLayer = await removeWhiteBackground(textRaw);
-  }
-
+  // 4. TEXT LAYER REMOVED (Handled natively by PDF gen)
   const layers: any[] = [
     { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
     { id: 'props-' + Math.random(), name: 'Foreground Props', image: propsImage, isVisible: true, type: 'foreground' },
     { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' }
   ];
-
-  if (textLayer) {
-    layers.push({ id: 'text-' + Math.random(), name: 'Text', image: textLayer, isVisible: true, type: 'text' });
-  }
 
   // Create a composite for the main preview
   const composite = await new Promise<string>((resolve) => {

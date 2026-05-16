@@ -73,7 +73,11 @@ export const persistenceService = {
       chunkCache.set(cacheKey, data.length);
     } catch (e) {
       console.warn('Failed to save chunk to Firestore, may be too large', e);
-      await set(`project_${chunkType}_${id}`, data); // fallback to IDB
+      try {
+        await set(`project_${chunkType}_${id}`, data); // fallback to IDB
+      } catch(err: any) {
+        console.warn('IDB fallback failed, data too large', err.message);
+      }
     }
   },
 
@@ -120,29 +124,26 @@ export const persistenceService = {
       } else {
         localProjectList.push(metadata);
       }
-      await set('local_project_list', localProjectList);
+      try {
+        await set('local_project_list', localProjectList);
 
-      // Strip large base64 data for IDB
-      const strippedPagesForIdb = project.pages.map(p => ({
-        ...p,
-        originalImage: undefined,
-        processedImage: undefined,
-        layers: undefined
-      }));
-      await set(`project_pages_${project.id}`, strippedPagesForIdb);
-
-      // Save heavy individual items separating them by key to prevent IDB structured clone limits
-      for (const p of project.pages) {
-        if (p.originalImage) await set(`local_page_originalImage_${p.id}`, p.originalImage);
-        if (p.processedImage) await set(`local_page_processedImage_${p.id}`, p.processedImage);
-        if (p.layers) await set(`local_page_layers_${p.id}`, p.layers);
-      }
-
-      if (project.coverLayers) {
-        await set(`project_coverLayers_${project.id}`, project.coverLayers);
-      }
-      if (project.coverImage) {
-        await set(`project_coverImage_${project.id}`, project.coverImage);
+        // Strip large base64 data for IDB
+        const strippedPagesForIdb = project.pages.map(p => ({
+          ...p,
+          originalImage: undefined,
+          processedImage: undefined,
+          layers: undefined
+        }));
+        await set(`project_pages_${project.id}`, strippedPagesForIdb);
+        
+        if (project.coverLayers) {
+          await set(`project_coverLayers_${project.id}`, project.coverLayers);
+        }
+        if (project.coverImage) {
+          await set(`project_coverImage_${project.id}`, project.coverImage);
+        }
+      } catch (e: any) {
+        console.warn('Could not update metadata cache in IDB, skipping.', e.message);
       }
       if (project.settings.styleReference) {
         await set(`project_styleReference_${project.id}`, project.settings.styleReference);
@@ -228,11 +229,6 @@ export const persistenceService = {
         }
       }
     } catch (error: any) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes('Indexed Database server lost') || msg.includes('indexeddb') || msg.includes('DOMException')) {
-         console.error('IndexedDB crashed:', error);
-         throw new Error("Your browser's local storage crashed. Please refresh the page to continue working.");
-      }
       handleFirestoreError(error, OperationType.WRITE, path);
     }
   },
