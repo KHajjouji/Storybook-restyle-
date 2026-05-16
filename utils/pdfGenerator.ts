@@ -116,10 +116,21 @@ export const generateLayeredEditablePDF = async (
       console.warn('Fontkit is undefined, custom fonts may fail to load');
     }
 
+    // Gather all characters used in the book to request a custom subset from Google Fonts
+    let allChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;':,./<>?`~ \"";
+    pages.forEach(p => {
+      if (p.originalText) {
+        for (const char of p.originalText) {
+          if (!allChars.includes(char)) allChars += char;
+        }
+      }
+    });
+
     // Try to load user-selected Google Font
     let customFont;
+    let fallbackToStandard = false;
     try {
-      const fontUrl = `https://fonts.googleapis.com/css2?family=${safeTextFont.replace(/\s+/g, '+')}:wght@700&text=` + encodeURIComponent("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;':,./<>?`~ \"");
+      const fontUrl = `https://fonts.googleapis.com/css2?family=${safeTextFont.replace(/\s+/g, '+')}:wght@700&text=` + encodeURIComponent(allChars);
       const cssResp = await fetch(fontUrl);
       const cssText = await cssResp.text();
       const ttfUrlMatch = cssText.match(/url\((https:\/\/[^)]+)\)/);
@@ -128,10 +139,15 @@ export const generateLayeredEditablePDF = async (
         const fontBytes = await fontResp.arrayBuffer();
         customFont = await pdfDoc.embedFont(fontBytes);
       } else {
-        customFont = await pdfDoc.embedFont('Helvetica-Bold');
+        fallbackToStandard = true;
       }
     } catch (e) {
       console.warn("Failed to load Google font, using Helvetica", e);
+      fallbackToStandard = true;
+    }
+    
+    if (fallbackToStandard) {
+      // In case of language barriers with Helvetica, we try a widely compatible standard font, but standard fonts only support WinAnsi.
       customFont = await pdfDoc.embedFont('Helvetica-Bold');
     }
 
@@ -161,7 +177,7 @@ export const generateLayeredEditablePDF = async (
       }
     };
 
-    const drawEditableText = async (pdfPage: any, text: string, textFont: any, detectedBounds?: { centerXFrac: number, centerYFrac: number, widthFrac: number, heightFrac: number } | null) => {
+    const drawEditableText = async (pdfPage: any, text: string, textFont: any, detectedBounds?: { centerXFrac: number, centerYFrac: number, widthFrac: number, heightFrac: number } | null, isTransparent: boolean = false) => {
       const fontSize = settings?.overlayTextSize || 24;
       
       let xOffset, yOffset, fieldWidth, fieldHeight;
@@ -187,7 +203,7 @@ export const generateLayeredEditablePDF = async (
         y: yOffset,
         width: fieldWidth,
         height: fieldHeight,
-        textColor: rgb(0, 0, 0),
+        textColor: isTransparent ? undefined : rgb(0, 0, 0),
         backgroundColor: undefined,
         borderColor: undefined,
         font: textFont,
@@ -219,14 +235,24 @@ export const generateLayeredEditablePDF = async (
       }
 
       // Editable text logic
+      // Prevent WinAnsi crash: If customFont is Helvetica (or not a custom loaded font), we must strip non-WinAnsi characters.
+      let safeText = bookPage.originalText || "";
+      if (fallbackToStandard) {
+         // WinAnsi only supports Latin-1 essentially. 
+         // For characters outside 32-126 and 160-255, we fallback to empty string or sanitize to prevent fatal PDF export crashes.
+         safeText = safeText.replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
+      }
+
       const textLayer = bookPage.layers?.find(l => l.type === 'text' && l.isVisible);
       let detectedBounds = null;
       if (textLayer && textLayer.image) {
+        // If there is an AI text layer, we assume it provides the visual text. 
+        // We'll place the editable text over it and optionally make the interactive text transparent so it's searchable but doesn't ruin the art!
         detectedBounds = await detectTextBoundsFromLayer(textLayer.image);
       }
 
-      if (bookPage.originalText) {
-         await drawEditableText(pdfPage, bookPage.originalText, customFont, detectedBounds);
+      if (safeText) {
+         await drawEditableText(pdfPage, safeText, customFont, detectedBounds, !!textLayer);
       }
     }
 

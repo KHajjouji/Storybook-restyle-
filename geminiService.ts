@@ -325,7 +325,8 @@ export const restyleIllustration = async (
   TEXT EMBEDDING TASK:
   - Include the following text in the illustration: "${targetText}"
   - Ensure the text is readable and fits the artistic style.
-  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : "";
+  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : 
+  `CRITICAL ANTI-TEXT RULE: YOU MUST NOT RENDER ANY TEXT, WORDS, LETTERS, DIALOGUE BUBBLES, OR SIGNAGE IN THE IMAGE AT ALL. DO NOT EMBED ANY PART OF THE SCRIPT OR NARRATIVE AS VISUAL TEXT IN THE ARTWORK. THE SCENE SCRIPT IS JUST CONTEXT FOR THE ACTION.`;
 
   const styleInstruction = targetStyle ? `
   TARGET STYLE: "${targetStyle}"
@@ -442,7 +443,8 @@ export const refineIllustration = async (
   const textInstruction = targetText ? `
   TEXT EMBEDDING TASK:
   - Include/Update the following text in the illustration: "${targetText}"
-  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : "";
+  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : 
+  `CRITICAL ANTI-TEXT RULE: YOU MUST NOT RENDER ANY TEXT, WORDS, LETTERS, DIALOGUE BUBBLES, OR SIGNAGE IN THE IMAGE AT ALL. DO NOT EMBED ANY PART OF THE SCRIPT OR NARRATIVE AS VISUAL TEXT IN THE ARTWORK.`;
 
   const styleInstruction = targetStyle ? `
   TARGET STYLE: "${targetStyle}"

@@ -28,7 +28,7 @@ export const generateCoreBookPDF = async (
     try {
       const fontBase64 = await loadGoogleFont(settings.textFont);
       if (fontBase64) {
-        const fontBytes = await safeBase64ToBytes(fontBase64);
+        const fontBytes = await safeBase64ToBytes(fontBase64 as unknown as string);
         customFont = await pdfDoc.embedFont(fontBytes);
       }
     } catch (e) {
@@ -38,9 +38,17 @@ export const generateCoreBookPDF = async (
   const fallbackFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontToUse = customFont || fallbackFont;
 
+  const sanitizeWinAnsi = (text: string) => {
+    if (!customFont) {
+       return text.replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
+    }
+    return text;
+  };
+
   const wrapText = (text: string, maxWidthIn: number, font: any, fontSize: number): string[] => {
+    const safeText = sanitizeWinAnsi(text);
     const maxWidthPts = maxWidthIn * 72;
-    const paragraphs = text.split(/(?:\n|\|\|)/).map(p => p.trim()).filter(Boolean);
+    const paragraphs = safeText.split(/(?:\n|\|\|)/).map(p => p.trim()).filter(Boolean);
     const lines: string[] = [];
     const defaultFontWidth = (str: string) => str.length * fontSize * 0.5;
 
