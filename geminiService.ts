@@ -671,7 +671,7 @@ export const separateIllustrationIntoLayers = async (
   const bubbleImage = await removeWhiteBackground(bubbleRaw);
 
   // 4. TEXT LAYER
-  const textPrompt = `LAYER SEPARATION: Extract the TEXT ONLY from the provided image. Remove the background, characters, and text bubbles. Place the text on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
+  const textPrompt = `LAYER SEPARATION: You are extracting the text layer. Preserve EXACTLY the text layout, scale, style, and spatial positioning over the canvas as the original image. COMPLETELY ERASE all backgrounds, characters, environments, and objects. The remaining canvas MUST be a CLEAN, SOLID PURE WHITE BACKGROUND (#FFFFFF), containing only the original text exactly where it was. ABSOLUTELY NO generic text boxes or banners. ${refinementPrompt}`;
   const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
   const textImage = await removeWhiteBackground(textRaw);
 
@@ -757,9 +757,7 @@ export const refineLayeredIllustration = async (
   // 4. TEXT LAYER (If applicable)
   let textLayer = null;
   if (targetText) {
-    const textPrompt = `TEXT LAYER FIX: Render/Update the text "${targetText}" in a professional book font style. 
-    IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
-    Place it on a SOLID PURE WHITE BACKGROUND. No other elements.`;
+    const textPrompt = `TEXT LAYER FIX: The text is "${targetText}". Update or render this text while maintaining the exact same spatial position, layout, scale, and artistic integration as the text in the surrounding illustration context. ABSOLUTELY NO generic text boxes or banners. Place the text on a SOLID PURE WHITE BACKGROUND. No other elements, characters, or backgrounds.`;
     const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
     textLayer = await removeWhiteBackground(textRaw);
   }
@@ -885,6 +883,15 @@ export const generateLayeredIllustration = async (
   targetStyle?: string
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
+
+  // If text rendering is requested, the only way to get true artistic integration
+  // is to generate the master image first, and then separate the layers.
+  // Otherwise, generating the text layer synthetically results in a poor square banner.
+  if (targetText) {
+     console.log("Target text detected. Generating master composite to preserve artistic text placement...");
+     const masterComposite = await restyleIllustration(undefined, stylePrompt, styleRefBase64, targetText, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
+     return separateIllustrationIntoLayers(masterComposite, "", [], isSpread, targetResolution, masterBible, projectContext, charRefs, aspectRatio, targetText, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  }
   
   let formatRules = "";
   if (exportFormat && PRINT_FORMATS[exportFormat]) {
@@ -924,9 +931,7 @@ export const generateLayeredIllustration = async (
   // 4. TEXT LAYER (If applicable)
   let textLayer = null;
   if (targetText) {
-    const textPrompt = `TEXT LAYER: Render the text "${targetText}" in a professional book font style. 
-    IMPORTANT: Place the text in the LOWER CENTER of the frame, leaving at least 15% margin from all edges to ensure it stays within print safe zones. 
-    Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${layoutRules}`;
+    const textPrompt = `TEXT LAYER: Render the text "${targetText}". Ensure the text layout, scale, and artistic integration precisely match the target design style. ABSOLUTELY NO generic text boxes or square banners. The text MUST be placed on a SOLID PURE WHITE BACKGROUND. No other elements, characters, or backgrounds. ${layoutRules}`;
     const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, undefined, undefined, targetStyle);
     textLayer = await removeWhiteBackground(textRaw);
   }

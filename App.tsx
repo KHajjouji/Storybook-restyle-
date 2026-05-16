@@ -491,6 +491,8 @@ const App: React.FC = () => {
   const styleImageInputRef = useRef<HTMLInputElement>(null);
   const [activeCharId, setActiveCharId] = useState<string | null>(null);
 
+  const cancelTokenRef = useRef(false);
+
   const stats = useMemo(() => {
     const total = pages.length;
     const completed = pages.filter(p => p.status === 'completed').length;
@@ -1377,9 +1379,16 @@ const App: React.FC = () => {
 
   const processProductionBatch = async () => {
     setIsProcessing(true);
+    cancelTokenRef.current = false;
     setCurrentStep('generate');
     const targets = pages.filter(p => p.status !== 'completed');
-    for (const target of targets) { await renderScene(target.id); }
+    for (const target of targets) { 
+        if (cancelTokenRef.current) {
+           console.log("Generation stopped by user.");
+           break; 
+        }
+        await renderScene(target.id); 
+    }
     setIsProcessing(false);
   };
 
@@ -2374,6 +2383,17 @@ const App: React.FC = () => {
                     className="mt-4 px-8 py-4 bg-emerald-500 text-white rounded-full font-black text-xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
                   >
                     <Sparkles size={24} /> RESUME GENERATION
+                  </button>
+                )}
+                {isProcessing && (
+                  <button 
+                    onClick={() => {
+                      cancelTokenRef.current = true;
+                      setIsProcessing(false);
+                    }}
+                    className="mt-4 px-8 py-4 bg-red-500 text-white rounded-full font-black text-xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
+                  >
+                    <X size={24} /> STOP GENERATION
                   </button>
                 )}
                 {!isProcessing && stats.progress > 0 && (

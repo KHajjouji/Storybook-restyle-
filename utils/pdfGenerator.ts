@@ -169,8 +169,8 @@ export const generateLayeredEditablePDF = async (
         await drawImageOnPage(pdfPage, bookPage.processedImage || bookPage.originalImage || '', 0, 0, singleFullWidthDPI, fullHeightDPI);
       }
 
-      // Characters & Foreground
-      const chars = bookPage.layers?.filter(l => (l.type === 'character' || l.type === 'foreground') && l.isVisible);
+      // Characters & Foreground & Text (Artistic Layer)
+      const chars = bookPage.layers?.filter(l => (l.type === 'character' || l.type === 'foreground' || l.type === 'text') && l.isVisible);
       if (chars) {
         for (const char of chars) {
           if (char.image) {
@@ -360,6 +360,7 @@ const flattenLayers = async (
       layers.find((l) => l.type === "background" && l.isVisible),
       layers.find((l) => l.type === "character" && l.isVisible),
       layers.find((l) => l.type === "foreground" && l.isVisible),
+      layers.find((l) => l.type === "text" && l.isVisible),
     ].filter(Boolean) as { type: string; image: string; isVisible: boolean }[];
 
     if (orderedLayers.length === 0) return resolve("");
@@ -547,27 +548,21 @@ export const generateBookPDF = async (
       : undefined;
 
     // A visible text layer means the AI generated text as its own PNG layer.
-    // We exclude it from the raster composite and add the text as real PDF
-    // vector text instead, making it selectable / editable in any PDF viewer.
     const hasTextLayer = Boolean(
       page.layers?.some((l) => l.type === "text" && l.isVisible && l.image),
     );
-    const visualLayers = page.layers
-      ? page.layers.filter((l) => l.type !== "text")
-      : undefined;
+    const visualLayers = page.layers || undefined;
     const useLayeredFlattening =
       (layeredMode || (visualLayers && visualLayers.length > 0)) &&
       visualLayers &&
       visualLayers.length > 0;
 
     // Emit vector text when:
-    //  - overlayText is explicitly enabled by the user, OR
-    //  - the AI generated a separate text layer (hasTextLayer) so we replace
-    //    the raster text with a real PDF text vector.
+    //  - overlayText is explicitly enabled by the user
     const shouldDrawText =
       page.originalText &&
       page.textPositionOverride !== "hidden" &&
-      (overlayText || hasTextLayer);
+      overlayText;
 
     const isRightPage = currentPageNum % 2 !== 0;
 
