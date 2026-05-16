@@ -2456,6 +2456,15 @@ const App: React.FC = () => {
                      )}
                      <div className="absolute top-12 left-12 z-10 w-20 h-20 bg-slate-900 text-white rounded-[2rem] flex items-center justify-center font-black text-4xl shadow-2xl">#{idx + 1}</div>
                      <div className="absolute top-12 right-12 z-10 bg-emerald-500 text-white px-8 py-3 rounded-full font-black text-sm shadow-2xl">{targetResolution} {p.isSpread ? '(SPREAD)' : '(SINGLE)'}</div>
+                     {p.status === 'completed' && (
+                        <button 
+                          onClick={() => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, processedImage: undefined, originalImage: undefined, layers: undefined, status: 'idle' } : pg))}
+                          className="absolute bottom-12 right-12 z-10 bg-rose-500/90 hover:bg-rose-600 text-white px-6 py-4 rounded-3xl font-black text-sm tracking-widest shadow-2xl flex items-center gap-3 transition-colors backdrop-blur-sm"
+                          title="Clear Image to Regenerate"
+                        >
+                          <Eraser size={20} /> CLEAR IMAGE
+                        </button>
+                     )}
                   </div>
                   <div className="p-16 space-y-10">
                     <div className="space-y-4">

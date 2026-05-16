@@ -393,10 +393,9 @@ export const persistenceService = {
       // If server has no pages but we have local pages, use local pages as source of truth
       if ((!remotePages || remotePages.length === 0) && localPages && Array.isArray(localPages)) {
         remotePages = localPages.map((lp: any) => ({
-          id: lp.id,
+          ...lp,
           status: lp.status || 'idle',
-          prompt: lp.prompt || '',
-          retargeting: lp.retargeting
+          prompt: lp.prompt || ''
         }));
       }
 
@@ -448,7 +447,7 @@ export const persistenceService = {
           originalImage: originalImg,
           processedImage: processedImg,
           layers: layers,
-          overrideStylePrompt: remotePage.overrideStylePrompt || remotePage.originalText || '',
+          overrideStylePrompt: remotePage.overrideStylePrompt !== undefined ? remotePage.overrideStylePrompt : (remotePage.originalText || ''),
           retargeting: remotePage.retargeting ? {
             ...remotePage.retargeting,
             sourceImage: localPage?.retargeting?.sourceImage || remotePage.retargeting?.sourceImage
