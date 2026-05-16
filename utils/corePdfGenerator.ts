@@ -2,6 +2,7 @@ import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { BookPage, PRINT_FORMATS, SpreadExportMode, ExportFormat } from "../types";
 import { safeBase64ToBytes, compressImageToJPEG } from "./pdfGenerator";
+import { loadGoogleFont } from "./fontLoader";
 
 export const generateCoreBookPDF = async (
   pages: BookPage[],
@@ -25,7 +26,6 @@ export const generateCoreBookPDF = async (
   let customFont: any = undefined;
   if (settings.textFont) {
     try {
-      const { loadGoogleFont } = await import("./fontLoader");
       const fontBase64 = await loadGoogleFont(settings.textFont);
       if (fontBase64) {
         const fontBytes = await safeBase64ToBytes(fontBase64);

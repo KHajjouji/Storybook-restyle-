@@ -2,6 +2,7 @@ import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { BookPage, PRINT_FORMATS, SpreadExportMode, ExportFormat } from "../types";
 import { safeBase64ToBytes } from "./pdfGenerator";
+import { loadGoogleFont } from "./fontLoader";
 
 const calculateGutter = (totalPages: number, formatStr: string) => {
   return 0.25; 
@@ -27,7 +28,6 @@ export const generateTextOnlyPDF = async (
   let customFont: any = undefined;
   if (settings.textFont) {
     try {
-      const { loadGoogleFont } = await import("./fontLoader");
       const fontBase64 = await loadGoogleFont(settings.textFont);
       if (fontBase64) {
         const fontBytes = await safeBase64ToBytes(fontBase64);

@@ -8,6 +8,45 @@ import {
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 
+export const normalizeImageForPDF = async (dataUri: string, quality: number = 0.85): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!dataUri || !dataUri.startsWith('data:image')) return resolve(dataUri);
+    
+    const isTranslucentFormat = dataUri.startsWith('data:image/png') || dataUri.startsWith('data:image/webp');
+    
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const MAX_SIZE = 2048; 
+      let w = img.width;
+      let h = img.height;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        const ratio = Math.min(MAX_SIZE / w, MAX_SIZE / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(dataUri);
+      
+      if (!isTranslucentFormat) {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      } else {
+        ctx.drawImage(img, 0, 0, w, h);
+        // We must export as PNG to preserve transparency, webp is not supported by pdf-lib natively
+        resolve(canvas.toDataURL("image/png"));
+      }
+    };
+    img.onerror = () => resolve(dataUri);
+    img.src = dataUri;
+  });
+};
+
 export const compressImageToJPEG = async (dataUri: string, quality: number = 0.85): Promise<string> => {
   return new Promise((resolve) => {
     if (!dataUri || !dataUri.startsWith('data:image')) return resolve(dataUri);
@@ -100,15 +139,15 @@ export const generateLayeredEditablePDF = async (
       if (!dataUri) return;
       try {
         let embeddedImage;
-        const format = getImageFormat(dataUri);
+        const normalizedDataUri = await normalizeImageForPDF(dataUri, 0.9);
+        const format = getImageFormat(normalizedDataUri);
         
-        // If it's not a valid base64 data URI (e.g. standard URL), we can't embed it easily with base64ToBytes
-        if (!dataUri.startsWith('data:')) {
+        if (!normalizedDataUri.startsWith('data:')) {
           console.warn('Skipping non-data URI image for export');
           return;
         }
 
-        const bytes = await safeBase64ToBytes(dataUri);
+        const bytes = await safeBase64ToBytes(normalizedDataUri);
         if (format === 'JPEG') {
           embeddedImage = await pdfDoc.embedJpg(bytes);
         } else {

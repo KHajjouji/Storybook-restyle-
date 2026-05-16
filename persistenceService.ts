@@ -122,8 +122,22 @@ export const persistenceService = {
       }
       await set('local_project_list', localProjectList);
 
-      // Save large data to IndexedDB
-      await set(`project_pages_${project.id}`, project.pages);
+      // Strip large base64 data for IDB
+      const strippedPagesForIdb = project.pages.map(p => ({
+        ...p,
+        originalImage: undefined,
+        processedImage: undefined,
+        layers: undefined
+      }));
+      await set(`project_pages_${project.id}`, strippedPagesForIdb);
+
+      // Save heavy individual items separating them by key to prevent IDB structured clone limits
+      for (const p of project.pages) {
+        if (p.originalImage) await set(`local_page_originalImage_${p.id}`, p.originalImage);
+        if (p.processedImage) await set(`local_page_processedImage_${p.id}`, p.processedImage);
+        if (p.layers) await set(`local_page_layers_${p.id}`, p.layers);
+      }
+
       if (project.coverLayers) {
         await set(`project_coverLayers_${project.id}`, project.coverLayers);
       }
@@ -185,16 +199,18 @@ export const persistenceService = {
       try {
         await setDoc(doc(db, 'projects', project.id), projectToSave);
         firestoreAvailable = true;
-      } catch (fsError: any) {
-        const msg = fsError instanceof Error ? fsError.message : String(fsError);
-        if (msg.includes('permission') || msg.includes('Permission') || msg.includes('PERMISSION_DENIED')) {
-          // Firestore security rules are blocking this write — silently continue with IDB only.
-          console.warn('Firestore write denied (permissions); project saved locally only.', msg);
-        } else {
-          // Re-throw unexpected errors (quota, network, etc.)
-          handleFirestoreError(fsError, OperationType.WRITE, path);
-        }
-      }
+  } catch (fsError: any) {
+    const msg = fsError instanceof Error ? fsError.message : String(fsError);
+    if (msg.includes('permission') || msg.includes('Permission') || msg.includes('PERMISSION_DENIED')) {
+      // Firestore security rules are blocking this write — silently continue with IDB only.
+      console.warn('Firestore write denied (permissions); project saved locally only.', msg);
+    } else if (msg.includes('Indexed Database') || msg.includes('indexeddb')) {
+      console.warn('Firestore offline persistence error, saving locally only.', msg);
+    } else {
+      // Re-throw unexpected errors (quota, network, etc.)
+      handleFirestoreError(fsError, OperationType.WRITE, path);
+    }
+  }
 
       // Only attempt chunk uploads when the root document succeeded
       if (firestoreAvailable) {
@@ -211,7 +227,12 @@ export const persistenceService = {
           await this.saveChunks(project.id, 'project_coverLayers', project.id, JSON.stringify(project.coverLayers));
         }
       }
-    } catch (error) {
+    } catch (error: any) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('Indexed Database server lost') || msg.includes('indexeddb') || msg.includes('DOMException')) {
+         console.error('IndexedDB crashed:', error);
+         throw new Error("Your browser's local storage crashed. Please refresh the page to continue working.");
+      }
       handleFirestoreError(error, OperationType.WRITE, path);
     }
   },
@@ -400,8 +421,13 @@ export const persistenceService = {
         const localPage = localPages && Array.isArray(localPages) ? localPages.find((p: any) => p.id === remotePage.id) : undefined;
         
         let processedImg = localPage?.processedImage || remotePage.processedImage;
+        if (!processedImg) processedImg = await get(`local_page_processedImage_${remotePage.id}`);
+        
         let originalImg = localPage?.originalImage || remotePage.originalImage;
+        if (!originalImg) originalImg = await get(`local_page_originalImage_${remotePage.id}`);
+        
         let layers = localPage?.layers || remotePage.layers;
+        if (!layers) layers = await get(`local_page_layers_${remotePage.id}`);
 
         if (!processedImg && remotePage.status === 'completed') {
           processedImg = await persistenceService.loadChunks(data.id, 'page_processedImage', remotePage.id);
@@ -483,7 +509,17 @@ export const persistenceService = {
     const path = `projects/${id}`;
     try {
       await deleteDoc(doc(db, 'projects', id));
-      const { del } = await import('idb-keyval');
+      const { del, get } = await import('idb-keyval');
+      
+      const pages = await get(`project_pages_${id}`);
+      if (pages && Array.isArray(pages)) {
+        for (const p of pages) {
+           await del(`local_page_originalImage_${p.id}`);
+           await del(`local_page_processedImage_${p.id}`);
+           await del(`local_page_layers_${p.id}`);
+        }
+      }
+
       await del(`project_pages_${id}`);
       await del(`project_coverLayers_${id}`);
       await del(`project_coverImage_${id}`);
