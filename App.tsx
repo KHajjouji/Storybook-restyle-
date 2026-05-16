@@ -2729,7 +2729,8 @@ const App: React.FC = () => {
                       onClick={async () => {
                         setIsProcessing(true);
                         try {
-                          await generateBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode, settings);
+                          const { generateCoreBookPDF } = await import("./utils/corePdfGenerator");
+                          await generateCoreBookPDF(pages, settings.exportFormat, projectName, settings.overlayText, settings.estimatedPageCount, settings.spreadExportMode, settings.layeredMode, settings);
                         } catch (err: any) {
                           console.error("PDF generation failed:", err);
                           showToast("Failed to generate PDF: " + err.message);
@@ -2759,7 +2760,27 @@ const App: React.FC = () => {
                       className="w-full py-8 bg-violet-600 text-white rounded-[3rem] font-black text-3xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6 disabled:opacity-50"
                     >
                       {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <FileText size={32} />} 
-                      DOWNLOAD EDITABLE TEXT PDF
+                      DOWNLOAD SEPARATE LAYERS PDF
+                    </button>
+
+                    <button 
+                      disabled={isProcessing}
+                      onClick={async () => {
+                        setIsProcessing(true);
+                        try {
+                          const { generateTextOnlyPDF } = await import("./utils/textPdfGenerator");
+                          await generateTextOnlyPDF(pages, settings.exportFormat, projectName, settings.estimatedPageCount, settings.spreadExportMode, settings);
+                        } catch (err: any) {
+                          console.error("Text PDF generation failed:", err);
+                          showToast("Failed to generate Text Only PDF: " + (err?.message || "Unknown error"));
+                        } finally {
+                          setIsProcessing(false);
+                        }
+                      }} 
+                      className="w-full py-8 bg-pink-600 text-white rounded-[3rem] font-black text-3xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-6 disabled:opacity-50"
+                    >
+                      {isProcessing ? <Loader2 className="animate-spin" size={32} /> : <FileText size={32} />} 
+                      DOWNLOAD TEXT-ONLY PDF (FOR OVERLAYS)
                     </button>
                     <button onClick={() => exportProjectAssetsForCanva(pages, projectName)} className="w-full py-8 bg-indigo-600 text-white rounded-[3rem] font-black text-2xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-4"><Layers size={32} /> DOWNLOAD ASSETS FOR CANVA / PHOTOSHOP</button>
                     <button onClick={() => setCurrentStep('cover-master')} className="w-full py-8 bg-amber-50 text-amber-600 rounded-[3rem] font-black text-2xl shadow-sm hover:bg-amber-100 transition-all flex items-center justify-center gap-4">GO TO COVER DESIGNER <ChevronRight size={32} /></button>

@@ -8,7 +8,7 @@ import {
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 
-const compressImageToJPEG = async (dataUri: string, quality: number = 0.85): Promise<string> => {
+export const compressImageToJPEG = async (dataUri: string, quality: number = 0.85): Promise<string> => {
   return new Promise((resolve) => {
     if (!dataUri || !dataUri.startsWith('data:image')) return resolve(dataUri);
     const img = new Image();
@@ -37,7 +37,7 @@ const compressImageToJPEG = async (dataUri: string, quality: number = 0.85): Pro
   });
 };
 
-const safeBase64ToBytes = async (dataUri: string): Promise<Uint8Array> => {
+export const safeBase64ToBytes = async (dataUri: string): Promise<Uint8Array> => {
   try {
     const res = await fetch(dataUri);
     const buf = await res.arrayBuffer();
@@ -321,10 +321,10 @@ export const generateCoverPDF = async (
   });
 
   const compressedCover = await compressImageToJPEG(coverImage, 0.85);
-  const finalCoverImage = await loadImage(compressedCover);
+  const coverBytes = await safeBase64ToBytes(compressedCover);
   pdf.addImage(
-    finalCoverImage,
-    getImageFormat(compressedCover),
+    coverBytes as any,
+    "JPEG",
     0,
     0,
     coverDims.width,
@@ -347,9 +347,18 @@ const flattenLayers = async (
 ): Promise<string> => {
   return new Promise((resolve) => {
     const dpi = 300;
+    let widthPx = Math.round(widthIn * dpi);
+    let heightPx = Math.round(heightIn * dpi);
+    const MAX_SIZE = 2048; // Max size to prevent jsPDF stack overflow
+    if (widthPx > MAX_SIZE || heightPx > MAX_SIZE) {
+      const ratio = Math.min(MAX_SIZE / widthPx, MAX_SIZE / heightPx);
+      widthPx = Math.round(widthPx * ratio);
+      heightPx = Math.round(heightPx * ratio);
+    }
+
     const canvas = document.createElement("canvas");
-    canvas.width = Math.round(widthIn * dpi);
-    canvas.height = Math.round(heightIn * dpi);
+    canvas.width = widthPx;
+    canvas.height = heightPx;
     const ctx = canvas.getContext("2d");
     if (!ctx) return resolve("");
 
@@ -537,7 +546,6 @@ export const generateBookPDF = async (
     if (!rawImage) continue;
 
     const compressedImage = await compressImageToJPEG(rawImage, 0.85);
-    const image = await loadImage(compressedImage);
     const safeLayers = page.layers
       ? await Promise.all(
           page.layers.map(async (l) => ({
@@ -582,13 +590,12 @@ export const generateBookPDF = async (
           fullHeight,
         );
         if (flattened) {
-          // Use HTMLImageElement to bypass jsPDF's internal base64 decode chain
-          const flatImg = await loadImage(flattened);
-          pdf.addImage(flatImg, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
+          const flatBytes = await safeBase64ToBytes(flattened);
+          pdf.addImage(flatBytes as any, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
         }
       } else {
-        const imgEl = await loadImage(compressedImage);
-        pdf.addImage(imgEl, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
+        const compBytes = await safeBase64ToBytes(compressedImage);
+        pdf.addImage(compBytes as any, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
       }
 
       if (shouldDrawText && page.originalText) {
@@ -641,12 +648,12 @@ export const generateBookPDF = async (
           fullHeight,
         );
         if (flattened) {
-          const spreadImgEl = await loadImage(flattened);
-          pdf.addImage(spreadImgEl, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
+          const flatBytes = await safeBase64ToBytes(flattened);
+          pdf.addImage(flatBytes as any, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
         }
       } else {
-          const spreadImgEl = await loadImage(compressedImage);
-          pdf.addImage(spreadImgEl, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
+          const compBytes = await safeBase64ToBytes(compressedImage);
+          pdf.addImage(compBytes as any, "JPEG", 0, 0, spreadWidth, fullHeight, undefined, "NONE");
       }
 
       if (shouldDrawText && page.originalText) {
@@ -671,18 +678,18 @@ export const generateBookPDF = async (
           fullHeight,
         );
         if (flattened) {
-          const spreadImgEl2 = await loadImage(flattened);
+          const flatBytes = await safeBase64ToBytes(flattened);
           pdf.addImage(
-            spreadImgEl2, "JPEG",
+            flatBytes as any, "JPEG",
             -(spreadWidth - singleFullWidth), 0,
             spreadWidth, fullHeight,
             undefined, "NONE",
           );
         }
       } else {
-        const spreadImgEl2 = await loadImage(compressedImage);
+        const compBytes = await safeBase64ToBytes(compressedImage);
         pdf.addImage(
-          spreadImgEl2, "JPEG",
+          compBytes as any, "JPEG",
           -(spreadWidth - singleFullWidth), 0,
           spreadWidth, fullHeight,
           undefined, "NONE",
@@ -704,12 +711,12 @@ export const generateBookPDF = async (
           fullHeight,
         );
         if (flattened) {
-          const flatImg = await loadImage(flattened);
-          pdf.addImage(flatImg, "JPEG", 0, 0, singleFullWidth, fullHeight, undefined, "NONE");
+          const flatBytes = await safeBase64ToBytes(flattened);
+          pdf.addImage(flatBytes as any, "JPEG", 0, 0, singleFullWidth, fullHeight, undefined, "NONE");
         }
       } else {
-        const imgEl = await loadImage(compressedImage);
-        pdf.addImage(imgEl, "JPEG", 0, 0, singleFullWidth, fullHeight, undefined, "NONE");
+        const compBytes = await safeBase64ToBytes(compressedImage);
+        pdf.addImage(compBytes as any, "JPEG", 0, 0, singleFullWidth, fullHeight, undefined, "NONE");
       }
 
       if (shouldDrawText && page.originalText) {
