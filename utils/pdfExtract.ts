@@ -26,14 +26,15 @@ export const extractProjectFromPDF = async (file: File): Promise<any> => {
   }
 };
 
-export const extractImagesFromPDF = async (file: File): Promise<string[]> => {
+export const extractImagesFromPDF = async (file: File, onProgress?: (imgUrl: string, idx: number, total: number) => void): Promise<string[]> => {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const images: string[] = [];
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.0 }); // 2x scale for decent quality
+    // Lower scale slightly to drastically improve memory and speed
+    const viewport = page.getViewport({ scale: 1.5 });
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     
@@ -49,7 +50,14 @@ export const extractImagesFromPDF = async (file: File): Promise<string[]> => {
     } as any;
 
     await page.render(renderContext).promise;
-    images.push(canvas.toDataURL('image/jpeg', 0.9));
+    const imgData = canvas.toDataURL('image/jpeg', 0.85);
+    images.push(imgData);
+    
+    if (onProgress) {
+      onProgress(imgData, i - 1, pdf.numPages);
+      // Yield to main thread to allow React to paint the new page smoothly
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
   }
 
   return images;

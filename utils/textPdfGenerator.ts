@@ -245,6 +245,24 @@ export const generateTextOnlyPDF = async (
     }
   }
 
+  try {
+    const strippedPages = pages.map(p => ({
+      ...p,
+      originalImage: undefined,
+      processedImage: undefined,
+      layers: undefined,
+      retargeting: undefined
+    }));
+    const metadataStr = JSON.stringify({
+      title: projectName,
+      settings: settings,
+      pages: strippedPages
+    });
+    pdfDoc.setSubject(metadataStr);
+  } catch(e) {
+    console.warn("Could not embed metadata in PDF subject", e);
+  }
+
   const pdfBytes = await pdfDoc.save();
   const blob = new Blob([pdfBytes], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);

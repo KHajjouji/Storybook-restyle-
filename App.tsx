@@ -726,14 +726,11 @@ const App: React.FC = () => {
         
         if (metadata && metadata.pages) {
           // Reconstruct the project
-          // We need to extract the images to populate the pages and cover
-          showToast("Extracting images from PDF... this may take a moment.");
-          const images = await extractImagesFromPDF(file);
-          
-          const reconstructedPages = metadata.pages.map((p: any, i: number) => ({
+          // Set initial pages without images first
+          const reconstructedPages = metadata.pages.map((p: any) => ({
             ...p,
-            processedImage: images[i] || undefined,
-            originalImage: images[i] || undefined,
+            processedImage: undefined,
+            originalImage: undefined,
             status: 'completed'
           }));
           
@@ -768,7 +765,24 @@ const App: React.FC = () => {
           setSettings(project.settings);
           setPages(project.pages);
           setCurrentStep('restyle-editor');
-          showToast("PDF Project imported successfully!");
+          showToast("PDF Project imported! Loading images...");
+
+          // Now progressively load images
+          await extractImagesFromPDF(file, (imgUrl, idx) => {
+            setPages(currentPages => {
+              const newPages = [...currentPages];
+              if (newPages[idx]) {
+                newPages[idx] = {
+                  ...newPages[idx],
+                  processedImage: imgUrl,
+                  originalImage: imgUrl
+                };
+              }
+              return newPages;
+            });
+          });
+          
+          showToast("Images loaded successfully!");
         } else {
           showToast("No embedded Storyflow project found in this PDF.");
         }
@@ -961,18 +975,33 @@ const App: React.FC = () => {
 
   const handleRestyleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
-    const newPages: BookPage[] = [];
     
     setIsProcessing(true);
-    let allExtractedImages: string[] = [];
+    if (currentStep === 'landing') {
+      setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
+    }
 
     for (const f of files) {
       if (f.type === 'application/pdf') {
+        showToast("Extracting images from PDF...");
         try {
-          // Dynamic import to avoid loading it right away on boot
           const { extractImagesFromPDF } = await import('./utils/pdfExtract');
-          const pdfImages = await extractImagesFromPDF(f);
-          allExtractedImages.push(...pdfImages);
+          await extractImagesFromPDF(f, (imgUrl, idx, total) => {
+            const newPage: BookPage = {
+              id: Math.random().toString(36).substring(7),
+              originalImage: imgUrl,
+              originalText: "",
+              status: 'idle',
+              assignments: [],
+              isSpread: targetAspectRatio === '16:9',
+              overrideStylePrompt: settings.targetStyle,
+              retargeting: { sourceHotspots: [], targetHotspots: [], instruction: "" }
+            };
+            setPages(prev => [...prev, newPage]);
+            if (idx % 5 === 0) {
+              showToast(`Extracted ${idx + 1} of ${total} PDF pages`);
+            }
+          });
         } catch (error) {
           console.error("PDF extraction failed", error);
           showToast("Failed to extract images from PDF.");
@@ -983,32 +1012,22 @@ const App: React.FC = () => {
           reader.onload = () => resolve(reader.result as string);
           reader.readAsDataURL(f);
         });
-        allExtractedImages.push(dataUrl);
+        const newPage: BookPage = {
+          id: Math.random().toString(36).substring(7),
+          originalImage: dataUrl,
+          originalText: "",
+          status: 'idle',
+          assignments: [],
+          isSpread: targetAspectRatio === '16:9',
+          overrideStylePrompt: settings.targetStyle,
+          retargeting: { sourceHotspots: [], targetHotspots: [], instruction: "" }
+        };
+        setPages(prev => [...prev, newPage]);
       }
-    }
-
-    allExtractedImages.forEach(img => {
-      newPages.push({
-        id: Math.random().toString(36).substring(7),
-        originalImage: img,
-        originalText: "",
-        status: 'idle',
-        assignments: [],
-        isSpread: targetAspectRatio === '16:9',
-        overrideStylePrompt: settings.targetStyle
-      });
-    });
-
-    if (newPages.length > 0) {
-      const initializedPages = newPages.map(p => ({
-        ...p,
-        retargeting: { sourceHotspots: [], targetHotspots: [], instruction: "" }
-      }));
-      setPages(prev => [...prev, ...initializedPages]);
-      setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
     }
     
     setIsProcessing(false);
+    e.target.value = ''; // Reset input
   };
 
   const handleAISelectFont = async () => {
