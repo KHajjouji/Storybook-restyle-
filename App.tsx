@@ -1178,7 +1178,7 @@ const App: React.FC = () => {
       let layers;
       const targetText = settings.embedTextInImage ? p.originalText : undefined;
       const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
-        if (ratio === '9:16') return '1:1';
+        if (ratio === '9:16') return '4:3';
         if (ratio === '1:1') return '16:9';
         if (ratio === '4:3') return '16:9';
         if (ratio === '16:9') return '16:9';
@@ -1250,7 +1250,7 @@ const App: React.FC = () => {
 
       let finalPrompt = fixInstruction;
       const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
-        if (ratio === '9:16') return '1:1';
+        if (ratio === '9:16') return '4:3';
         if (ratio === '1:1') return '16:9';
         if (ratio === '4:3') return '16:9';
         if (ratio === '16:9') return '16:9';
@@ -1261,7 +1261,7 @@ const App: React.FC = () => {
       let finalTargetImg = targetImg;
       
       if (fixMode === 'outpaint') {
-        finalRatio = p.isSpread ? targetAspectRatio : getSpreadRatio(targetAspectRatio);
+        finalRatio = getSpreadRatio(targetAspectRatio);
         finalPrompt = `OUTPAINTING TASK: The original image has been placed on a larger canvas. Intelligently fill the surrounding blank white space to seamlessly continue the scene and complete the composition. Ensure exact style matching. Request: ${fixInstruction || 'No specific fix, just outpaint and expand the scene.'}`;
         
         // Build the pre-padded outpaint canvas
@@ -1287,7 +1287,10 @@ const App: React.FC = () => {
         // Load original image
         const img = new Image();
         img.src = targetImg;
-        await new Promise((resolve) => { img.onload = resolve; });
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error('Failed to load image for outpaint'));
+        });
         
         // Calculate image aspect ratio
         const imgRatio = (img.width || 1) / (img.height || 1);
@@ -1331,11 +1334,11 @@ const App: React.FC = () => {
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else if (settings.layeredMode) {
-        const layeredRes = await refineLayeredIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+        const layeredRes = await refineLayeredIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? true : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else {
-        res = await refineIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+        res = await refineIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? true : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
       }
       
       setPages(curr => curr.map(pg => pg.id === targetId ? { 
@@ -1343,7 +1346,7 @@ const App: React.FC = () => {
         status: 'completed', 
         processedImage: res,
         layers: layers || pg.layers,
-        isSpread: fixMode === 'outpaint' ? !pg.isSpread : pg.isSpread 
+        isSpread: fixMode === 'outpaint' ? true : pg.isSpread 
       } : pg));
       
       setFixInstruction("");
@@ -1399,7 +1402,7 @@ const App: React.FC = () => {
       const retargeting = p.retargeting || { sourceHotspots: [], targetHotspots: [], instruction: "" };
 
       const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
-        if (ratio === '9:16') return '1:1';
+        if (ratio === '9:16') return '4:3';
         if (ratio === '1:1') return '16:9';
         if (ratio === '4:3') return '16:9';
         if (ratio === '16:9') return '16:9';
