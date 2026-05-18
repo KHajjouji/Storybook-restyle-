@@ -246,6 +246,8 @@ const App: React.FC = () => {
   const [fixInstruction, setFixInstruction] = useState("");
   const [selectedRefIds, setSelectedRefIds] = useState<Set<string>>(new Set());
   const [fixMode, setFixMode] = useState<'targeted' | 'outpaint' | 'separate-layers'>('targeted');
+  const [outpaintPos, setOutpaintPos] = useState<'left' | 'center' | 'right'>('center');
+  const [outpaintScale, setOutpaintScale] = useState<number>(1.0);
 
   // Character Retargeting State
   const [activeRetargetId, setActiveRetargetId] = useState<string | null>(null);
@@ -1215,10 +1217,60 @@ const App: React.FC = () => {
       };
 
       let finalRatio = targetAspectRatio;
+      let finalTargetImg = targetImg;
       
       if (fixMode === 'outpaint') {
         finalRatio = p.isSpread ? targetAspectRatio : getSpreadRatio(targetAspectRatio);
-        finalPrompt = `OUTPAINTING TASK: Expand the canvas to ${finalRatio}. Intelligently fill new space to the left and right while keeping the original composition in the center. Request: ${fixInstruction || 'No specific fix, just outpaint.'}`;
+        finalPrompt = `OUTPAINTING TASK: The original image has been placed on a larger canvas. Intelligently fill the surrounding blank white space to seamlessly continue the scene and complete the composition. Ensure exact style matching. Request: ${fixInstruction || 'No specific fix, just outpaint and expand the scene.'}`;
+        
+        // Build the pre-padded outpaint canvas
+        const offscreen = document.createElement('canvas');
+        const [wStr, hStr] = finalRatio.split(':');
+        const ratioW = parseInt(wStr) || 16;
+        const ratioH = parseInt(hStr) || 9;
+        
+        // Base 1024 resolution for the larger dimension
+        let cw = 1024;
+        let ch = 1024;
+        if (ratioW > ratioH) {
+           ch = Math.round(1024 * (ratioH / ratioW));
+        } else {
+           cw = Math.round(1024 * (ratioW / ratioH));
+        }
+        offscreen.width = cw;
+        offscreen.height = ch;
+        const ctx = offscreen.getContext('2d')!;
+        ctx.fillStyle = '#ffffff'; // Fill with white background
+        ctx.fillRect(0, 0, cw, ch);
+        
+        // Load original image
+        const img = new Image();
+        img.src = targetImg;
+        await new Promise((resolve) => { img.onload = resolve; });
+        
+        // Calculate image aspect ratio
+        const imgRatio = (img.width || 1) / (img.height || 1);
+        
+        // Determine drawn width/height based on scale, fitting within bounds
+        let drawW = cw * outpaintScale;
+        let drawH = drawW / imgRatio;
+        if (drawH > ch * outpaintScale) {
+            drawH = ch * outpaintScale;
+            drawW = drawH * imgRatio;
+        }
+        
+        let dx = (cw - drawW) / 2; // Default center
+        let dy = (ch - drawH) / 2; // Default center (Y)
+
+        if (outpaintPos === 'left') {
+           dx = 0; // Paste on the left
+        } else if (outpaintPos === 'right') {
+           dx = cw - drawW; // Paste on the right
+        }
+        
+        ctx.drawImage(img, dx, dy, drawW, drawH);
+        finalTargetImg = offscreen.toDataURL('image/png');
+        
       } else {
         finalRatio = p.isSpread ? getSpreadRatio(targetAspectRatio) : targetAspectRatio;
         if (fixMode === 'separate-layers') {
@@ -1234,15 +1286,15 @@ const App: React.FC = () => {
       let layers;
 
       if (fixMode === 'separate-layers') {
-        const layeredRes = await separateIllustrationIntoLayers(targetImg, finalPrompt, selectedRefs, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+        const layeredRes = await separateIllustrationIntoLayers(finalTargetImg, finalPrompt, selectedRefs, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else if (settings.layeredMode) {
-        const layeredRes = await refineLayeredIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+        const layeredRes = await refineLayeredIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else {
-        res = await refineIllustration(targetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+        res = await refineIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
       }
       
       setPages(curr => curr.map(pg => pg.id === targetId ? { 
@@ -2675,6 +2727,25 @@ const App: React.FC = () => {
                                <button onClick={() => setFixMode('outpaint')} className={`w-full py-4 rounded-[2rem] font-black text-xl flex items-center justify-center gap-4 transition-all ${fixMode === 'outpaint' ? 'bg-indigo-600 text-white shadow-2xl' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
                                   <Maximize size={24} /> OUTPAINT TO SPREAD
                                </button>
+                               {fixMode === 'outpaint' && (
+                                 <div className="bg-indigo-50 rounded-[2rem] p-6 space-y-4 mb-2 shadow-inner border border-indigo-100">
+                                   <div className="flex items-center justify-between">
+                                     <span className="text-xs font-black uppercase text-indigo-600 tracking-widest">Original Image Position</span>
+                                     <div className="flex gap-2">
+                                       <button onClick={() => setOutpaintPos('left')} className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${outpaintPos === 'left' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 hover:bg-indigo-100'}`}>Left</button>
+                                       <button onClick={() => setOutpaintPos('center')} className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${outpaintPos === 'center' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 hover:bg-indigo-100'}`}>Center</button>
+                                       <button onClick={() => setOutpaintPos('right')} className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${outpaintPos === 'right' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 hover:bg-indigo-100'}`}>Right</button>
+                                     </div>
+                                   </div>
+                                   <div className="space-y-2">
+                                     <div className="flex justify-between items-center text-xs font-black uppercase text-indigo-600 tracking-widest">
+                                       <span>Scale</span>
+                                       <span>{Math.round(outpaintScale * 100)}%</span>
+                                     </div>
+                                     <input type="range" min="0.2" max="1.5" step="0.1" value={outpaintScale} onChange={e => setOutpaintScale(parseFloat(e.target.value))} className="w-full accent-indigo-600" />
+                                   </div>
+                                 </div>
+                               )}
                                <button onClick={() => setFixMode('separate-layers')} className={`w-full py-4 rounded-[2rem] font-black text-xl flex items-center justify-center gap-4 transition-all ${fixMode === 'separate-layers' ? 'bg-indigo-600 text-white shadow-2xl' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
                                   <Layers size={24} /> SEPARATE INTO LAYERS
                                </button>

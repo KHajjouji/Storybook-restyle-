@@ -442,7 +442,7 @@ export const refineIllustration = async (
   - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.` : `
   LAYOUT RULES FOR SINGLE PAGE: ${formatRules}`;
 
-  const isTextTask = editPrompt.includes('TEXT LAYER') || targetText;
+  const isTextTask = refinementPrompt.includes('TEXT LAYER') || targetText;
   const textInstruction = targetText ? `
   TEXT EMBEDDING TASK:
   - Include/Update the following text in the illustration: "${targetText}"

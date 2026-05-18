@@ -26,9 +26,13 @@ export const generateCoreBookPDF = async (
   let customFont: any = undefined;
   if (settings.textFont) {
     try {
-      const fontBase64 = await loadGoogleFont(settings.textFont);
-      if (fontBase64) {
-        const fontBytes = await safeBase64ToBytes(fontBase64 as unknown as string);
+      const fontUrl = `https://fonts.googleapis.com/css2?family=${settings.textFont.replace(/\s+/g, '+')}:wght@700`;
+      const cssResp = await fetch(fontUrl);
+      const cssText = await cssResp.text();
+      const ttfUrlMatch = cssText.match(/url\((https:\/\/[^)]+)\)/);
+      if (ttfUrlMatch && ttfUrlMatch[1]) {
+        const fontResp = await fetch(ttfUrlMatch[1]);
+        const fontBytes = await fontResp.arrayBuffer();
         customFont = await pdfDoc.embedFont(fontBytes);
       }
     } catch (e) {
