@@ -977,7 +977,7 @@ const App: React.FC = () => {
     const files = Array.from(e.target.files || []) as File[];
     
     setIsProcessing(true);
-    if (currentStep === 'landing') {
+    if (currentStep === 'landing' || currentStep === 'upload') {
       setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
     }
 
