@@ -1,14 +1,18 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// We'll use CDN for the worker to avoid bundler issues
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+// Use Vite's module resolution instead of CDN. CDN lags behind npm releases
+// so the exact version (e.g. 5.7.284) often 404s, making getDocument() hang forever.
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).href;
 
 export const extractProjectFromPDF = async (file: File): Promise<any> => {
   try {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const info = await pdf.getMetadata();
-    
+
     // Check if we injected the project in the Subject field
     const subject = (info?.info as any)?.Subject;
     if (subject) {
@@ -26,36 +30,38 @@ export const extractProjectFromPDF = async (file: File): Promise<any> => {
   }
 };
 
-export const extractImagesFromPDF = async (file: File, onProgress?: (imgUrl: string, idx: number, total: number) => void): Promise<string[]> => {
+export const extractImagesFromPDF = async (
+  file: File,
+  onProgress?: (imgUrl: string, idx: number, total: number) => void
+): Promise<string[]> => {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const images: string[] = [];
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    // Lower scale slightly to drastically improve memory and speed
     const viewport = page.getViewport({ scale: 1.5 });
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    
+
     if (!ctx) continue;
-    
+
     canvas.height = viewport.height;
     canvas.width = viewport.width;
 
-    const renderContext = {
-      canvasContext: ctx,
-      viewport: viewport,
-      canvas: canvas,
-    } as any;
-
-    await page.render(renderContext).promise;
+    await page.render({ canvasContext: ctx, viewport }).promise;
     const imgData = canvas.toDataURL('image/jpeg', 0.85);
+
+    // Release canvas memory immediately — holding 40+ canvases in RAM causes
+    // the tab to run out of memory and the UI to freeze on large PDFs.
+    canvas.width = 0;
+    canvas.height = 0;
+
     images.push(imgData);
-    
+
     if (onProgress) {
       onProgress(imgData, i - 1, pdf.numPages);
-      // Yield to main thread to allow React to paint the new page smoothly
+      // Yield to main thread so React can paint the progress bar update
       await new Promise(resolve => setTimeout(resolve, 10));
     }
   }

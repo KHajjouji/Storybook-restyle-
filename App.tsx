@@ -988,20 +988,25 @@ const App: React.FC = () => {
 
   const handleRestyleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
-    
+
     setIsProcessing(true);
-    if (currentStep === 'landing' || currentStep === 'upload') {
-      setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
-    }
 
     for (const f of files) {
       if (f.type === 'application/pdf') {
-        showToast("Extracting images from PDF...");
+        // Show the overlay FIRST, before the dynamic import (which itself can take
+        // a second) and before navigating — prevents the "jumped to blank page" effect.
+        setIsExtractingPdf(true);
+        setExtractionProgress(0);
+        setExtractionTotal(0);
+        // Yield one frame so React paints the overlay before we block the thread.
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        if (currentStep === 'landing' || currentStep === 'upload') {
+          setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
+        }
+
         try {
           const { extractImagesFromPDF } = await import('./utils/pdfExtract');
-          setIsExtractingPdf(true);
-          setExtractionProgress(0);
-          setExtractionTotal(0);
           await extractImagesFromPDF(f, (imgUrl, idx, total) => {
             setExtractionTotal(total);
             setExtractionProgress(idx + 1);
@@ -1016,13 +1021,11 @@ const App: React.FC = () => {
               retargeting: { sourceHotspots: [], targetHotspots: [], instruction: "" }
             };
             setPages(prev => [...prev, newPage]);
-            if (idx % 5 === 0) {
-              showToast(`Extracted ${idx + 1} of ${total} PDF pages`);
-            }
           });
           setExtractionTotal(0);
           setExtractionProgress(0);
           setIsExtractingPdf(false);
+          showToast("PDF imported successfully!");
         } catch (error) {
           setIsExtractingPdf(false);
           console.error("PDF extraction failed", error);
@@ -1261,7 +1264,8 @@ const App: React.FC = () => {
       let finalTargetImg = targetImg;
       
       if (fixMode === 'outpaint') {
-        finalRatio = p.isSpread ? targetAspectRatio : getSpreadRatio(targetAspectRatio);
+        // Always expand to the spread ratio — outpaint result is always a wide canvas.
+        finalRatio = getSpreadRatio(targetAspectRatio);
         finalPrompt = `OUTPAINTING TASK: The original image has been placed on a larger canvas. Intelligently fill the surrounding blank white space to seamlessly continue the scene and complete the composition. Ensure exact style matching. Request: ${fixInstruction || 'No specific fix, just outpaint and expand the scene.'}`;
         
         // Build the pre-padded outpaint canvas
@@ -1331,19 +1335,19 @@ const App: React.FC = () => {
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else if (settings.layeredMode) {
-        const layeredRes = await refineLayeredIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+        const layeredRes = await refineLayeredIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? true : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else {
-        res = await refineIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+        res = await refineIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? true : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
       }
-      
-      setPages(curr => curr.map(pg => pg.id === targetId ? { 
-        ...pg, 
-        status: 'completed', 
+
+      setPages(curr => curr.map(pg => pg.id === targetId ? {
+        ...pg,
+        status: 'completed',
         processedImage: res,
         layers: layers || pg.layers,
-        isSpread: fixMode === 'outpaint' ? !pg.isSpread : pg.isSpread 
+        isSpread: fixMode === 'outpaint' ? true : pg.isSpread
       } : pg));
       
       setFixInstruction("");
