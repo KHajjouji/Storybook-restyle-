@@ -11,6 +11,7 @@ import { SimpleWizard } from './components/SimpleWizard';
 import { SubscriptionPage } from './components/SubscriptionPage';
 import { UserDashboard } from './components/UserDashboard';
 import { CanvaExportModal } from './components/CanvaExportModal';
+import { OutpaintPreview } from './components/OutpaintPreview';
 import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
@@ -2815,17 +2816,33 @@ const App: React.FC = () => {
                        </div>
 
                        <div className="space-y-8">
-                          <h4 className="text-xs font-black uppercase text-indigo-600 tracking-widest">3. Reference Picker (Optional)</h4>
-                          <div className="grid grid-cols-2 gap-6 h-[500px] overflow-y-auto pr-4 custom-scrollbar">
-                             {pages.map((p, i) => (
-                               <div key={p.id} onClick={() => setSelectedRefIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} className={`aspect-square rounded-[2rem] border-4 overflow-hidden relative cursor-pointer transition-all ${selectedRefIds.has(p.id) ? 'border-indigo-600 scale-95 shadow-2xl' : 'border-transparent opacity-60 hover:opacity-100'}`}>
-                                  <div className="absolute top-4 left-4 z-10 w-10 h-10 bg-black/60 text-white rounded-xl flex items-center justify-center font-black text-lg">#{i+1}</div>
-                                  <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />
-                                  {selectedRefIds.has(p.id) && <div className="absolute inset-0 bg-indigo-600/30 flex items-center justify-center text-white"><CheckCircle2 size={48} /></div>}
-                               </div>
-                             ))}
-                          </div>
-                          <p className="text-sm text-slate-400 font-bold uppercase text-center tracking-widest">Select frames to inject visual likeness/clothing.</p>
+                          {fixMode === 'outpaint' ? (
+                            <div className="h-full min-h-[500px]">
+                              <OutpaintPreview 
+                                originalImage={(() => {
+                                  const p = pages.find(pg => pg.id === activeFixId);
+                                  return p ? p.processedImage || p.originalImage : null;
+                                })()}
+                                outpaintPos={outpaintPos}
+                                outpaintScale={outpaintScale}
+                                targetAspectRatio={targetAspectRatio}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <h4 className="text-xs font-black uppercase text-indigo-600 tracking-widest">3. Reference Picker (Optional)</h4>
+                              <div className="grid grid-cols-2 gap-6 h-[500px] overflow-y-auto pr-4 custom-scrollbar">
+                                 {pages.map((p, i) => (
+                                   <div key={p.id} onClick={() => setSelectedRefIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} className={`aspect-square rounded-[2rem] border-4 overflow-hidden relative cursor-pointer transition-all ${selectedRefIds.has(p.id) ? 'border-indigo-600 scale-95 shadow-2xl' : 'border-transparent opacity-60 hover:opacity-100'}`}>
+                                      <div className="absolute top-4 left-4 z-10 w-10 h-10 bg-black/60 text-white rounded-xl flex items-center justify-center font-black text-lg">#{i+1}</div>
+                                      <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />
+                                      {selectedRefIds.has(p.id) && <div className="absolute inset-0 bg-indigo-600/30 flex items-center justify-center text-white"><CheckCircle2 size={48} /></div>}
+                                   </div>
+                                 ))}
+                              </div>
+                              <p className="text-sm text-slate-400 font-bold uppercase text-center tracking-widest">Select frames to inject visual likeness/clothing.</p>
+                            </>
+                          )}
                        </div>
                     </div>
                  </div>
