@@ -289,7 +289,7 @@ export const generateCoreBookPDF = async (
       retargeting: undefined
     }));
     const metadataStr = JSON.stringify({
-      title: projectName,
+      title: title,
       settings: settings,
       pages: strippedPages
     });

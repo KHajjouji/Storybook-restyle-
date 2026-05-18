@@ -244,6 +244,8 @@ const App: React.FC = () => {
   // The Advanced Fixer State
   const [activeFixId, setActiveFixId] = useState<string | null>(null);
   const [fixInstruction, setFixInstruction] = useState("");
+  const [extractionProgress, setExtractionProgress] = useState(0);
+  const [extractionTotal, setExtractionTotal] = useState(0);
   const [selectedRefIds, setSelectedRefIds] = useState<Set<string>>(new Set());
   const [fixMode, setFixMode] = useState<'targeted' | 'outpaint' | 'separate-layers'>('targeted');
   const [outpaintPos, setOutpaintPos] = useState<'left' | 'center' | 'right'>('center');
@@ -768,7 +770,11 @@ const App: React.FC = () => {
           showToast("PDF Project imported! Loading images...");
 
           // Now progressively load images
-          await extractImagesFromPDF(file, (imgUrl, idx) => {
+          setExtractionProgress(0);
+          setExtractionTotal(0);
+          await extractImagesFromPDF(file, (imgUrl, idx, total) => {
+            setExtractionTotal(total);
+            setExtractionProgress(idx + 1);
             setPages(currentPages => {
               const newPages = [...currentPages];
               if (newPages[idx]) {
@@ -781,6 +787,9 @@ const App: React.FC = () => {
               return newPages;
             });
           });
+          
+          setExtractionTotal(0);
+          setExtractionProgress(0);
           
           showToast("Images loaded successfully!");
         } else {
@@ -986,7 +995,11 @@ const App: React.FC = () => {
         showToast("Extracting images from PDF...");
         try {
           const { extractImagesFromPDF } = await import('./utils/pdfExtract');
+          setExtractionProgress(0);
+          setExtractionTotal(0);
           await extractImagesFromPDF(f, (imgUrl, idx, total) => {
+            setExtractionTotal(total);
+            setExtractionProgress(idx + 1);
             const newPage: BookPage = {
               id: Math.random().toString(36).substring(7),
               originalImage: imgUrl,
@@ -1002,6 +1015,8 @@ const App: React.FC = () => {
               showToast(`Extracted ${idx + 1} of ${total} PDF pages`);
             }
           });
+          setExtractionTotal(0);
+          setExtractionProgress(0);
         } catch (error) {
           console.error("PDF extraction failed", error);
           showToast("Failed to extract images from PDF.");
@@ -3375,6 +3390,16 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
+      {extractionTotal > 0 && extractionTotal >= extractionProgress && extractionProgress > 0 && (
+        <div className="fixed inset-0 min-h-screen bg-slate-900/80 backdrop-blur-md z-[100] flex flex-col items-center justify-center p-8">
+          <Loader2 className="animate-spin text-white mb-8" size={100} />
+          <h2 className="text-4xl font-black text-white uppercase tracking-widest text-center">Extracting PDF Elements</h2>
+          <div className="w-full max-w-lg mt-8 bg-slate-800 rounded-full h-4 overflow-hidden">
+            <div className="bg-indigo-500 h-full transition-all duration-300" style={{width: `${(extractionProgress/extractionTotal)*100}%`}}></div>
+          </div>
+          <p className="text-slate-400 font-bold mt-4 text-xl">{extractionProgress} of {extractionTotal} pages processed</p>
+        </div>
+      )}
       {userMode === 'professional' ? (
         <header className="h-36 bg-white/80 backdrop-blur-3xl border-b border-slate-100 sticky top-0 z-[60] px-20 flex items-center justify-between shadow-sm">
           <div onClick={() => setCurrentStep('landing')} className="flex items-center gap-8 cursor-pointer group">
