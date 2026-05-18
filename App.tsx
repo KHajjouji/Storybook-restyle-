@@ -244,6 +244,7 @@ const App: React.FC = () => {
   // The Advanced Fixer State
   const [activeFixId, setActiveFixId] = useState<string | null>(null);
   const [fixInstruction, setFixInstruction] = useState("");
+  const [isExtractingPdf, setIsExtractingPdf] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState(0);
   const [extractionTotal, setExtractionTotal] = useState(0);
   const [selectedRefIds, setSelectedRefIds] = useState<Set<string>>(new Set());
@@ -770,6 +771,7 @@ const App: React.FC = () => {
           showToast("PDF Project imported! Loading images...");
 
           // Now progressively load images
+          setIsExtractingPdf(true);
           setExtractionProgress(0);
           setExtractionTotal(0);
           await extractImagesFromPDF(file, (imgUrl, idx, total) => {
@@ -790,6 +792,7 @@ const App: React.FC = () => {
           
           setExtractionTotal(0);
           setExtractionProgress(0);
+          setIsExtractingPdf(false);
           
           showToast("Images loaded successfully!");
         } else {
@@ -800,6 +803,7 @@ const App: React.FC = () => {
         showToast("Failed to parse PDF for project data.");
       } finally {
         setIsProcessing(false);
+        setIsExtractingPdf(false);
       }
       return;
     }
@@ -995,6 +999,7 @@ const App: React.FC = () => {
         showToast("Extracting images from PDF...");
         try {
           const { extractImagesFromPDF } = await import('./utils/pdfExtract');
+          setIsExtractingPdf(true);
           setExtractionProgress(0);
           setExtractionTotal(0);
           await extractImagesFromPDF(f, (imgUrl, idx, total) => {
@@ -1017,7 +1022,9 @@ const App: React.FC = () => {
           });
           setExtractionTotal(0);
           setExtractionProgress(0);
+          setIsExtractingPdf(false);
         } catch (error) {
+          setIsExtractingPdf(false);
           console.error("PDF extraction failed", error);
           showToast("Failed to extract images from PDF.");
         }
@@ -3390,14 +3397,17 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
-      {extractionTotal > 0 && extractionTotal >= extractionProgress && extractionProgress > 0 && (
+      {isExtractingPdf && (
         <div className="fixed inset-0 min-h-screen bg-slate-900/80 backdrop-blur-md z-[100] flex flex-col items-center justify-center p-8">
           <Loader2 className="animate-spin text-white mb-8" size={100} />
           <h2 className="text-4xl font-black text-white uppercase tracking-widest text-center">Extracting PDF Elements</h2>
-          <div className="w-full max-w-lg mt-8 bg-slate-800 rounded-full h-4 overflow-hidden">
-            <div className="bg-indigo-500 h-full transition-all duration-300" style={{width: `${(extractionProgress/extractionTotal)*100}%`}}></div>
+          <div className="w-full max-w-lg mt-8 bg-slate-800 rounded-full h-4 overflow-hidden relative">
+            <div className="bg-indigo-500 h-full transition-all duration-300" style={{width: `${extractionTotal > 0 ? (extractionProgress/extractionTotal)*100 : 0}%`}}></div>
+            {extractionTotal === 0 && <div className="absolute inset-0 bg-indigo-500/50 animate-pulse"></div>}
           </div>
-          <p className="text-slate-400 font-bold mt-4 text-xl">{extractionProgress} of {extractionTotal} pages processed</p>
+          <p className="text-slate-400 font-bold mt-4 text-xl">
+             {extractionTotal > 0 ? `${extractionProgress} of ${extractionTotal} pages processed` : "Parsing PDF document..."}
+          </p>
         </div>
       )}
       {userMode === 'professional' ? (
