@@ -207,6 +207,14 @@ const getAvailableSteps = (mode: AppMode): { id: Step, label: string }[] => {
   }
 };
 
+const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
+  if (ratio === '9:16') return '4:3';
+  if (ratio === '1:1') return '16:9';
+  if (ratio === '4:3') return '16:9';
+  if (ratio === '16:9') return '16:9';
+  return '16:9';
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -251,6 +259,7 @@ const App: React.FC = () => {
   const [fixMode, setFixMode] = useState<'targeted' | 'outpaint' | 'separate-layers'>('targeted');
   const [outpaintPos, setOutpaintPos] = useState<'left' | 'center' | 'right'>('center');
   const [outpaintScale, setOutpaintScale] = useState<number>(1.0);
+  const [outpaintPreviewUrl, setOutpaintPreviewUrl] = useState<string | null>(null);
 
   // Character Retargeting State
   const [activeRetargetId, setActiveRetargetId] = useState<string | null>(null);
@@ -619,6 +628,76 @@ const App: React.FC = () => {
       loadGoogleFont(settings.textFont).catch(console.error);
     }
   }, [settings.textFont]);
+
+  // Live outpaint canvas preview — re-renders whenever the user adjusts position or scale
+  useEffect(() => {
+    if (fixMode !== 'outpaint' || !activeFixId) {
+      setOutpaintPreviewUrl(null);
+      return;
+    }
+    const activePage = pages.find(p => p.id === activeFixId);
+    const srcImg = activePage?.processedImage || activePage?.originalImage;
+    if (!srcImg) return;
+
+    let cancelled = false;
+    const PREVIEW_W = 480;
+    const finalRatio = getSpreadRatio(targetAspectRatio);
+    const [wStr, hStr] = finalRatio.split(':');
+    const rW = parseInt(wStr) || 16;
+    const rH = parseInt(hStr) || 9;
+    const cw = PREVIEW_W;
+    const ch = Math.round(PREVIEW_W * (rH / rW));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d')!;
+
+    // Checkerboard fill — shows the user which areas will be outpainted
+    const tile = 18;
+    for (let y = 0; y < ch; y += tile) {
+      for (let x = 0; x < cw; x += tile) {
+        ctx.fillStyle = ((Math.floor(x / tile) + Math.floor(y / tile)) % 2 === 0) ? '#dde4f7' : '#c8d2f0';
+        ctx.fillRect(x, y, tile, tile);
+      }
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      const imgRatio = (img.width || 1) / (img.height || 1);
+      let drawW = cw * outpaintScale;
+      let drawH = drawW / imgRatio;
+      if (drawH > ch * outpaintScale) {
+        drawH = ch * outpaintScale;
+        drawW = drawH * imgRatio;
+      }
+      let dx = (cw - drawW) / 2;
+      const dy = (ch - drawH) / 2;
+      if (outpaintPos === 'left') dx = 0;
+      else if (outpaintPos === 'right') dx = cw - drawW;
+
+      ctx.drawImage(img, dx, dy, drawW, drawH);
+
+      // Dashed indigo border around the placed image
+      ctx.save();
+      ctx.strokeStyle = '#6366f1';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([7, 4]);
+      ctx.strokeRect(dx + 1, dy + 1, drawW - 2, drawH - 2);
+      ctx.restore();
+
+      if (!cancelled) {
+        setOutpaintPreviewUrl(canvas.toDataURL('image/png'));
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    };
+    img.onerror = () => { canvas.width = 0; canvas.height = 0; };
+    img.src = srcImg;
+
+    return () => { cancelled = true; };
+  }, [fixMode, activeFixId, outpaintPos, outpaintScale, targetAspectRatio, pages]);
 
   if (!isAuthReady) {
     return (
@@ -1252,13 +1331,6 @@ const App: React.FC = () => {
                                 .map(pg => ({ base64: (pg.processedImage || pg.originalImage)!, index: pages.indexOf(pg) + 1 }));
 
       let finalPrompt = fixInstruction;
-      const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
-        if (ratio === '9:16') return '1:1';
-        if (ratio === '1:1') return '16:9';
-        if (ratio === '4:3') return '16:9';
-        if (ratio === '16:9') return '16:9';
-        return '16:9';
-      };
 
       let finalRatio = targetAspectRatio;
       let finalTargetImg = targetImg;
@@ -2773,22 +2845,57 @@ const App: React.FC = () => {
                                   <Maximize size={24} /> OUTPAINT TO SPREAD
                                </button>
                                {fixMode === 'outpaint' && (
-                                 <div className="bg-indigo-50 rounded-[2rem] p-6 space-y-4 mb-2 shadow-inner border border-indigo-100">
-                                   <div className="flex items-center justify-between">
-                                     <span className="text-xs font-black uppercase text-indigo-600 tracking-widest">Original Image Position</span>
-                                     <div className="flex gap-2">
-                                       <button onClick={() => setOutpaintPos('left')} className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${outpaintPos === 'left' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 hover:bg-indigo-100'}`}>Left</button>
-                                       <button onClick={() => setOutpaintPos('center')} className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${outpaintPos === 'center' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 hover:bg-indigo-100'}`}>Center</button>
-                                       <button onClick={() => setOutpaintPos('right')} className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${outpaintPos === 'right' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 hover:bg-indigo-100'}`}>Right</button>
+                                 <div className="bg-indigo-50 rounded-[2rem] p-6 space-y-5 mb-2 shadow-inner border border-indigo-100">
+
+                                   {/* ── Live canvas preview ── */}
+                                   <div className="space-y-2">
+                                     <span className="text-xs font-black uppercase text-indigo-600 tracking-widest">Canvas Preview</span>
+                                     <div className="relative rounded-2xl overflow-hidden border-2 border-indigo-200 bg-indigo-100 shadow-inner" style={{aspectRatio:'16/9'}}>
+                                       {outpaintPreviewUrl
+                                         ? <img src={outpaintPreviewUrl} className="w-full h-full object-cover" alt="outpaint preview" />
+                                         : <div className="w-full h-full flex items-center justify-center"><span className="text-indigo-300 font-bold text-sm">Loading preview…</span></div>
+                                       }
+                                       <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-indigo-700/80 backdrop-blur-sm text-white text-xs font-bold px-3 py-1 rounded-full whitespace-nowrap pointer-events-none">
+                                         Checkerboard = AI fills this area
+                                       </div>
                                      </div>
                                    </div>
+
+                                   {/* ── Position buttons ── */}
+                                   <div className="space-y-2">
+                                     <span className="text-xs font-black uppercase text-indigo-600 tracking-widest">Original Image Position</span>
+                                     <div className="grid grid-cols-3 gap-2">
+                                       {(['left','center','right'] as const).map(pos => (
+                                         <button key={pos} onClick={() => setOutpaintPos(pos)}
+                                           className={`py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-colors flex flex-col items-center gap-1 ${outpaintPos === pos ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 hover:bg-indigo-100'}`}>
+                                           <span className="text-lg leading-none">
+                                             {pos === 'left' ? '◧' : pos === 'right' ? '◨' : '◫'}
+                                           </span>
+                                           {pos}
+                                         </button>
+                                       ))}
+                                     </div>
+                                   </div>
+
+                                   {/* ── Scale slider ── */}
                                    <div className="space-y-2">
                                      <div className="flex justify-between items-center text-xs font-black uppercase text-indigo-600 tracking-widest">
-                                       <span>Scale</span>
-                                       <span>{Math.round(outpaintScale * 100)}%</span>
+                                       <span>Original Image Scale</span>
+                                       <span className="bg-indigo-600 text-white px-2 py-0.5 rounded-lg">{Math.round(outpaintScale * 100)}%</span>
                                      </div>
-                                     <input type="range" min="0.2" max="1.5" step="0.1" value={outpaintScale} onChange={e => setOutpaintScale(parseFloat(e.target.value))} className="w-full accent-indigo-600" />
+                                     <input type="range" min="0.2" max="1.0" step="0.05" value={outpaintScale}
+                                       onChange={e => setOutpaintScale(parseFloat(e.target.value))}
+                                       className="w-full accent-indigo-600" />
+                                     <div className="flex justify-between text-xs text-indigo-400 font-bold">
+                                       <span>Smaller (more outpaint)</span>
+                                       <span>Full height</span>
+                                     </div>
                                    </div>
+
+                                   {/* ── Target ratio hint ── */}
+                                   <p className="text-xs text-indigo-500 font-bold text-center">
+                                     {targetAspectRatio} → {getSpreadRatio(targetAspectRatio)} canvas
+                                   </p>
                                  </div>
                                )}
                                <button onClick={() => setFixMode('separate-layers')} className={`w-full py-4 rounded-[2rem] font-black text-xl flex items-center justify-center gap-4 transition-all ${fixMode === 'separate-layers' ? 'bg-indigo-600 text-white shadow-2xl' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>

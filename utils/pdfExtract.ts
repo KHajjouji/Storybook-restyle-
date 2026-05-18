@@ -49,7 +49,7 @@ export const extractImagesFromPDF = async (
     canvas.height = viewport.height;
     canvas.width = viewport.width;
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
     const imgData = canvas.toDataURL('image/jpeg', 0.85);
 
     // Release canvas memory immediately — holding 40+ canvases in RAM causes
