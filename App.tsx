@@ -988,20 +988,25 @@ const App: React.FC = () => {
 
   const handleRestyleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
-    
+
     setIsProcessing(true);
-    if (currentStep === 'landing' || currentStep === 'upload') {
-      setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
-    }
 
     for (const f of files) {
       if (f.type === 'application/pdf') {
-        showToast("Extracting images from PDF...");
+        // Show the overlay FIRST, before the dynamic import (which itself can take
+        // a second) and before navigating — prevents the "jumped to blank page" effect.
+        setIsExtractingPdf(true);
+        setExtractionProgress(0);
+        setExtractionTotal(0);
+        // Yield one frame so React paints the overlay before we block the thread.
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        if (currentStep === 'landing' || currentStep === 'upload') {
+          setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
+        }
+
         try {
           const { extractImagesFromPDF } = await import('./utils/pdfExtract');
-          setIsExtractingPdf(true);
-          setExtractionProgress(0);
-          setExtractionTotal(0);
           await extractImagesFromPDF(f, (imgUrl, idx, total) => {
             setExtractionTotal(total);
             setExtractionProgress(idx + 1);
@@ -1029,6 +1034,9 @@ const App: React.FC = () => {
           showToast("Failed to extract images from PDF.");
         }
       } else {
+        if (currentStep === 'landing' || currentStep === 'upload') {
+          setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
+        }
         const dataUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result as string);

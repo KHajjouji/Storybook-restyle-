@@ -1,7 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// We'll use CDN for the worker to avoid bundler issues
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href;
 
 export const extractProjectFromPDF = async (file: File): Promise<any> => {
   try {
@@ -58,6 +57,10 @@ export const extractImagesFromPDF = async (file: File, onProgress?: (imgUrl: str
       // Yield to main thread to allow React to paint the new page smoothly
       await new Promise(resolve => setTimeout(resolve, 10));
     }
+    
+    // Release native memory for this canvas immediately
+    canvas.width = 0;
+    canvas.height = 0;
   }
 
   return images;
