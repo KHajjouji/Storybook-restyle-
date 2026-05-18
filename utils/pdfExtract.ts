@@ -1,11 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Use Vite's module resolution instead of CDN. CDN lags behind npm releases
-// so the exact version (e.g. 5.7.284) often 404s, making getDocument() hang forever.
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).href;
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href;
 
 export const extractProjectFromPDF = async (file: File): Promise<any> => {
   try {
@@ -64,6 +59,10 @@ export const extractImagesFromPDF = async (
       // Yield to main thread so React can paint the progress bar update
       await new Promise(resolve => setTimeout(resolve, 10));
     }
+    
+    // Release native memory for this canvas immediately
+    canvas.width = 0;
+    canvas.height = 0;
   }
 
   return images;

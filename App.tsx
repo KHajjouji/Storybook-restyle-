@@ -11,6 +11,7 @@ import { SimpleWizard } from './components/SimpleWizard';
 import { SubscriptionPage } from './components/SubscriptionPage';
 import { UserDashboard } from './components/UserDashboard';
 import { CanvaExportModal } from './components/CanvaExportModal';
+import { OutpaintPreview } from './components/OutpaintPreview';
 import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
@@ -1111,6 +1112,9 @@ const App: React.FC = () => {
           showToast("Failed to extract images from PDF.");
         }
       } else {
+        if (currentStep === 'landing' || currentStep === 'upload') {
+          setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
+        }
         const dataUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result as string);
@@ -1260,7 +1264,7 @@ const App: React.FC = () => {
       let layers;
       const targetText = settings.embedTextInImage ? p.originalText : undefined;
       const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
-        if (ratio === '9:16') return '1:1';
+        if (ratio === '9:16') return '4:3';
         if (ratio === '1:1') return '16:9';
         if (ratio === '4:3') return '16:9';
         if (ratio === '16:9') return '16:9';
@@ -1331,12 +1335,18 @@ const App: React.FC = () => {
                                 .map(pg => ({ base64: (pg.processedImage || pg.originalImage)!, index: pages.indexOf(pg) + 1 }));
 
       let finalPrompt = fixInstruction;
+      const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
+        if (ratio === '9:16') return '4:3';
+        if (ratio === '1:1') return '16:9';
+        if (ratio === '4:3') return '16:9';
+        if (ratio === '16:9') return '16:9';
+        return '16:9';
+      };
 
       let finalRatio = targetAspectRatio;
       let finalTargetImg = targetImg;
       
       if (fixMode === 'outpaint') {
-        // Always expand to the spread ratio — outpaint result is always a wide canvas.
         finalRatio = getSpreadRatio(targetAspectRatio);
         finalPrompt = `OUTPAINTING TASK: The original image has been placed on a larger canvas. Intelligently fill the surrounding blank white space to seamlessly continue the scene and complete the composition. Ensure exact style matching. Request: ${fixInstruction || 'No specific fix, just outpaint and expand the scene.'}`;
         
@@ -1363,7 +1373,10 @@ const App: React.FC = () => {
         // Load original image
         const img = new Image();
         img.src = targetImg;
-        await new Promise((resolve) => { img.onload = resolve; });
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error('Failed to load image for outpaint'));
+        });
         
         // Calculate image aspect ratio
         const imgRatio = (img.width || 1) / (img.height || 1);
@@ -1419,7 +1432,7 @@ const App: React.FC = () => {
         status: 'completed',
         processedImage: res,
         layers: layers || pg.layers,
-        isSpread: fixMode === 'outpaint' ? true : pg.isSpread
+        isSpread: fixMode === 'outpaint' ? true : pg.isSpread 
       } : pg));
       
       setFixInstruction("");
@@ -1475,7 +1488,7 @@ const App: React.FC = () => {
       const retargeting = p.retargeting || { sourceHotspots: [], targetHotspots: [], instruction: "" };
 
       const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
-        if (ratio === '9:16') return '1:1';
+        if (ratio === '9:16') return '4:3';
         if (ratio === '1:1') return '16:9';
         if (ratio === '4:3') return '16:9';
         if (ratio === '16:9') return '16:9';
@@ -2915,17 +2928,33 @@ const App: React.FC = () => {
                        </div>
 
                        <div className="space-y-8">
-                          <h4 className="text-xs font-black uppercase text-indigo-600 tracking-widest">3. Reference Picker (Optional)</h4>
-                          <div className="grid grid-cols-2 gap-6 h-[500px] overflow-y-auto pr-4 custom-scrollbar">
-                             {pages.map((p, i) => (
-                               <div key={p.id} onClick={() => setSelectedRefIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} className={`aspect-square rounded-[2rem] border-4 overflow-hidden relative cursor-pointer transition-all ${selectedRefIds.has(p.id) ? 'border-indigo-600 scale-95 shadow-2xl' : 'border-transparent opacity-60 hover:opacity-100'}`}>
-                                  <div className="absolute top-4 left-4 z-10 w-10 h-10 bg-black/60 text-white rounded-xl flex items-center justify-center font-black text-lg">#{i+1}</div>
-                                  <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />
-                                  {selectedRefIds.has(p.id) && <div className="absolute inset-0 bg-indigo-600/30 flex items-center justify-center text-white"><CheckCircle2 size={48} /></div>}
-                               </div>
-                             ))}
-                          </div>
-                          <p className="text-sm text-slate-400 font-bold uppercase text-center tracking-widest">Select frames to inject visual likeness/clothing.</p>
+                          {fixMode === 'outpaint' ? (
+                            <div className="h-full min-h-[500px]">
+                              <OutpaintPreview 
+                                originalImage={(() => {
+                                  const p = pages.find(pg => pg.id === activeFixId);
+                                  return p ? p.processedImage || p.originalImage : null;
+                                })()}
+                                outpaintPos={outpaintPos}
+                                outpaintScale={outpaintScale}
+                                targetAspectRatio={targetAspectRatio}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <h4 className="text-xs font-black uppercase text-indigo-600 tracking-widest">3. Reference Picker (Optional)</h4>
+                              <div className="grid grid-cols-2 gap-6 h-[500px] overflow-y-auto pr-4 custom-scrollbar">
+                                 {pages.map((p, i) => (
+                                   <div key={p.id} onClick={() => setSelectedRefIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} className={`aspect-square rounded-[2rem] border-4 overflow-hidden relative cursor-pointer transition-all ${selectedRefIds.has(p.id) ? 'border-indigo-600 scale-95 shadow-2xl' : 'border-transparent opacity-60 hover:opacity-100'}`}>
+                                      <div className="absolute top-4 left-4 z-10 w-10 h-10 bg-black/60 text-white rounded-xl flex items-center justify-center font-black text-lg">#{i+1}</div>
+                                      <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />
+                                      {selectedRefIds.has(p.id) && <div className="absolute inset-0 bg-indigo-600/30 flex items-center justify-center text-white"><CheckCircle2 size={48} /></div>}
+                                   </div>
+                                 ))}
+                              </div>
+                              <p className="text-sm text-slate-400 font-bold uppercase text-center tracking-widest">Select frames to inject visual likeness/clothing.</p>
+                            </>
+                          )}
                        </div>
                     </div>
                  </div>
