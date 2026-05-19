@@ -292,7 +292,8 @@ export const restyleIllustration = async (
   estimatedPageCount?: number,
   environmentRefBase64?: string,
   environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes' = 'environment',
-  targetStyle?: string
+  targetStyle?: string,
+  borrowConfig?: import('./types').BorrowConfig
 ): Promise<string> => {
   const ai = getAIClient();
   const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-3.1-flash-image-preview';
@@ -334,6 +335,10 @@ export const restyleIllustration = async (
   TARGET STYLE: "${targetStyle}"
   CRITICAL: You MUST maintain and strictly enforce this exact visual style. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.` : "";
 
+  const coreRule = borrowConfig 
+    ? "CORE RULE: The CHARACTER IDENTITY images are for face/body extraction ONLY. The VISUAL LINK REFERENCE instructions that follow are MANDATORY OVERRIDES with HIGHEST PRIORITY. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK."
+    : "CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.";
+
   const instruction = `ILLUSTRATOR TASK:
   SERIES BIBLE: ${masterBible}
   PROJECT CONTEXT: ${projectContext}
@@ -343,7 +348,7 @@ export const restyleIllustration = async (
   ${textInstruction}
   ${styleInstruction}
   
-  CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.
+  ${coreRule}
   CRITICAL: Produce a high-detail, fully rendered, high-quality illustration. Do not output sketches or low-fidelity concepts unless explicitly requested.`;
 
   const parts: any[] = [{ text: instruction }];
@@ -374,7 +379,7 @@ export const restyleIllustration = async (
     let refText = "";
 
     if (borrowConfig) {
-      refText = "--- VISUAL LINK REFERENCE ---\nCRITICAL INSTRUCTIONS FOR USING THIS REFERENCE IMAGE:\n";
+      refText = "--- VISUAL LINK REFERENCE ---\nHIGHEST PRIORITY — OVERRIDES ALL OTHER RULES\nCRITICAL INSTRUCTIONS FOR USING THIS REFERENCE IMAGE:\n";
       let borrows = [];
       
       const isBgOnly = stylePrompt.includes("BACKGROUND ONLY") || stylePrompt.includes("ENVIRONMENT/BACKGROUND ONLY");
@@ -382,28 +387,29 @@ export const restyleIllustration = async (
       const isPropsOnly = stylePrompt.includes("FOREGROUND PROPS");
 
       if (borrowConfig.environment) {
-         if (!isCharOnly && !isPropsOnly) borrows.push("ENVIRONMENT: You MUST perfectly maintain the exact location, background, time of day, and weather shown in the reference.");
+         if (!isCharOnly && !isPropsOnly) borrows.push("✅ BORROW ENVIRONMENT: You MUST perfectly maintain the exact location, background, time of day, and weather shown in the reference.");
       } else {
-         if (!isCharOnly && !isPropsOnly) borrows.push("ENVIRONMENT: DO NOT copy the environment shown in the reference. Generate a completely new background.");
+         if (!isCharOnly && !isPropsOnly) borrows.push("❌ NEW ENVIRONMENT: DO NOT copy the environment shown in the reference. Generate a completely new background.");
       }
 
       if (borrowConfig.characters) {
-         if (!isBgOnly && !isPropsOnly) borrows.push("CHARACTERS: You MUST maintain the exact character identities, body types, and facial features shown in the reference.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW CHARACTERS: You MUST maintain the exact character identities, body types, and facial features shown in the reference.");
       }
 
       if (borrowConfig.clothing) {
-         if (!isBgOnly && !isPropsOnly) borrows.push("CLOTHING: You MUST use the exact clothing and outfits shown in the reference for the characters.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW CLOTHING: You MUST use the exact clothing and outfits shown in the reference for the characters.");
       } else {
-         if (!isBgOnly && !isPropsOnly) borrows.push("CLOTHING: You can flexibly change the clothing and outfits to fit the current text prompt.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("❌ NEW CLOTHING: You can flexibly change the clothing and outfits to fit the current text prompt.");
       }
 
       if (borrowConfig.poses) {
-         if (!isBgOnly && !isPropsOnly) borrows.push("POSES & EXPRESSIONS: You MUST maintain the exact poses, actions, and facial expressions shown in the reference.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW POSES & EXPRESSIONS: You MUST maintain the exact poses, actions, and facial expressions shown in the reference.");
       } else {
-         if (!isBgOnly && !isPropsOnly) borrows.push("POSES & EXPRESSIONS: You MUST radically change the character poses, actions, and facial expressions to match the current text prompt. DO NOT rigidly copy the poses from the reference image.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("❌ NEW POSES & EXPRESSIONS: You MUST radically change the character poses, actions, and facial expressions to match the current text prompt. DO NOT rigidly copy the poses from the reference image.");
       }
 
       refText += borrows.join("\n");
+      refText += "\n\nCOMPLIANCE CHECK: Validate that you have followed every single ✅ BORROW and ❌ NEW instruction before finalizing the image.";
       
     } else {
       refText = "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
