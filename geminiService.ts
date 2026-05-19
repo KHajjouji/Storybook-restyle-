@@ -1,10 +1,14 @@
-
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
-import { CharacterRef, CharacterAssignment, ExportFormat, PRINT_FORMATS } from "./types";
+import {
+  CharacterRef,
+  CharacterAssignment,
+  ExportFormat,
+  PRINT_FORMATS,
+} from "./types";
 import { calculateCoverWithBleed } from "./kdpConfig";
 
 export const getAIClient = (): GoogleGenAI => {
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return new GoogleGenAI({
       apiKey: "unused", // SDK requires a non-empty string, AI Studio handles the real authentication via interceptor
     });
@@ -12,7 +16,11 @@ export const getAIClient = (): GoogleGenAI => {
   return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
 };
 
-export const generateContentWithRetry = async (ai: GoogleGenAI, params: any, retries: number = 2): Promise<GenerateContentResponse> => {
+export const generateContentWithRetry = async (
+  ai: GoogleGenAI,
+  params: any,
+  retries: number = 2,
+): Promise<GenerateContentResponse> => {
   let attempt = 0;
   while (attempt <= retries) {
     try {
@@ -23,17 +31,17 @@ export const generateContentWithRetry = async (ai: GoogleGenAI, params: any, ret
       if (attempt > retries) {
         throw e;
       }
-      await new Promise(r => setTimeout(r, 1000 * attempt));
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
     }
   }
   throw new Error("Unreachable");
 };
 
 export const getBestAspectRatio = (
-  format?: ExportFormat, 
-  isSpread: boolean = false, 
+  format?: ExportFormat,
+  isSpread: boolean = false,
   estimatedPageCount: number = 24,
-  fallbackRatio: string = "16:9"
+  fallbackRatio: string = "16:9",
 ): "1:1" | "3:4" | "4:3" | "9:16" | "16:9" => {
   const supported = ["1:1", "3:4", "4:3", "9:16", "16:9"];
   return supported.includes(fallbackRatio) ? (fallbackRatio as any) : "16:9";
@@ -42,14 +50,16 @@ export const getBestAspectRatio = (
 /**
  * Parses a raw script text into a structured prompt pack.
  */
-export const parsePromptPack = async (rawText: string): Promise<{ 
-  masterBible: string, 
-  characterIdentities: { name: string, description: string }[],
-  scenes: { prompt: string, isSpread: boolean, text?: string }[] 
+export const parsePromptPack = async (
+  rawText: string,
+): Promise<{
+  masterBible: string;
+  characterIdentities: { name: string; description: string }[];
+  scenes: { prompt: string; isSpread: boolean; text?: string }[];
 }> => {
   const ai = getAIClient();
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3-flash-preview',
+    model: "gemini-3-flash-preview",
     contents: `Analyze the provided script to extract structural production data.
     
     1. EXTRACT MASTER BIBLE: Look for style lock instructions.
@@ -59,7 +69,7 @@ export const parsePromptPack = async (rawText: string): Promise<{
     Script:
     ${rawText}`,
     config: {
-      responseMimeType: 'application/json',
+      responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
         properties: {
@@ -70,10 +80,10 @@ export const parsePromptPack = async (rawText: string): Promise<{
               type: Type.OBJECT,
               properties: {
                 name: { type: Type.STRING },
-                description: { type: Type.STRING }
+                description: { type: Type.STRING },
               },
-              required: ['name', 'description']
-            }
+              required: ["name", "description"],
+            },
           },
           scenes: {
             type: Type.ARRAY,
@@ -82,18 +92,20 @@ export const parsePromptPack = async (rawText: string): Promise<{
               properties: {
                 prompt: { type: Type.STRING },
                 isSpread: { type: Type.BOOLEAN },
-                text: { type: Type.STRING }
+                text: { type: Type.STRING },
               },
-              required: ['prompt', 'isSpread']
-            }
-          }
+              required: ["prompt", "isSpread"],
+            },
+          },
         },
-        required: ['masterBible', 'characterIdentities', 'scenes']
-      }
-    }
+        required: ["masterBible", "characterIdentities", "scenes"],
+      },
+    },
   });
-  
-  const jsonStr = response.text?.trim() || '{"masterBible":"", "characterIdentities":[], "scenes":[]}';
+
+  const jsonStr =
+    response.text?.trim() ||
+    '{"masterBible":"", "characterIdentities":[], "scenes":[]}';
   try {
     return JSON.parse(jsonStr);
   } catch (e) {
@@ -104,13 +116,15 @@ export const parsePromptPack = async (rawText: string): Promise<{
 /**
  * Specifically parses Activity Master Prompts into discrete spreads.
  */
-export const parseActivityPack = async (rawText: string): Promise<{ 
-  globalInstructions: string,
-  spreads: { title: string, fullPrompt: string, pageText?: string }[] 
+export const parseActivityPack = async (
+  rawText: string,
+): Promise<{
+  globalInstructions: string;
+  spreads: { title: string; fullPrompt: string; pageText?: string }[];
 }> => {
   const ai = getAIClient();
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3-flash-preview',
+    model: "gemini-3-flash-preview",
     contents: `Break down this Activity Master Prompt into individual spreads.
     Extract the "GLOBAL" section separately.
     For each "SPREAD X" or "ACTIVITY PAGE X":
@@ -121,7 +135,7 @@ export const parseActivityPack = async (rawText: string): Promise<{
     Text:
     ${rawText}`,
     config: {
-      responseMimeType: 'application/json',
+      responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
         properties: {
@@ -133,18 +147,19 @@ export const parseActivityPack = async (rawText: string): Promise<{
               properties: {
                 title: { type: Type.STRING },
                 fullPrompt: { type: Type.STRING },
-                pageText: { type: Type.STRING }
+                pageText: { type: Type.STRING },
               },
-              required: ['title', 'fullPrompt']
-            }
-          }
+              required: ["title", "fullPrompt"],
+            },
+          },
         },
-        required: ['globalInstructions', 'spreads']
-      }
-    }
+        required: ["globalInstructions", "spreads"],
+      },
+    },
   });
-  
-  const jsonStr = response.text?.trim() || '{"globalInstructions":"", "spreads":[]}';
+
+  const jsonStr =
+    response.text?.trim() || '{"globalInstructions":"", "spreads":[]}';
   try {
     return JSON.parse(jsonStr);
   } catch (e) {
@@ -160,18 +175,22 @@ export const generateBookCover = async (
   charRefs: CharacterRef[] = [],
   stylePrompt: string,
   masterBible: string = "",
-  targetResolution: '1K' | '2K' | '4K' = '1K',
+  targetResolution: "1K" | "2K" | "4K" = "1K",
   targetAspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16",
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
-  styleRefBase64?: string
+  styleRefBase64?: string,
 ): Promise<string> => {
   const ai = getAIClient();
-  
+
   let formatRules = "";
   if (exportFormat && estimatedPageCount && PRINT_FORMATS[exportFormat]) {
     const config = PRINT_FORMATS[exportFormat];
-    const coverDims = calculateCoverWithBleed(config.width, config.height, estimatedPageCount);
+    const coverDims = calculateCoverWithBleed(
+      config.width,
+      config.height,
+      estimatedPageCount,
+    );
     formatRules = `
   TARGET PRINT FORMAT: ${config.name} (${estimatedPageCount} pages)
   - Exact Target Dimensions (including bleed and spine): ${coverDims.width.toFixed(3)}" wide x ${coverDims.height.toFixed(3)}" high.
@@ -204,33 +223,48 @@ export const generateBookCover = async (
   5. Composition: Must feel like a series "Master Cover" that makes people eager to buy.`;
 
   const parts: any[] = [{ text: instruction }];
-  
+
   if (styleRefBase64) {
-    const data = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
-    parts.push({ text: "--- STRICT STYLE REFERENCE --- \nCRITICAL: You MUST exactly match the illustration style, brush strokes, medium, and color palette of this reference image." });
-    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+    const data = styleRefBase64.includes(",")
+      ? styleRefBase64.split(",")[1]
+      : styleRefBase64;
+    parts.push({
+      text: "--- STRICT STYLE REFERENCE --- \nCRITICAL: You MUST exactly match the illustration style, brush strokes, medium, and color palette of this reference image.",
+    });
+    parts.push({ inlineData: { data, mimeType: "image/png" } });
   }
 
   charRefs.forEach((ref) => {
     if (ref.images.length > 0) {
       const img = ref.images[0];
       if (img && img !== "LOADING") {
-        const data = img.includes(',') ? img.split(',')[1] : img;
+        const data = img.includes(",") ? img.split(",")[1] : img;
         parts.push({ text: `REFERENCE CHARACTER: ${ref.name}` });
-        parts.push({ inlineData: { data, mimeType: 'image/png' } });
+        parts.push({ inlineData: { data, mimeType: "image/png" } });
       }
     }
   });
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3.1-flash-image-preview',
+    model: "gemini-3.1-flash-image-preview",
     contents: { parts },
-    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, true, estimatedPageCount, targetAspectRatio), imageSize: targetResolution } }
+    config: {
+      imageConfig: {
+        aspectRatio: getBestAspectRatio(
+          exportFormat,
+          true,
+          estimatedPageCount,
+          targetAspectRatio,
+        ),
+        imageSize: targetResolution,
+      },
+    },
   });
 
   if (response.candidates?.[0]?.content?.parts) {
     for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+      if (part.inlineData)
+        return `data:image/png;base64,${part.inlineData.data}`;
     }
   }
   throw new Error("Cover render failed.");
@@ -239,7 +273,10 @@ export const generateBookCover = async (
 /**
  * Designs character sheets.
  */
-export const identifyAndDesignCharacters = async (charDescription: string, stylePrompt: string): Promise<CharacterRef[]> => {
+export const identifyAndDesignCharacters = async (
+  charDescription: string,
+  stylePrompt: string,
+): Promise<CharacterRef[]> => {
   const ai = getAIClient();
   const instruction = `INDUSTRIAL CHARACTER DESIGN SHEET:
   CHARACTER DESCRIPTION: ${charDescription}
@@ -248,27 +285,32 @@ export const identifyAndDesignCharacters = async (charDescription: string, style
   - Accurate ethnicity.
   - Solid white background.`;
 
-  const imgResponse: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3.1-flash-image-preview',
-    contents: { parts: [{ text: instruction }] },
-    config: { imageConfig: { aspectRatio: '1:1', imageSize: '1K' } }
-  });
+  const imgResponse: GenerateContentResponse = await generateContentWithRetry(
+    ai,
+    {
+      model: "gemini-3.1-flash-image-preview",
+      contents: { parts: [{ text: instruction }] },
+      config: { imageConfig: { aspectRatio: "1:1", imageSize: "1K" } },
+    },
+  );
 
   let base64 = "";
   if (imgResponse.candidates?.[0]?.content?.parts) {
     for (const part of imgResponse.candidates[0].content.parts) {
-      if (part.inlineData) { 
-        base64 = `data:image/png;base64,${part.inlineData.data}`; 
-        break; 
+      if (part.inlineData) {
+        base64 = `data:image/png;base64,${part.inlineData.data}`;
+        break;
       }
     }
   }
-  return [{ 
-    id: Math.random().toString(36).substring(7), 
-    name: "Character", 
-    description: charDescription, 
-    images: base64 ? [base64] : [] 
-  }];
+  return [
+    {
+      id: Math.random().toString(36).substring(7),
+      name: "Character",
+      description: charDescription,
+      images: base64 ? [base64] : [],
+    },
+  ];
 };
 
 /**
@@ -285,26 +327,35 @@ export const restyleIllustration = async (
   cleanBackground: boolean = false,
   isSpread: boolean = false,
   masterBible?: string,
-  imageSize: '1K' | '2K' | '4K' = '1K',
+  imageSize: "1K" | "2K" | "4K" = "1K",
   projectContext: string = "",
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   environmentRefBase64?: string,
-  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes' = 'environment',
+  environmentRefType:
+    | "environment"
+    | "clothing"
+    | "characters"
+    | "everything"
+    | "env_chars_clothes" = "environment",
   targetStyle?: string,
-  borrowConfig?: import('./types').BorrowConfig
+  borrowConfig?: import("./types").BorrowConfig,
 ): Promise<string> => {
   const ai = getAIClient();
-  const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-3.1-flash-image-preview';
-  
+  const model = usePro
+    ? "gemini-3.1-flash-image-preview"
+    : "gemini-3.1-flash-image-preview";
+
   let formatRules = "";
   if (exportFormat && PRINT_FORMATS[exportFormat]) {
     const config = PRINT_FORMATS[exportFormat];
     const bleed = config.bleed;
     const safe = config.outside;
-    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
-    const height = config.height + (bleed * 2);
+    const width = isSpread
+      ? config.width * 2 + bleed * 2
+      : config.width + bleed;
+    const height = config.height + bleed * 2;
     formatRules = `
   TARGET PRINT FORMAT: ${config.name}
   - Exact Target Dimensions (including bleed): ${width.toFixed(3)}" wide x ${height.toFixed(3)}" high.
@@ -313,27 +364,38 @@ export const restyleIllustration = async (
   - CRITICAL: DO NOT draw visible bleed lines, margin lines, crop marks, or text describing the layout on the generated image. The layout instructions are for composition only.`;
   }
 
-  const layoutRules = isSpread ? `
+  const layoutRules = isSpread
+    ? `
   LAYOUT RULES FOR KDP 2-PAGE SPREAD: ${formatRules}
   - This is a WIDE SPREAD that will be folded in the middle (GUTTER).
   - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" (approx 5%) around the center fold.
   - BALANCE: Ensure the composition works as two distinct halves while remaining a cohesive single image.
-  - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.` : `
+  - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.`
+    : `
   LAYOUT RULES FOR KDP SINGLE PAGE: ${formatRules}
   - GUTTER: The side that binds to the spine needs extra margin. Keep critical elements away from the binding edge.`;
 
-  const isTextTask = stylePrompt.includes('TEXT LAYER') || targetText;
-  const textInstruction = targetText ? `
+  const isTextTask = stylePrompt.includes("TEXT LAYER") || targetText;
+  const textInstruction = targetText
+    ? `
   TEXT EMBEDDING TASK:
   - Include the following text in the illustration: "${targetText}"
   - Ensure the text is readable but CRITICALLY it MUST be artistically integrated into the environment (e.g., written in the sky, blending into backgrounds, floating naturally without harsh boundaries).
   - ABSOLUTELY NO generic rectangular text banners, solid color text boxes, or square frames behind the text. The text must naturally merge into the illustration's composition.
-  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : 
-  (isTextTask ? "" : `CRITICAL ANTI-TEXT RULE: YOU MUST NOT RENDER ANY TEXT, WORDS, LETTERS, DIALOGUE BUBBLES, OR SIGNAGE IN THE IMAGE AT ALL. DO NOT EMBED ANY PART OF THE SCRIPT OR NARRATIVE AS VISUAL TEXT IN THE ARTWORK. THE SCENE SCRIPT IS JUST CONTEXT FOR THE ACTION.`);
+  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.`
+    : isTextTask
+      ? ""
+      : `CRITICAL ANTI-TEXT RULE: YOU MUST NOT RENDER ANY TEXT, WORDS, LETTERS, DIALOGUE BUBBLES, OR SIGNAGE IN THE IMAGE AT ALL. DO NOT EMBED ANY PART OF THE SCRIPT OR NARRATIVE AS VISUAL TEXT IN THE ARTWORK. THE SCENE SCRIPT IS JUST CONTEXT FOR THE ACTION.`;
 
-  const styleInstruction = targetStyle ? `
+  const styleInstruction = targetStyle
+    ? `
   TARGET STYLE: "${targetStyle}"
-  CRITICAL: You MUST maintain and strictly enforce this exact visual style. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.` : "";
+  CRITICAL: You MUST maintain and strictly enforce this exact visual style. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.`
+    : "";
+
+  const coreRule = borrowConfig
+    ? "CORE RULE: The CHARACTER IDENTITY images are for face/body extraction ONLY. The VISUAL LINK REFERENCE instructions that follow are MANDATORY OVERRIDES with HIGHEST PRIORITY. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK."
+    : "CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.";
 
   const coreRule = borrowConfig 
     ? "CORE RULE: The CHARACTER IDENTITY images are for face/body extraction ONLY. The VISUAL LINK REFERENCE instructions that follow are MANDATORY OVERRIDES with HIGHEST PRIORITY. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK."
@@ -352,93 +414,141 @@ export const restyleIllustration = async (
   CRITICAL: Produce a high-detail, fully rendered, high-quality illustration. Do not output sketches or low-fidelity concepts unless explicitly requested.`;
 
   const parts: any[] = [{ text: instruction }];
-  
+
   if (originalImageBase64) {
-    const data = originalImageBase64.includes(',') ? originalImageBase64.split(',')[1] : originalImageBase64;
+    const data = originalImageBase64.includes(",")
+      ? originalImageBase64.split(",")[1]
+      : originalImageBase64;
     parts.push({ text: "--- ORIGINAL LAYOUT REFERENCE ---" });
-    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+    parts.push({ inlineData: { data, mimeType: "image/png" } });
   }
 
   if (styleRefBase64) {
-    const data = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
-    parts.push({ text: "--- STRICT STYLE REFERENCE --- \nCRITICAL: You MUST exactly match the illustration style, brush strokes, medium, and color palette of this reference image." });
-    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+    const data = styleRefBase64.includes(",")
+      ? styleRefBase64.split(",")[1]
+      : styleRefBase64;
+    parts.push({
+      text: "--- STRICT STYLE REFERENCE --- \nCRITICAL: You MUST exactly match the illustration style, brush strokes, medium, and color palette of this reference image.",
+    });
+    parts.push({ inlineData: { data, mimeType: "image/png" } });
   }
 
   charRefs.forEach((ref) => {
     if (ref.images.length > 0) {
       const img = ref.images[0];
-      const data = img.includes(',') ? img.split(',')[1] : img;
-      parts.push({ text: `CHARACTER IDENTITY (${ref.name}): CRITICAL RULE - Extract ONLY the face, hairstyle, clothing, and body type of this character. You MUST entirely IGNORE the background, location, and environment shown in this character reference image. DO NOT duplicate the scene from this image.` });
-      parts.push({ inlineData: { data, mimeType: 'image/png' } });
+      const data = img.includes(",") ? img.split(",")[1] : img;
+      parts.push({
+        text: `CHARACTER IDENTITY (${ref.name}): CRITICAL RULE - Extract ONLY the face, hairstyle, clothing, and body type of this character. You MUST entirely IGNORE the background, location, and environment shown in this character reference image. DO NOT duplicate the scene from this image.`,
+      });
+      parts.push({ inlineData: { data, mimeType: "image/png" } });
     }
   });
 
   if (environmentRefBase64) {
-    const data = environmentRefBase64.includes(',') ? environmentRefBase64.split(',')[1] : environmentRefBase64;
+    const data = environmentRefBase64.includes(",")
+      ? environmentRefBase64.split(",")[1]
+      : environmentRefBase64;
     let refText = "";
 
     if (borrowConfig) {
-      refText = "--- VISUAL LINK REFERENCE ---\nHIGHEST PRIORITY — OVERRIDES ALL OTHER RULES\nCRITICAL INSTRUCTIONS FOR USING THIS REFERENCE IMAGE:\n";
+      refText =
+        "--- VISUAL LINK REFERENCE ---\nHIGHEST PRIORITY — OVERRIDES ALL OTHER RULES\nCRITICAL INSTRUCTIONS FOR USING THIS REFERENCE IMAGE:\n";
       let borrows = [];
-      
-      const isBgOnly = stylePrompt.includes("BACKGROUND ONLY") || stylePrompt.includes("ENVIRONMENT/BACKGROUND ONLY");
+
+      const isBgOnly =
+        stylePrompt.includes("BACKGROUND ONLY") ||
+        stylePrompt.includes("ENVIRONMENT/BACKGROUND ONLY");
       const isCharOnly = stylePrompt.includes("CHARACTER LAYER");
       const isPropsOnly = stylePrompt.includes("FOREGROUND PROPS");
 
-      const borrows: string[] = [];
-
       if (borrowConfig.environment) {
-         if (!isCharOnly && !isPropsOnly) borrows.push("✅ BORROW ENVIRONMENT: You MUST perfectly maintain the exact location, background, time of day, and weather shown in the reference.");
+        if (!isCharOnly && !isPropsOnly)
+          borrows.push(
+            "✅ BORROW ENVIRONMENT: You MUST perfectly maintain the exact location, background, time of day, and weather shown in the reference.",
+          );
       } else {
-         if (!isCharOnly && !isPropsOnly) borrows.push("❌ NEW ENVIRONMENT: DO NOT copy the environment shown in the reference. Generate a completely new background.");
+        if (!isCharOnly && !isPropsOnly)
+          borrows.push(
+            "❌ NEW ENVIRONMENT: DO NOT copy the environment shown in the reference. Generate a completely new background.",
+          );
       }
 
       if (borrowConfig.characters) {
-         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW CHARACTERS: You MUST maintain the exact character identities, body types, and facial features shown in the reference.");
+        if (!isBgOnly && !isPropsOnly)
+          borrows.push(
+            "✅ BORROW CHARACTERS: You MUST maintain the exact character identities, body types, and facial features shown in the reference.",
+          );
       }
 
       if (borrowConfig.clothing) {
-         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW CLOTHING: You MUST use the exact clothing and outfits shown in the reference for the characters.");
+        if (!isBgOnly && !isPropsOnly)
+          borrows.push(
+            "✅ BORROW CLOTHING: You MUST use the exact clothing and outfits shown in the reference for the characters.",
+          );
       } else {
-         if (!isBgOnly && !isPropsOnly) borrows.push("❌ NEW CLOTHING: You can flexibly change the clothing and outfits to fit the current text prompt.");
+        if (!isBgOnly && !isPropsOnly)
+          borrows.push(
+            "❌ NEW CLOTHING: You can flexibly change the clothing and outfits to fit the current text prompt.",
+          );
       }
 
       if (borrowConfig.poses) {
-         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW POSES & EXPRESSIONS: You MUST maintain the exact poses, actions, and facial expressions shown in the reference.");
+        if (!isBgOnly && !isPropsOnly)
+          borrows.push(
+            "✅ BORROW POSES & EXPRESSIONS: You MUST maintain the exact poses, actions, and facial expressions shown in the reference.",
+          );
       } else {
-         if (!isBgOnly && !isPropsOnly) borrows.push("❌ NEW POSES & EXPRESSIONS: You MUST radically change the character poses, actions, and facial expressions to match the current text prompt. DO NOT rigidly copy the poses from the reference image.");
+        if (!isBgOnly && !isPropsOnly)
+          borrows.push(
+            "❌ NEW POSES & EXPRESSIONS: You MUST radically change the character poses, actions, and facial expressions to match the current text prompt. DO NOT rigidly copy the poses from the reference image.",
+          );
       }
 
       refText += borrows.join("\n");
-      refText += "\n\nCOMPLIANCE CHECK: Validate that you have followed every single ✅ BORROW and ❌ NEW instruction before finalizing the image.";
-      
+      refText +=
+        "\n\nCOMPLIANCE CHECK: Validate that you have followed every single ✅ BORROW and ❌ NEW instruction before finalizing the image.";
     } else {
-      refText = "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
-      if (environmentRefType === 'clothing') {
-        refText = "--- STRICT CLOTHING/OUTFIT REFERENCE --- \nCRITICAL: You MUST use the exact clothing and outfits shown in this reference image for the characters. IGNORE the environment and character identities, just use the clothes.";
-      } else if (environmentRefType === 'characters') {
-        refText = "--- STRICT CHARACTER COMPOSITION REFERENCE --- \nCRITICAL: You MUST maintain the exact characters, their poses, and their clothing shown in this reference image. Ensure the characters look identical to this image.";
-      } else if (environmentRefType === 'everything') {
-        refText = "--- STRICT VISUAL LINK REFERENCE --- \nCRITICAL: You MUST maintain the exact environment, location, characters, their clothing, and the general vibe shown in this reference image. Keep the visual continuity perfectly identical.";
-      } else if (environmentRefType === 'env_chars_clothes') {
-        refText = "--- STRICT CONTINUITY REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day AND the exact characters and their clothing shown in this reference image. HOWEVER, you MUST radically change their poses, actions, and facial expressions to match the current text prompt. Do NOT copy the poses from the reference image.";
+      refText =
+        "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
+      if (environmentRefType === "clothing") {
+        refText =
+          "--- STRICT CLOTHING/OUTFIT REFERENCE --- \nCRITICAL: You MUST use the exact clothing and outfits shown in this reference image for the characters. IGNORE the environment and character identities, just use the clothes.";
+      } else if (environmentRefType === "characters") {
+        refText =
+          "--- STRICT CHARACTER COMPOSITION REFERENCE --- \nCRITICAL: You MUST maintain the exact characters, their poses, and their clothing shown in this reference image. Ensure the characters look identical to this image.";
+      } else if (environmentRefType === "everything") {
+        refText =
+          "--- STRICT VISUAL LINK REFERENCE --- \nCRITICAL: You MUST maintain the exact environment, location, characters, their clothing, and the general vibe shown in this reference image. Keep the visual continuity perfectly identical.";
+      } else if (environmentRefType === "env_chars_clothes") {
+        refText =
+          "--- STRICT CONTINUITY REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day AND the exact characters and their clothing shown in this reference image. HOWEVER, you MUST radically change their poses, actions, and facial expressions to match the current text prompt. Do NOT copy the poses from the reference image.";
       }
     }
 
     parts.push({ text: refText });
-    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+    parts.push({ inlineData: { data, mimeType: "image/png" } });
   }
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
     model,
     contents: { parts },
-    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), ...(usePro ? { imageSize } : {}) } }
+    config: {
+      imageConfig: {
+        aspectRatio: getBestAspectRatio(
+          exportFormat,
+          isSpread,
+          estimatedPageCount,
+          aspectRatio,
+        ),
+        ...(usePro ? { imageSize } : {}),
+      },
+    },
   });
 
   if (response.candidates?.[0]?.content?.parts) {
     for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+      if (part.inlineData)
+        return `data:image/png;base64,${part.inlineData.data}`;
     }
   }
   throw new Error("Render failed.");
@@ -452,47 +562,63 @@ export const restyleIllustration = async (
 export const borrowSceneGeneration = async (
   referenceImageBase64: string,
   newSceneScript: string,
-  borrowConfig: import('./types').BorrowConfig,
+  borrowConfig: import("./types").BorrowConfig,
   charRefs: CharacterRef[] = [],
   isSpread: boolean = false,
   masterBible: string = "",
-  imageSize: '1K' | '2K' | '4K' = '1K',
+  imageSize: "1K" | "2K" | "4K" = "1K",
   projectContext: string = "",
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   styleRefBase64?: string,
   targetStyle?: string,
-  targetText?: string
+  targetText?: string,
 ): Promise<string> => {
   const ai = getAIClient();
-  const model = 'gemini-3.1-flash-image-preview';
+  const model = "gemini-3.1-flash-image-preview";
 
   const keepItems: string[] = [];
   const changeItems: string[] = [];
 
   if (borrowConfig.environment) {
-    keepItems.push("ENVIRONMENT: Reproduce the EXACT same location, room, architecture, furniture, props, time of day, and lighting. The new scene must unmistakably take place in the same physical space as the reference.");
+    keepItems.push(
+      "ENVIRONMENT: Reproduce the EXACT same location, room, architecture, furniture, props, time of day, and lighting. The new scene must unmistakably take place in the same physical space as the reference.",
+    );
   } else {
-    changeItems.push("ENVIRONMENT: Create a completely new background and setting appropriate for the new scene script. Do NOT copy the location from the reference.");
+    changeItems.push(
+      "ENVIRONMENT: Create a completely new background and setting appropriate for the new scene script. Do NOT copy the location from the reference.",
+    );
   }
 
   if (borrowConfig.characters) {
-    keepItems.push("CHARACTER IDENTITIES: The SAME characters must appear. Copy their exact face shapes, skin tones, hairstyles, and body proportions from the reference. They must be recognisably the same people.");
+    keepItems.push(
+      "CHARACTER IDENTITIES: The SAME characters must appear. Copy their exact face shapes, skin tones, hairstyles, and body proportions from the reference. They must be recognisably the same people.",
+    );
   } else {
-    changeItems.push("CHARACTER IDENTITIES: Generate appropriate characters for the new scene. Do NOT copy faces or identities from the reference.");
+    changeItems.push(
+      "CHARACTER IDENTITIES: Generate appropriate characters for the new scene. Do NOT copy faces or identities from the reference.",
+    );
   }
 
   if (borrowConfig.clothing) {
-    keepItems.push("CLOTHING & OUTFITS: Dress every character in the EXACT same clothing, colours, and accessories shown in the reference. Reproduce every garment detail precisely.");
+    keepItems.push(
+      "CLOTHING & OUTFITS: Dress every character in the EXACT same clothing, colours, and accessories shown in the reference. Reproduce every garment detail precisely.",
+    );
   } else {
-    changeItems.push("CLOTHING & OUTFITS: Give characters new clothing appropriate for the new scene. Do NOT copy outfits from the reference.");
+    changeItems.push(
+      "CLOTHING & OUTFITS: Give characters new clothing appropriate for the new scene. Do NOT copy outfits from the reference.",
+    );
   }
 
   if (borrowConfig.poses) {
-    keepItems.push("POSES & EXPRESSIONS: Replicate the exact body poses, hand positions, and facial expressions from the reference as closely as possible.");
+    keepItems.push(
+      "POSES & EXPRESSIONS: Replicate the exact body poses, hand positions, and facial expressions from the reference as closely as possible.",
+    );
   } else {
-    changeItems.push("POSES & EXPRESSIONS: Give characters entirely new poses and expressions that match the action described in the new scene script. Do NOT copy poses from the reference.");
+    changeItems.push(
+      "POSES & EXPRESSIONS: Give characters entirely new poses and expressions that match the action described in the new scene script. Do NOT copy poses from the reference.",
+    );
   }
 
   let formatRules = "";
@@ -500,8 +626,10 @@ export const borrowSceneGeneration = async (
     const config = PRINT_FORMATS[exportFormat];
     const bleed = config.bleed;
     const safe = config.outside;
-    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
-    const height = config.height + (bleed * 2);
+    const width = isSpread
+      ? config.width * 2 + bleed * 2
+      : config.width + bleed;
+    const height = config.height + bleed * 2;
     formatRules = `TARGET PRINT FORMAT: ${config.name} — ${width.toFixed(3)}" x ${height.toFixed(3)}" (bleed ${bleed}"). Keep critical elements ${safe}" from edges.`;
   }
 
@@ -521,37 +649,45 @@ TARGET STYLE: ${targetStyle || "match the reference image style exactly"}
 You are given a REFERENCE IMAGE from a previous scene. Adapt it into the new scene above.
 
 ══════════════ WHAT TO COPY FROM THE REFERENCE (NON-NEGOTIABLE) ══════════════
-${keepItems.length > 0 ? keepItems.map(s => `✅ ${s}`).join("\n") : "✅ Nothing specific — keep only what naturally fits the new scene script."}
+${keepItems.length > 0 ? keepItems.map((s) => `✅ ${s}`).join("\n") : "✅ Nothing specific — keep only what naturally fits the new scene script."}
 
 ══════════════ WHAT TO COMPLETELY REPLACE (NON-NEGOTIABLE) ══════════════
-${changeItems.length > 0 ? changeItems.map(s => `🔄 ${s}`).join("\n") : "🔄 Nothing specific."}
+${changeItems.length > 0 ? changeItems.map((s) => `🔄 ${s}`).join("\n") : "🔄 Nothing specific."}
 
 COMPLIANCE CHECK: Before generating, confirm every ✅ item is preserved and every 🔄 item is replaced to match the new scene script.
 QUALITY: Produce a high-detail, fully rendered illustration at the same quality level as the reference.`;
 
-  const refData = referenceImageBase64.includes(',') ? referenceImageBase64.split(',')[1] : referenceImageBase64;
+  const refData = referenceImageBase64.includes(",")
+    ? referenceImageBase64.split(",")[1]
+    : referenceImageBase64;
 
   const parts: any[] = [
     { text: instruction },
     { text: "--- REFERENCE IMAGE (adapt this into the new scene) ---" },
-    { inlineData: { data: refData, mimeType: 'image/png' } }
+    { inlineData: { data: refData, mimeType: "image/png" } },
   ];
 
   if (styleRefBase64) {
-    const styleData = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
-    parts.push({ text: "--- STYLE REFERENCE: Match this illustration style exactly ---" });
-    parts.push({ inlineData: { data: styleData, mimeType: 'image/png' } });
+    const styleData = styleRefBase64.includes(",")
+      ? styleRefBase64.split(",")[1]
+      : styleRefBase64;
+    parts.push({
+      text: "--- STYLE REFERENCE: Match this illustration style exactly ---",
+    });
+    parts.push({ inlineData: { data: styleData, mimeType: "image/png" } });
   }
 
   // Only add cast character refs when NOT borrowing characters from the visual link
   // (avoids a conflict between two sets of character faces)
   if (!borrowConfig.characters) {
-    charRefs.forEach(ref => {
+    charRefs.forEach((ref) => {
       if (ref.images.length > 0) {
         const img = ref.images[0];
-        const data = img.includes(',') ? img.split(',')[1] : img;
-        parts.push({ text: `CHARACTER IDENTITY (${ref.name}): Use this character's face and body type.` });
-        parts.push({ inlineData: { data, mimeType: 'image/png' } });
+        const data = img.includes(",") ? img.split(",")[1] : img;
+        parts.push({
+          text: `CHARACTER IDENTITY (${ref.name}): Use this character's face and body type.`,
+        });
+        parts.push({ inlineData: { data, mimeType: "image/png" } });
       }
     });
   }
@@ -559,123 +695,26 @@ QUALITY: Produce a high-detail, fully rendered illustration at the same quality 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
     model,
     contents: { parts },
-    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), imageSize } }
+    config: {
+      imageConfig: {
+        aspectRatio: getBestAspectRatio(
+          exportFormat,
+          isSpread,
+          estimatedPageCount,
+          aspectRatio,
+        ),
+        imageSize,
+      },
+    },
   });
 
   if (response.candidates?.[0]?.content?.parts) {
     for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+      if (part.inlineData)
+        return `data:image/png;base64,${part.inlineData.data}`;
     }
   }
   throw new Error("Borrow generation failed.");
-};
-
-/**
- * KEEP-AND-BORROW GENERATION: current scene image is the base canvas;
- * the reference image provides specific elements to swap in.
- * Used for KEEP presets where the user wants to preserve their existing
- * characters/composition but update clothing or move to a new environment.
- */
-export const keepAndBorrowGeneration = async (
-  currentSceneBase64: string,     // existing generated scene — what we KEEP from
-  referenceImageBase64: string,   // reference scene — what we BORROW from
-  newSceneScript: string,
-  keepItems: string[],            // human-readable list of things to preserve
-  borrowItems: string[],          // human-readable list of things to take from reference
-  charRefs: CharacterRef[] = [],
-  isSpread: boolean = false,
-  masterBible: string = "",
-  imageSize: '1K' | '2K' | '4K' = '1K',
-  projectContext: string = "",
-  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
-  exportFormat?: ExportFormat,
-  estimatedPageCount?: number,
-  styleRefBase64?: string,
-  targetStyle?: string,
-  targetText?: string
-): Promise<string> => {
-  const ai = getAIClient();
-  const model = 'gemini-3.1-flash-image-preview';
-
-  let formatRules = "";
-  if (exportFormat && PRINT_FORMATS[exportFormat]) {
-    const config = PRINT_FORMATS[exportFormat];
-    const bleed = config.bleed;
-    const safe = config.outside;
-    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
-    const height = config.height + (bleed * 2);
-    formatRules = `TARGET FORMAT: ${config.name} — ${width.toFixed(3)}" x ${height.toFixed(3)}" (bleed ${bleed}"). Keep critical elements ${safe}" from edges.`;
-  }
-
-  const textInstruction = targetText
-    ? `EMBED THIS TEXT: "${targetText}" — artistically integrated into the scene, no plain text boxes.`
-    : "Do NOT render any words or letters in the image.";
-
-  const instruction = `SCENE UPDATE TASK:
-SERIES BIBLE: ${masterBible}
-PROJECT CONTEXT: ${projectContext}
-NEW SCENE SCRIPT: ${newSceneScript}
-LAYOUT: ${aspectRatio}${isSpread ? " — TWO-PAGE SPREAD (keep gutter center clear)" : ""}
-${formatRules}
-${textInstruction}
-TARGET STYLE: ${targetStyle || "match the current scene style exactly"}
-
-You have TWO input images:
-  IMAGE A — CURRENT SCENE (the working scene to update)
-  IMAGE B — REFERENCE SCENE (the source for borrowed elements)
-
-Your job: update IMAGE A according to the instructions below.
-
-══════════════ KEEP FROM IMAGE A (current scene) ══════════════
-${keepItems.map(s => `✅ ${s}`).join("\n")}
-
-══════════════ REPLACE USING IMAGE B (reference scene) ══════════════
-${borrowItems.map(s => `🔄 ${s}`).join("\n")}
-
-CRITICAL — NATURAL COMPOSITION: When borrowing an environment, do NOT simply paste the current characters onto a new background. Recompose the characters so they fit NATURALLY and CORRECTLY within the reference location — respecting the scale, lighting direction, perspective, and spatial depth of IMAGE B.
-
-COMPLIANCE CHECK: Confirm every ✅ item is preserved from IMAGE A and every 🔄 item comes from IMAGE B before generating.
-QUALITY: Final image must match or exceed the detail level of IMAGE A.`;
-
-  const currentData = currentSceneBase64.includes(',') ? currentSceneBase64.split(',')[1] : currentSceneBase64;
-  const refData = referenceImageBase64.includes(',') ? referenceImageBase64.split(',')[1] : referenceImageBase64;
-
-  const parts: any[] = [
-    { text: instruction },
-    { text: "--- IMAGE A: CURRENT SCENE (update this) ---" },
-    { inlineData: { data: currentData, mimeType: 'image/png' } },
-    { text: "--- IMAGE B: REFERENCE SCENE (source for borrowed elements) ---" },
-    { inlineData: { data: refData, mimeType: 'image/png' } },
-  ];
-
-  if (styleRefBase64) {
-    const styleData = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
-    parts.push({ text: "--- STYLE REFERENCE: Match this illustration style ---" });
-    parts.push({ inlineData: { data: styleData, mimeType: 'image/png' } });
-  }
-
-  // Character identity refs only needed when we're not borrowing characters from the reference
-  charRefs.forEach(ref => {
-    if (ref.images.length > 0) {
-      const img = ref.images[0];
-      const data = img.includes(',') ? img.split(',')[1] : img;
-      parts.push({ text: `CHARACTER IDENTITY (${ref.name}): Use this character's face.` });
-      parts.push({ inlineData: { data, mimeType: 'image/png' } });
-    }
-  });
-
-  const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model,
-    contents: { parts },
-    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), imageSize } }
-  });
-
-  if (response.candidates?.[0]?.content?.parts) {
-    for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
-    }
-  }
-  throw new Error("Keep-and-borrow generation failed.");
 };
 
 /**
@@ -684,9 +723,9 @@ QUALITY: Final image must match or exceed the detail level of IMAGE A.`;
 export const refineIllustration = async (
   targetImageBase64: string,
   refinementPrompt: string,
-  referenceImages: { base64: string, index: number }[] = [],
+  referenceImages: { base64: string; index: number }[] = [],
   isSpread: boolean = false,
-  imageSize: '1K' | '2K' | '4K' = '1K',
+  imageSize: "1K" | "2K" | "4K" = "1K",
   masterBible: string = "",
   projectContext: string = "",
   charRefs: CharacterRef[] = [],
@@ -695,18 +734,22 @@ export const refineIllustration = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   styleRefBase64?: string,
-  targetStyle?: string
+  targetStyle?: string,
 ): Promise<string> => {
   const ai = getAIClient();
-  const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
-  
+  const targetData = targetImageBase64.includes(",")
+    ? targetImageBase64.split(",")[1]
+    : targetImageBase64;
+
   let formatRules = "";
   if (exportFormat && PRINT_FORMATS[exportFormat]) {
     const config = PRINT_FORMATS[exportFormat];
     const bleed = config.bleed;
     const safe = config.outside;
-    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
-    const height = config.height + (bleed * 2);
+    const width = isSpread
+      ? config.width * 2 + bleed * 2
+      : config.width + bleed;
+    const height = config.height + bleed * 2;
     formatRules = `
   TARGET PRINT FORMAT: ${config.name}
   - Exact Target Dimensions (including bleed): ${width.toFixed(3)}" wide x ${height.toFixed(3)}" high.
@@ -715,26 +758,33 @@ export const refineIllustration = async (
   - CRITICAL: DO NOT draw visible bleed lines, margin lines, crop marks, or text describing the layout on the generated image. The layout instructions are for composition only.`;
   }
 
-  const layoutRules = isSpread ? `
+  const layoutRules = isSpread
+    ? `
   LAYOUT RULES FOR 2-PAGE SPREAD: ${formatRules}
   - This is a WIDE SPREAD that will be folded in the middle (GUTTER).
   - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold).
   - SAFE MARGINS: Keep all text and critical details at least 10% away from the top, bottom, and outer edges.
-  - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.` : `
+  - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.`
+    : `
   LAYOUT RULES FOR SINGLE PAGE: ${formatRules}`;
 
-  const isTextTask = refinementPrompt.includes('TEXT LAYER') || targetText;
-  const textInstruction = targetText ? `
+  const isTextTask = refinementPrompt.includes("TEXT LAYER") || targetText;
+  const textInstruction = targetText
+    ? `
   TEXT EMBEDDING TASK:
   - Include/Update the following text in the illustration: "${targetText}"
   - Ensure the text is readable but CRITICALLY it MUST be artistically integrated into the environment. 
   - ABSOLUTELY NO generic rectangular text banners, solid color text boxes, or square frames behind the text. The text must naturally merge into the illustration's composition.
-  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.` : 
-  (isTextTask ? "" : `CRITICAL ANTI-TEXT RULE: YOU MUST NOT RENDER ANY TEXT, WORDS, LETTERS, DIALOGUE BUBBLES, OR SIGNAGE IN THE IMAGE AT ALL. DO NOT EMBED ANY PART OF THE SCRIPT OR NARRATIVE AS VISUAL TEXT IN THE ARTWORK.`);
+  - Placement: Position the text within the SAFE MARGINS. Avoid the GUTTER if this is a spread.`
+    : isTextTask
+      ? ""
+      : `CRITICAL ANTI-TEXT RULE: YOU MUST NOT RENDER ANY TEXT, WORDS, LETTERS, DIALOGUE BUBBLES, OR SIGNAGE IN THE IMAGE AT ALL. DO NOT EMBED ANY PART OF THE SCRIPT OR NARRATIVE AS VISUAL TEXT IN THE ARTWORK.`;
 
-  const styleInstruction = targetStyle ? `
+  const styleInstruction = targetStyle
+    ? `
   TARGET STYLE: "${targetStyle}"
-  CRITICAL: You MUST maintain and strictly enforce this exact visual style while performing the requested edits. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.` : "";
+  CRITICAL: You MUST maintain and strictly enforce this exact visual style while performing the requested edits. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.`
+    : "";
 
   const instruction = `SCENE FIXER TASK:
   SERIES BIBLE: ${masterBible}
@@ -748,43 +798,60 @@ export const refineIllustration = async (
   CORE RULE: When modifying characters, maintain their FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references unless requested. Ensure their clothing, pose, and emotions perfectly match the FIX REQUEST and MASTER BIBLE.
   CRITICAL: Do NOT drop or simplify the detail of the image. The modified image MUST be of EQUAL OR HIGHER visual quality, detail, and resolution as the original target image. Ensure that the original environment and atmosphere is perfectly preserved unless the FIX REQUEST explicitly asks to change it. Ensure high-fidelity rendering.`;
 
-  const parts: any[] = [
-    { text: instruction }
-  ];
+  const parts: any[] = [{ text: instruction }];
 
   if (styleRefBase64) {
-    const data = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
-    parts.push({ text: "--- STRICT STYLE REFERENCE --- \nCRITICAL: You MUST exactly match the illustration style, brush strokes, medium, and color palette of this reference image." });
-    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+    const data = styleRefBase64.includes(",")
+      ? styleRefBase64.split(",")[1]
+      : styleRefBase64;
+    parts.push({
+      text: "--- STRICT STYLE REFERENCE --- \nCRITICAL: You MUST exactly match the illustration style, brush strokes, medium, and color palette of this reference image.",
+    });
+    parts.push({ inlineData: { data, mimeType: "image/png" } });
   }
 
   parts.push({ text: "--- TARGET IMAGE TO BE FIXED ---" });
-  parts.push({ inlineData: { data: targetData, mimeType: 'image/png' } });
+  parts.push({ inlineData: { data: targetData, mimeType: "image/png" } });
 
   charRefs.forEach((ref) => {
     if (ref.images.length > 0) {
       const img = ref.images[0];
-      const data = img.includes(',') ? img.split(',')[1] : img;
-      parts.push({ text: `CHARACTER IDENTITY (${ref.name}): CRITICAL RULE - Extract ONLY the face, hairstyle, clothing, and body type of this character. You MUST entirely IGNORE the background, location, and environment shown in this character reference image. DO NOT duplicate the scene from this image.` });
-      parts.push({ inlineData: { data, mimeType: 'image/png' } });
+      const data = img.includes(",") ? img.split(",")[1] : img;
+      parts.push({
+        text: `CHARACTER IDENTITY (${ref.name}): CRITICAL RULE - Extract ONLY the face, hairstyle, clothing, and body type of this character. You MUST entirely IGNORE the background, location, and environment shown in this character reference image. DO NOT duplicate the scene from this image.`,
+      });
+      parts.push({ inlineData: { data, mimeType: "image/png" } });
     }
   });
 
   referenceImages.forEach((ref) => {
-    const data = ref.base64.includes(',') ? ref.base64.split(',')[1] : ref.base64;
+    const data = ref.base64.includes(",")
+      ? ref.base64.split(",")[1]
+      : ref.base64;
     parts.push({ text: `--- SERIES REFERENCE ${ref.index} ---` });
-    parts.push({ inlineData: { data, mimeType: 'image/png' } });
+    parts.push({ inlineData: { data, mimeType: "image/png" } });
   });
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3.1-flash-image-preview',
+    model: "gemini-3.1-flash-image-preview",
     contents: { parts },
-    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), imageSize } }
+    config: {
+      imageConfig: {
+        aspectRatio: getBestAspectRatio(
+          exportFormat,
+          isSpread,
+          estimatedPageCount,
+          aspectRatio,
+        ),
+        imageSize,
+      },
+    },
   });
 
   if (response.candidates?.[0]?.content?.parts) {
     for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+      if (part.inlineData)
+        return `data:image/png;base64,${part.inlineData.data}`;
     }
   }
   throw new Error("Refinement failed.");
@@ -797,59 +864,89 @@ export const upscaleIllustration = async (
   currentImageBase64: string,
   stylePrompt: string,
   isSpread: boolean = false,
-  imageSize: '1K' | '2K' | '4K' = '4K',
-  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3"
+  imageSize: "1K" | "2K" | "4K" = "4K",
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
 ): Promise<string> => {
   const ai = getAIClient();
-  const data = currentImageBase64.includes(',') ? currentImageBase64.split(',')[1] : currentImageBase64;
-  
+  const data = currentImageBase64.includes(",")
+    ? currentImageBase64.split(",")[1]
+    : currentImageBase64;
+
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3.1-flash-image-preview',
+    model: "gemini-3.1-flash-image-preview",
     contents: {
       parts: [
-        { inlineData: { data, mimeType: 'image/png' } },
-        { text: `MASTER UPSCALE. Context: ${stylePrompt}` }
-      ]
+        { inlineData: { data, mimeType: "image/png" } },
+        { text: `MASTER UPSCALE. Context: ${stylePrompt}` },
+      ],
     },
-    config: { imageConfig: { aspectRatio, imageSize } }
+    config: { imageConfig: { aspectRatio, imageSize } },
   });
-  
+
   if (response.candidates?.[0]?.content?.parts) {
     for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+      if (part.inlineData)
+        return `data:image/png;base64,${part.inlineData.data}`;
     }
   }
   throw new Error("Upscale failed.");
 };
 
-export const translateText = async (text: string, targetLanguage: string): Promise<string> => {
-  if (targetLanguage === 'NONE_CLEAN_BG' || targetLanguage === 'English') return text;
+export const translateText = async (
+  text: string,
+  targetLanguage: string,
+): Promise<string> => {
+  if (targetLanguage === "NONE_CLEAN_BG" || targetLanguage === "English")
+    return text;
   const ai = getAIClient();
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3-flash-preview',
+    model: "gemini-3-flash-preview",
     contents: `Translate to ${targetLanguage}: "${text}"`,
   });
   return response.text?.trim() || text;
 };
 
-export const analyzeStyleFromImage = async (imageBase64: string): Promise<string> => {
+export const analyzeStyleFromImage = async (
+  imageBase64: string,
+): Promise<string> => {
   const ai = getAIClient();
-  const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
-  const mimeType = imageBase64.includes(',') ? imageBase64.split(';')[0].split(':')[1] : 'image/png';
+  const data = imageBase64.includes(",")
+    ? imageBase64.split(",")[1]
+    : imageBase64;
+  const mimeType = imageBase64.includes(",")
+    ? imageBase64.split(";")[0].split(":")[1]
+    : "image/png";
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3-flash-preview',
-    contents: { parts: [{ inlineData: { data, mimeType } }, { text: "Analyze the illustration style of this image in detail. Provide a comprehensive prompt that can be used to generate images in this exact style. Include details about medium, lighting, color palette, line work, shading, and overall mood. Format it as a single paragraph starting with 'STYLE LOCK:'." }] }
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [
+        { inlineData: { data, mimeType } },
+        {
+          text: "Analyze the illustration style of this image in detail. Provide a comprehensive prompt that can be used to generate images in this exact style. Include details about medium, lighting, color palette, line work, shading, and overall mood. Format it as a single paragraph starting with 'STYLE LOCK:'.",
+        },
+      ],
+    },
   });
   return response.text?.trim() || "";
 };
 
-export const planStoryScenes = async (fullScript: string, characters: CharacterRef[], enableActivityDesigner: boolean = false): Promise<{
-  globalInstructions?: string,
-  characterIdentities?: { name: string, description: string }[],
-  pages: {text: string, isSpread: boolean, mappedCharacterNames: string[], fullPrompt?: string, pageText?: string}[]
+export const planStoryScenes = async (
+  fullScript: string,
+  characters: CharacterRef[],
+  enableActivityDesigner: boolean = false,
+): Promise<{
+  globalInstructions?: string;
+  characterIdentities?: { name: string; description: string }[];
+  pages: {
+    text: string;
+    isSpread: boolean;
+    mappedCharacterNames: string[];
+    fullPrompt?: string;
+    pageText?: string;
+  }[];
 }> => {
   const ai = getAIClient();
-  const prompt = enableActivityDesigner 
+  const prompt = enableActivityDesigner
     ? `Break this script into distinct pages/spreads. The script may contain both narrative story scenes and design activities (like flashcards, coloring pages, etc.). 
     Extract any "GLOBAL" style or layout instructions into 'globalInstructions'. 
     Extract all distinct characters and their descriptions into 'characterIdentities'.
@@ -871,10 +968,10 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
     Script: ${fullScript}`;
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3-flash-preview',
+    model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
-      responseMimeType: 'application/json',
+      responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
         properties: {
@@ -885,10 +982,10 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
               type: Type.OBJECT,
               properties: {
                 name: { type: Type.STRING },
-                description: { type: Type.STRING }
+                description: { type: Type.STRING },
               },
-              required: ['name', 'description']
-            }
+              required: ["name", "description"],
+            },
           },
           pages: {
             type: Type.ARRAY,
@@ -897,28 +994,50 @@ export const planStoryScenes = async (fullScript: string, characters: CharacterR
               properties: {
                 text: { type: Type.STRING },
                 isSpread: { type: Type.BOOLEAN },
-                mappedCharacterNames: { type: Type.ARRAY, items: { type: Type.STRING } },
+                mappedCharacterNames: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
                 fullPrompt: { type: Type.STRING },
-                pageText: { type: Type.STRING }
+                pageText: { type: Type.STRING },
               },
-              required: ['text', 'isSpread', 'mappedCharacterNames', 'fullPrompt', 'pageText']
-            }
-          }
+              required: [
+                "text",
+                "isSpread",
+                "mappedCharacterNames",
+                "fullPrompt",
+                "pageText",
+              ],
+            },
+          },
         },
-        required: ['characterIdentities', 'pages']
-      }
-    }
+        required: ["characterIdentities", "pages"],
+      },
+    },
   });
   const jsonStr = response.text || '{"pages":[]}';
-  try { return JSON.parse(jsonStr); } catch (e) { return { pages: [] }; }
+  try {
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    return { pages: [] };
+  }
 };
 
-export const extractTextFromImage = async (imageBase64: string): Promise<string> => {
+export const extractTextFromImage = async (
+  imageBase64: string,
+): Promise<string> => {
   const ai = getAIClient();
-  const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+  const data = imageBase64.includes(",")
+    ? imageBase64.split(",")[1]
+    : imageBase64;
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3-flash-preview',
-    contents: { parts: [{ inlineData: { data, mimeType: 'image/png' } }, { text: "Extract text." }] },
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [
+        { inlineData: { data, mimeType: "image/png" } },
+        { text: "Extract text." },
+      ],
+    },
   });
   return response.text?.trim() || "";
 };
@@ -929,9 +1048,9 @@ export const extractTextFromImage = async (imageBase64: string): Promise<string>
 export const separateIllustrationIntoLayers = async (
   targetImageBase64: string,
   refinementPrompt: string,
-  referenceImages: { base64: string, index: number }[] = [],
+  referenceImages: { base64: string; index: number }[] = [],
   isSpread: boolean = false,
-  imageSize: '1K' | '2K' | '4K' = '1K',
+  imageSize: "1K" | "2K" | "4K" = "1K",
   masterBible: string = "",
   projectContext: string = "",
   charRefs: CharacterRef[] = [],
@@ -940,62 +1059,153 @@ export const separateIllustrationIntoLayers = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   styleRefBase64?: string,
-  targetStyle?: string
-): Promise<{layers: any[], composite: string}> => {
+  targetStyle?: string,
+): Promise<{ layers: any[]; composite: string }> => {
   console.log("Starting layer separation...");
-  
+
   // 1. BACKGROUND LAYER
   const bgPrompt = `LAYER SEPARATION: Extract the BACKGROUND ONLY from the provided image. Remove all characters, text bubbles, and text. Fill in the missing background details seamlessly. ${refinementPrompt}`;
-  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  const bgImage = await refineIllustration(
+    targetImageBase64,
+    bgPrompt,
+    referenceImages,
+    isSpread,
+    imageSize,
+    masterBible,
+    projectContext,
+    [],
+    aspectRatio,
+    undefined,
+    exportFormat,
+    estimatedPageCount,
+    styleRefBase64,
+    targetStyle,
+  );
 
   // 2. CHARACTER LAYER
   const charPrompt = `LAYER SEPARATION: Extract the CHARACTERS ONLY from the provided image. Remove the background, text bubbles, and text. Place the characters on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
-  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  const charRaw = await refineIllustration(
+    targetImageBase64,
+    charPrompt,
+    referenceImages,
+    isSpread,
+    imageSize,
+    masterBible,
+    projectContext,
+    charRefs,
+    aspectRatio,
+    undefined,
+    exportFormat,
+    estimatedPageCount,
+    styleRefBase64,
+    targetStyle,
+  );
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. TEXT BUBBLE LAYER
   const bubblePrompt = `LAYER SEPARATION: Extract the TEXT BUBBLES or SPEECH BALLOONS ONLY from the provided image. Remove the background, characters, and the text inside the bubbles (leave the bubbles blank). Place the empty bubbles on a SOLID PURE WHITE BACKGROUND. ${refinementPrompt}`;
-  const bubbleRaw = await refineIllustration(targetImageBase64, bubblePrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  const bubbleRaw = await refineIllustration(
+    targetImageBase64,
+    bubblePrompt,
+    referenceImages,
+    isSpread,
+    imageSize,
+    masterBible,
+    projectContext,
+    [],
+    aspectRatio,
+    undefined,
+    exportFormat,
+    estimatedPageCount,
+    styleRefBase64,
+    targetStyle,
+  );
   const bubbleImage = await removeWhiteBackground(bubbleRaw);
 
   // 4. TEXT LAYER
   const textPrompt = `LAYER SEPARATION: You are extracting the text layer. Preserve EXACTLY the text layout, scale, style, and spatial positioning over the canvas as the original image. COMPLETELY ERASE all backgrounds, characters, environments, and objects. The remaining canvas MUST be a CLEAN, SOLID PURE WHITE BACKGROUND (#FFFFFF), containing only the original text exactly where it was. ABSOLUTELY NO generic text boxes or banners. ${refinementPrompt}`;
-  const textRaw = await refineIllustration(targetImageBase64, textPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  const textRaw = await refineIllustration(
+    targetImageBase64,
+    textPrompt,
+    referenceImages,
+    isSpread,
+    imageSize,
+    masterBible,
+    projectContext,
+    [],
+    aspectRatio,
+    undefined,
+    exportFormat,
+    estimatedPageCount,
+    styleRefBase64,
+    targetStyle,
+  );
   const textImage = await removeWhiteBackground(textRaw);
 
   const layers: any[] = [
-    { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
-    { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' },
-    { id: 'bubble-' + Math.random(), name: 'Text Bubbles', image: bubbleImage, isVisible: true, type: 'foreground' },
-    { id: 'text-' + Math.random(), name: 'Text', image: textImage, isVisible: true, type: 'text' }
+    {
+      id: "bg-" + Math.random(),
+      name: "Background",
+      image: bgImage,
+      isVisible: true,
+      type: "background",
+    },
+    {
+      id: "char-" + Math.random(),
+      name: "Characters",
+      image: charImage,
+      isVisible: true,
+      type: "character",
+    },
+    {
+      id: "bubble-" + Math.random(),
+      name: "Text Bubbles",
+      image: bubbleImage,
+      isVisible: true,
+      type: "foreground",
+    },
+    {
+      id: "text-" + Math.random(),
+      name: "Text",
+      image: textImage,
+      isVisible: true,
+      type: "text",
+    },
   ];
 
   // Create a composite for the main preview
   const composite = await new Promise<string>((resolve) => {
-    const canvas = document.createElement('canvas');
-    const [w, h] = getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio).split(':').map(Number);
+    const canvas = document.createElement("canvas");
+    const [w, h] = getBestAspectRatio(
+      exportFormat,
+      isSpread,
+      estimatedPageCount,
+      aspectRatio,
+    )
+      .split(":")
+      .map(Number);
     const ratio = w / h;
     canvas.width = 1024 * ratio;
     canvas.height = 1024;
-    const ctx = canvas.getContext('2d')!;
-    
+    const ctx = canvas.getContext("2d")!;
+
     let loaded = 0;
     const checkComplete = () => {
       loaded++;
       if (loaded === layers.length) {
-        const order = ['background', 'character', 'foreground', 'text'];
-        order.forEach(type => {
-          const layer = layers.find(l => l.type === type);
+        const order = ["background", "character", "foreground", "text"];
+        order.forEach((type) => {
+          const layer = layers.find((l) => l.type === type);
           if (layer && layer.isVisible) {
             const idx = layers.indexOf(layer);
             ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
           }
         });
-        resolve(canvas.toDataURL('image/png'));
+        resolve(canvas.toDataURL("image/png"));
       }
     };
 
-    const imgs = layers.map(l => {
+    const imgs = layers.map((l) => {
       const img = new Image();
       img.onload = checkComplete;
       img.onerror = () => {
@@ -1017,12 +1227,12 @@ export const generateTextLayerForIllustration = async (
   targetImageBase64: string,
   targetText: string,
   isSpread: boolean = false,
-  imageSize: '1K' | '2K' | '4K' = '1K',
+  imageSize: "1K" | "2K" | "4K" = "1K",
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   styleRefBase64?: string,
-  targetStyle?: string
+  targetStyle?: string,
 ): Promise<string> => {
   const textPrompt = `TEXT LAYER CREATION: The text to add is "${targetText}".
 Analyze the provided illustration and generate ONLY the text layer that overlays it. 
@@ -1030,7 +1240,22 @@ CRITICAL: The text must be artistically integrated, well-spaced, highly readable
 ABSOLUTELY NO backgrounds, no characters, no props.
 Place the stylized text on a SOLID PURE WHITE BACKGROUND. Do not draw the surrounding art.`;
 
-  const textRaw = await refineIllustration(targetImageBase64, textPrompt, [], isSpread, imageSize, "", "", [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  const textRaw = await refineIllustration(
+    targetImageBase64,
+    textPrompt,
+    [],
+    isSpread,
+    imageSize,
+    "",
+    "",
+    [],
+    aspectRatio,
+    undefined,
+    exportFormat,
+    estimatedPageCount,
+    styleRefBase64,
+    targetStyle,
+  );
   const textLayer = await removeWhiteBackground(textRaw);
   return textLayer;
 };
@@ -1038,9 +1263,9 @@ Place the stylized text on a SOLID PURE WHITE BACKGROUND. Do not draw the surrou
 export const refineLayeredIllustration = async (
   targetImageBase64: string,
   refinementPrompt: string,
-  referenceImages: { base64: string, index: number }[] = [],
+  referenceImages: { base64: string; index: number }[] = [],
   isSpread: boolean = false,
-  imageSize: '1K' | '2K' | '4K' = '1K',
+  imageSize: "1K" | "2K" | "4K" = "1K",
   masterBible: string = "",
   projectContext: string = "",
   charRefs: CharacterRef[] = [],
@@ -1049,58 +1274,126 @@ export const refineLayeredIllustration = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   styleRefBase64?: string,
-  targetStyle?: string
-): Promise<{layers: any[], composite: string}> => {
+  targetStyle?: string,
+): Promise<{ layers: any[]; composite: string }> => {
   console.log("Starting precision layered refinement...");
-  
+
   // 1. BACKGROUND LAYER REFINEMENT
   const bgPrompt = `ENVIRONMENT/BACKGROUND FIX: ${refinementPrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment.`;
-  const bgImage = await refineIllustration(targetImageBase64, bgPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  const bgImage = await refineIllustration(
+    targetImageBase64,
+    bgPrompt,
+    referenceImages,
+    isSpread,
+    imageSize,
+    masterBible,
+    projectContext,
+    [],
+    aspectRatio,
+    undefined,
+    exportFormat,
+    estimatedPageCount,
+    styleRefBase64,
+    targetStyle,
+  );
 
   // 2. CHARACTER LAYER REFINEMENT
   const charPrompt = `CHARACTER LAYER FIX: ${refinementPrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND.`;
-  const charRaw = await refineIllustration(targetImageBase64, charPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, charRefs, aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  const charRaw = await refineIllustration(
+    targetImageBase64,
+    charPrompt,
+    referenceImages,
+    isSpread,
+    imageSize,
+    masterBible,
+    projectContext,
+    charRefs,
+    aspectRatio,
+    undefined,
+    exportFormat,
+    estimatedPageCount,
+    styleRefBase64,
+    targetStyle,
+  );
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER REFINEMENT
   const propsPrompt = `FOREGROUND PROPS FIX: ${refinementPrompt}. Render only the interactive objects, toys, or foreground elements. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND.`;
-  const propsRaw = await refineIllustration(targetImageBase64, propsPrompt, referenceImages, isSpread, imageSize, masterBible, projectContext, [], aspectRatio, undefined, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  const propsRaw = await refineIllustration(
+    targetImageBase64,
+    propsPrompt,
+    referenceImages,
+    isSpread,
+    imageSize,
+    masterBible,
+    projectContext,
+    [],
+    aspectRatio,
+    undefined,
+    exportFormat,
+    estimatedPageCount,
+    styleRefBase64,
+    targetStyle,
+  );
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER REMOVED (handled natively or by base composite)
   const layers: any[] = [
-    { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
-    { id: 'props-' + Math.random(), name: 'Foreground Props', image: propsImage, isVisible: true, type: 'foreground' },
-    { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' }
+    {
+      id: "bg-" + Math.random(),
+      name: "Background",
+      image: bgImage,
+      isVisible: true,
+      type: "background",
+    },
+    {
+      id: "props-" + Math.random(),
+      name: "Foreground Props",
+      image: propsImage,
+      isVisible: true,
+      type: "foreground",
+    },
+    {
+      id: "char-" + Math.random(),
+      name: "Characters",
+      image: charImage,
+      isVisible: true,
+      type: "character",
+    },
   ];
 
   // Create a composite for the main preview
   const composite = await new Promise<string>((resolve) => {
-    const canvas = document.createElement('canvas');
-    const [wStr, hStr] = getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio).split(':');
+    const canvas = document.createElement("canvas");
+    const [wStr, hStr] = getBestAspectRatio(
+      exportFormat,
+      isSpread,
+      estimatedPageCount,
+      aspectRatio,
+    ).split(":");
     const w = parseInt(wStr);
     const h = parseInt(hStr);
-    canvas.width = 1024 * (w/h);
+    canvas.width = 1024 * (w / h);
     canvas.height = 1024;
-    const ctx = canvas.getContext('2d')!;
-    
+    const ctx = canvas.getContext("2d")!;
+
     let loaded = 0;
     const checkComplete = () => {
       loaded++;
       if (loaded === layers.length) {
-        const order = ['background', 'foreground', 'character', 'text'];
-        order.forEach(type => {
-          const layer = layers.find(l => l.type === type);
+        const order = ["background", "foreground", "character", "text"];
+        order.forEach((type) => {
+          const layer = layers.find((l) => l.type === type);
           if (layer && layer.isVisible) {
             const idx = layers.indexOf(layer);
             ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
           }
         });
-        resolve(canvas.toDataURL('image/png'));
+        resolve(canvas.toDataURL("image/png"));
       }
     };
 
-    const imgs = layers.map(l => {
+    const imgs = layers.map((l) => {
       const img = new Image();
       img.onload = checkComplete;
       img.onerror = () => {
@@ -1123,24 +1416,24 @@ export const removeWhiteBackground = (base64: string): Promise<string> => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      const canvas = document.createElement('canvas');
+      const canvas = document.createElement("canvas");
       canvas.width = img.width;
       canvas.height = img.height;
-      const ctx = canvas.getContext('2d')!;
+      const ctx = canvas.getContext("2d")!;
       ctx.drawImage(img, 0, 0);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
-      
+
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
-        
+
         // Calculate "whiteness"
         const min = Math.min(r, g, b);
         const max = Math.max(r, g, b);
-        const isWhiteish = min > 220 && (max - min) < 30; // High brightness, low saturation
-        
+        const isWhiteish = min > 220 && max - min < 30; // High brightness, low saturation
+
         if (isWhiteish) {
           // Linear alpha based on brightness for smoother edges
           const brightness = (r + g + b) / 3;
@@ -1153,9 +1446,9 @@ export const removeWhiteBackground = (base64: string): Promise<string> => {
           }
         }
       }
-      
+
       ctx.putImageData(imageData, 0, 0);
-      resolve(canvas.toDataURL('image/png'));
+      resolve(canvas.toDataURL("image/png"));
     };
     img.onerror = () => {
       console.error("Failed to load image for removeWhiteBackground.");
@@ -1174,35 +1467,100 @@ export const generateLayeredIllustration = async (
   masterBible: string = "",
   projectContext: string = "",
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
-  targetResolution: '1K' | '2K' | '4K' = '1K',
+  targetResolution: "1K" | "2K" | "4K" = "1K",
   targetText?: string,
   isSpread: boolean = false,
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   styleRefBase64?: string,
   environmentRefBase64?: string,
-  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes' = 'environment',
+  environmentRefType:
+    | "environment"
+    | "clothing"
+    | "characters"
+    | "everything"
+    | "env_chars_clothes" = "environment",
   targetStyle?: string,
-  borrowConfig?: import('./types').BorrowConfig
-): Promise<{layers: any[], composite: string}> => {
+  borrowConfig?: import("./types").BorrowConfig,
+): Promise<{ layers: any[]; composite: string }> => {
   console.log("Starting precision layered generation...");
 
   // If text rendering is requested, the only way to get true artistic integration
   // is to generate the master image first, and then separate the layers.
   // Otherwise, generating the text layer synthetically results in a poor square banner.
-  if (targetText) {
-     console.log("Target text detected. Generating master composite to preserve artistic text placement...");
-     const masterComposite = await restyleIllustration(undefined, stylePrompt, styleRefBase64, targetText, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
-     return separateIllustrationIntoLayers(masterComposite, "", [], isSpread, targetResolution, masterBible, projectContext, charRefs, aspectRatio, targetText, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
+  if (targetText || (borrowConfig && environmentRefBase64)) {
+    console.log(
+      "Generating master composite to preserve artistic integration (text or borrow config detected)...",
+    );
+
+    let masterComposite;
+    if (borrowConfig && environmentRefBase64) {
+      masterComposite = await borrowSceneGeneration(
+        environmentRefBase64,
+        stylePrompt,
+        borrowConfig,
+        charRefs,
+        isSpread,
+        masterBible,
+        targetResolution,
+        projectContext,
+        aspectRatio,
+        exportFormat,
+        estimatedPageCount,
+        styleRefBase64,
+        targetStyle,
+        targetText,
+      );
+    } else {
+      masterComposite = await restyleIllustration(
+        undefined,
+        stylePrompt,
+        styleRefBase64,
+        targetText,
+        charRefs,
+        [],
+        true,
+        false,
+        isSpread,
+        masterBible,
+        targetResolution,
+        projectContext,
+        aspectRatio,
+        exportFormat,
+        estimatedPageCount,
+        environmentRefBase64,
+        environmentRefType,
+        targetStyle,
+      );
+    }
+
+    return separateIllustrationIntoLayers(
+      masterComposite,
+      "",
+      [],
+      isSpread,
+      targetResolution,
+      masterBible,
+      projectContext,
+      charRefs,
+      aspectRatio,
+      targetText,
+      exportFormat,
+      estimatedPageCount,
+      styleRefBase64,
+      targetStyle,
+    );
   }
-  
+
   let formatRules = "";
   if (exportFormat && PRINT_FORMATS[exportFormat]) {
     const config = PRINT_FORMATS[exportFormat];
     const bleed = config.bleed;
     const safe = config.outside;
-    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
-    const height = config.height + (bleed * 2);
+    const width = isSpread
+      ? config.width * 2 + bleed * 2
+      : config.width + bleed;
+    const height = config.height + bleed * 2;
     formatRules = `
   TARGET PRINT FORMAT: ${config.name}
   - Exact Target Dimensions (including bleed): ${width.toFixed(3)}" wide x ${height.toFixed(3)}" high.
@@ -1211,60 +1569,142 @@ export const generateLayeredIllustration = async (
   - CRITICAL: DO NOT draw visible bleed lines, margin lines, crop marks, or text describing the layout on the generated image. The layout instructions are for composition only.`;
   }
 
-  const layoutRules = isSpread ? `
+  const layoutRules = isSpread
+    ? `
   LAYOUT RULES FOR KDP 2-PAGE SPREAD: ${formatRules}
   - GUTTER SAFETY: Do NOT place any critical elements, faces, or TEXT in the vertical center of the image (the fold). Leave a safe zone of at least 0.375" around the center fold.
-  - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.` : `
+  - CRITICAL: DO NOT draw a literal fold line, shadow, crease, or book binding in the middle of the image. The image MUST be a perfectly flat, continuous, seamless piece of art.`
+    : `
   LAYOUT RULES FOR KDP SINGLE PAGE: ${formatRules}`;
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment. ${layoutRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
+  const bgImage = await restyleIllustration(
+    undefined,
+    bgPrompt,
+    styleRefBase64,
+    undefined,
+    [],
+    [],
+    true,
+    false,
+    isSpread,
+    masterBible,
+    targetResolution,
+    projectContext,
+    aspectRatio,
+    exportFormat,
+    estimatedPageCount,
+    environmentRefBase64,
+    environmentRefType,
+    targetStyle,
+  );
 
   // 2. CHARACTER LAYER
   const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
+  const charRaw = await restyleIllustration(
+    undefined,
+    charPrompt,
+    styleRefBase64,
+    undefined,
+    charRefs,
+    [],
+    true,
+    false,
+    isSpread,
+    masterBible,
+    targetResolution,
+    projectContext,
+    aspectRatio,
+    exportFormat,
+    estimatedPageCount,
+    environmentRefBase64,
+    environmentRefType,
+    targetStyle,
+  );
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
   const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
+  const propsRaw = await restyleIllustration(
+    undefined,
+    propsPrompt,
+    styleRefBase64,
+    undefined,
+    [],
+    [],
+    true,
+    false,
+    isSpread,
+    masterBible,
+    targetResolution,
+    projectContext,
+    aspectRatio,
+    exportFormat,
+    estimatedPageCount,
+    environmentRefBase64,
+    environmentRefType,
+    targetStyle,
+  );
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER REMOVED (Handled natively by PDF gen)
   const layers: any[] = [
-    { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
-    { id: 'props-' + Math.random(), name: 'Foreground Props', image: propsImage, isVisible: true, type: 'foreground' },
-    { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' }
+    {
+      id: "bg-" + Math.random(),
+      name: "Background",
+      image: bgImage,
+      isVisible: true,
+      type: "background",
+    },
+    {
+      id: "props-" + Math.random(),
+      name: "Foreground Props",
+      image: propsImage,
+      isVisible: true,
+      type: "foreground",
+    },
+    {
+      id: "char-" + Math.random(),
+      name: "Characters",
+      image: charImage,
+      isVisible: true,
+      type: "character",
+    },
   ];
 
   // Create a composite for the main preview
   const composite = await new Promise<string>((resolve) => {
-    const canvas = document.createElement('canvas');
-    const [wStr, hStr] = getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio).split(':');
+    const canvas = document.createElement("canvas");
+    const [wStr, hStr] = getBestAspectRatio(
+      exportFormat,
+      isSpread,
+      estimatedPageCount,
+      aspectRatio,
+    ).split(":");
     const w = parseInt(wStr);
     const h = parseInt(hStr);
-    canvas.width = 1024 * (w/h);
+    canvas.width = 1024 * (w / h);
     canvas.height = 1024;
-    const ctx = canvas.getContext('2d')!;
-    
+    const ctx = canvas.getContext("2d")!;
+
     let loaded = 0;
     const checkComplete = () => {
       loaded++;
       if (loaded === layers.length) {
-        const order = ['background', 'foreground', 'character', 'text'];
-        order.forEach(type => {
-          const layer = layers.find(l => l.type === type);
+        const order = ["background", "foreground", "character", "text"];
+        order.forEach((type) => {
+          const layer = layers.find((l) => l.type === type);
           if (layer && layer.isVisible) {
             const idx = layers.indexOf(layer);
             ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
           }
         });
-        resolve(canvas.toDataURL('image/png'));
+        resolve(canvas.toDataURL("image/png"));
       }
     };
 
-    const imgs = layers.map(l => {
+    const imgs = layers.map((l) => {
       const img = new Image();
       img.onload = checkComplete;
       img.onerror = () => {
@@ -1284,23 +1724,35 @@ export const generateLayeredIllustration = async (
  */
 export const analyzeTextLayout = async (
   imageBase64: string,
-  text: string
-): Promise<{ textPositionOverride: 'top' | 'center' | 'bottom', textBackgroundOverride: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black', suggestedText?: string }> => {
+  text: string,
+): Promise<{
+  textPositionOverride: "top" | "center" | "bottom";
+  textBackgroundOverride:
+    | "transparent"
+    | "solid-white"
+    | "semi-transparent-white"
+    | "semi-transparent-black";
+  suggestedText?: string;
+}> => {
   const ai = getAIClient();
-  const data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
-  
+  const data = imageBase64.includes(",")
+    ? imageBase64.split(",")[1]
+    : imageBase64;
+
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: "gemini-3-flash-preview",
     contents: {
-      role: 'user',
+      role: "user",
       parts: [
-        { text: `Analyze this illustration. We need to overlay this text: "${text}".\n\nNOTE: The text might contain "||" which separates different languages (e.g., English || Spanish || French). This means the text is longer and will need appropriate spacing.\nIf the text does NOT have multiple languages separated by "||", and you think it's just a single language, you MAY optionally provide a translated version in the 'suggestedText' field separated by "||" (e.g. "Original English || Spanish || French") if you think this book is meant to be multilingual.\n\nWhere is the best position to place the text so that it doesn't cover the main focal points (like character faces) and is readable?\nAnd what background should the text have? If the area is clean and uniform, 'transparent' is best. If it's busy, use 'semi-transparent-white' or 'solid-white'.\n\nReturn ONLY a valid JSON object matching exactly this schema:\n{"textPositionOverride": "top" | "center" | "bottom", "textBackgroundOverride": "transparent" | "solid-white" | "semi-transparent-white" | "semi-transparent-black", "suggestedText": "optional multilingual text separated by ||"}` },
-        { inlineData: { data, mimeType: 'image/jpeg' } }
-      ]
+        {
+          text: `Analyze this illustration. We need to overlay this text: "${text}".\n\nNOTE: The text might contain "||" which separates different languages (e.g., English || Spanish || French). This means the text is longer and will need appropriate spacing.\nIf the text does NOT have multiple languages separated by "||", and you think it's just a single language, you MAY optionally provide a translated version in the 'suggestedText' field separated by "||" (e.g. "Original English || Spanish || French") if you think this book is meant to be multilingual.\n\nWhere is the best position to place the text so that it doesn't cover the main focal points (like character faces) and is readable?\nAnd what background should the text have? If the area is clean and uniform, 'transparent' is best. If it's busy, use 'semi-transparent-white' or 'solid-white'.\n\nReturn ONLY a valid JSON object matching exactly this schema:\n{"textPositionOverride": "top" | "center" | "bottom", "textBackgroundOverride": "transparent" | "solid-white" | "semi-transparent-white" | "semi-transparent-black", "suggestedText": "optional multilingual text separated by ||"}`,
+        },
+        { inlineData: { data, mimeType: "image/jpeg" } },
+      ],
     },
     config: {
-      responseMimeType: 'application/json'
-    }
+      responseMimeType: "application/json",
+    },
   });
 
   const textRes = response.text;
@@ -1309,7 +1761,10 @@ export const analyzeTextLayout = async (
     return res;
   } catch (e) {
     console.warn("Failed to parse text layout", e);
-    return { textPositionOverride: 'bottom', textBackgroundOverride: 'transparent' };
+    return {
+      textPositionOverride: "bottom",
+      textBackgroundOverride: "transparent",
+    };
   }
 };
 
@@ -1321,19 +1776,23 @@ export const generateLayeredCover = async (
   characters: CharacterRef[],
   stylePrompt: string,
   masterBible: string = "",
-  targetResolution: '1K' | '2K' | '4K' = '1K',
+  targetResolution: "1K" | "2K" | "4K" = "1K",
   title?: string,
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "9:16",
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
-  styleRefBase64?: string
-): Promise<{layers: any[], composite: string}> => {
+  styleRefBase64?: string,
+): Promise<{ layers: any[]; composite: string }> => {
   console.log("Starting precision layered cover generation...");
-  
+
   let formatRules = "";
   if (exportFormat && estimatedPageCount && PRINT_FORMATS[exportFormat]) {
     const config = PRINT_FORMATS[exportFormat];
-    const coverDims = calculateCoverWithBleed(config.width, config.height, estimatedPageCount);
+    const coverDims = calculateCoverWithBleed(
+      config.width,
+      config.height,
+      estimatedPageCount,
+    );
     formatRules = `
   TARGET PRINT FORMAT: ${config.name} (${estimatedPageCount} pages)
   - Exact Target Dimensions (including bleed and spine): ${coverDims.width.toFixed(3)}" wide x ${coverDims.height.toFixed(3)}" high.
@@ -1351,11 +1810,43 @@ export const generateLayeredCover = async (
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `BOOK COVER BACKGROUND ONLY: ${context}. Style: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO TEXT. Just the environment and atmosphere. ${coverRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, true, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
+  const bgImage = await restyleIllustration(
+    undefined,
+    bgPrompt,
+    styleRefBase64,
+    undefined,
+    [],
+    [],
+    true,
+    false,
+    true,
+    masterBible,
+    targetResolution,
+    "",
+    aspectRatio,
+    exportFormat,
+    estimatedPageCount,
+  );
 
   // 2. CHARACTER LAYER
   const charPrompt = `BOOK COVER CHARACTER LAYER: ${context}. Style: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO TEXT. Place them on a SOLID PURE WHITE BACKGROUND. ${coverRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, characters, [], true, false, true, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
+  const charRaw = await restyleIllustration(
+    undefined,
+    charPrompt,
+    styleRefBase64,
+    undefined,
+    characters,
+    [],
+    true,
+    false,
+    true,
+    masterBible,
+    targetResolution,
+    "",
+    aspectRatio,
+    exportFormat,
+    estimatedPageCount,
+  );
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. TEXT LAYER (If applicable)
@@ -1364,45 +1855,86 @@ export const generateLayeredCover = async (
     const textPrompt = `BOOK COVER TITLE LAYER: Render the title "${title}" in a bold, cinematic book cover font style. 
     IMPORTANT: Place the title in the UPPER THIRD of the frame, leaving at least 15% margin from all edges (SAFE MARGINS). 
     Place it on a SOLID PURE WHITE BACKGROUND. No other elements. ${coverRules}`;
-    const textRaw = await restyleIllustration(undefined, textPrompt, styleRefBase64, undefined, [], [], true, false, true, masterBible, targetResolution, "", aspectRatio, exportFormat, estimatedPageCount);
+    const textRaw = await restyleIllustration(
+      undefined,
+      textPrompt,
+      styleRefBase64,
+      undefined,
+      [],
+      [],
+      true,
+      false,
+      true,
+      masterBible,
+      targetResolution,
+      "",
+      aspectRatio,
+      exportFormat,
+      estimatedPageCount,
+    );
     textLayer = await removeWhiteBackground(textRaw);
   }
 
   const layers: any[] = [
-    { id: 'bg-' + Math.random(), name: 'Background', image: bgImage, isVisible: true, type: 'background' },
-    { id: 'char-' + Math.random(), name: 'Characters', image: charImage, isVisible: true, type: 'character' }
+    {
+      id: "bg-" + Math.random(),
+      name: "Background",
+      image: bgImage,
+      isVisible: true,
+      type: "background",
+    },
+    {
+      id: "char-" + Math.random(),
+      name: "Characters",
+      image: charImage,
+      isVisible: true,
+      type: "character",
+    },
   ];
 
   if (textLayer) {
-    layers.push({ id: 'text-' + Math.random(), name: 'Title', image: textLayer, isVisible: true, type: 'text' });
+    layers.push({
+      id: "text-" + Math.random(),
+      name: "Title",
+      image: textLayer,
+      isVisible: true,
+      type: "text",
+    });
   }
 
   // Create a composite
   const composite = await new Promise<string>((resolve) => {
-    const canvas = document.createElement('canvas');
-    const [w, h] = getBestAspectRatio(exportFormat, true, estimatedPageCount, aspectRatio).split(':').map(Number);
+    const canvas = document.createElement("canvas");
+    const [w, h] = getBestAspectRatio(
+      exportFormat,
+      true,
+      estimatedPageCount,
+      aspectRatio,
+    )
+      .split(":")
+      .map(Number);
     const ratio = w / h;
     canvas.width = 1024 * ratio;
     canvas.height = 1024;
-    const ctx = canvas.getContext('2d')!;
-    
+    const ctx = canvas.getContext("2d")!;
+
     let loaded = 0;
     const checkComplete = () => {
       loaded++;
       if (loaded === layers.length) {
-        const order = ['background', 'character', 'text'];
-        order.forEach(type => {
-          const layer = layers.find(l => l.type === type);
+        const order = ["background", "character", "text"];
+        order.forEach((type) => {
+          const layer = layers.find((l) => l.type === type);
           if (layer && layer.isVisible) {
             const idx = layers.indexOf(layer);
             ctx.drawImage(imgs[idx], 0, 0, canvas.width, canvas.height);
           }
         });
-        resolve(canvas.toDataURL('image/png'));
+        resolve(canvas.toDataURL("image/png"));
       }
     };
 
-    const imgs = layers.map(l => {
+    const imgs = layers.map((l) => {
       const img = new Image();
       img.onload = checkComplete;
       img.onerror = () => {
@@ -1423,25 +1955,40 @@ export const generateLayeredCover = async (
 export const retargetCharacters = async (
   sourceImageBase64: string,
   targetImageBase64: string,
-  retargeting: { sourceHotspots: {x: number, y: number, label: number}[], targetHotspots: {x: number, y: number, label: number}[], instruction?: string },
-  imageSize: '1K' | '2K' | '4K' = '1K',
+  retargeting: {
+    sourceHotspots: { x: number; y: number; label: number }[];
+    targetHotspots: { x: number; y: number; label: number }[];
+    instruction?: string;
+  },
+  imageSize: "1K" | "2K" | "4K" = "1K",
   aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
-  targetStyle?: string
+  targetStyle?: string,
 ): Promise<string> => {
-  console.log("Starting retargetCharacters with:", { sourceHotspots: retargeting.sourceHotspots, targetHotspots: retargeting.targetHotspots });
+  console.log("Starting retargetCharacters with:", {
+    sourceHotspots: retargeting.sourceHotspots,
+    targetHotspots: retargeting.targetHotspots,
+  });
   const ai = getAIClient();
-  const sourceData = sourceImageBase64.includes(',') ? sourceImageBase64.split(',')[1] : sourceImageBase64;
-  const targetData = targetImageBase64.includes(',') ? targetImageBase64.split(',')[1] : targetImageBase64;
+  const sourceData = sourceImageBase64.includes(",")
+    ? sourceImageBase64.split(",")[1]
+    : sourceImageBase64;
+  const targetData = targetImageBase64.includes(",")
+    ? targetImageBase64.split(",")[1]
+    : targetImageBase64;
   // ... actual implementation is further down
 
+  const mappingDescription = retargeting.sourceHotspots
+    .map((sh) => {
+      const th = retargeting.targetHotspots.find((h) => h.label === sh.label);
+      if (!th) return "";
+      return `Character at Source Hotspot ${sh.label} (x:${Math.round(sh.x)}%, y:${Math.round(sh.y)}%) should be mapped to Target Hotspot ${th.label} (x:${Math.round(th.x)}%, y:${Math.round(th.y)}%).`;
+    })
+    .filter(Boolean)
+    .join("\n");
 
-  const mappingDescription = retargeting.sourceHotspots.map(sh => {
-    const th = retargeting.targetHotspots.find(h => h.label === sh.label);
-    if (!th) return "";
-    return `Character at Source Hotspot ${sh.label} (x:${Math.round(sh.x)}%, y:${Math.round(sh.y)}%) should be mapped to Target Hotspot ${th.label} (x:${Math.round(th.x)}%, y:${Math.round(th.y)}%).`;
-  }).filter(Boolean).join("\n");
-
-  const styleInstruction = targetStyle ? `Additionally, heavily apply and enhance the illustration to match this exact TARGET STYLE: "${targetStyle}". The final image must fully embody this visual style.` : "";
+  const styleInstruction = targetStyle
+    ? `Additionally, heavily apply and enhance the illustration to match this exact TARGET STYLE: "${targetStyle}". The final image must fully embody this visual style.`
+    : "";
 
   const instruction = `CHARACTER RETARGETING TASK:
   
@@ -1462,27 +2009,31 @@ export const retargetCharacters = async (
   ${targetStyle ? "4. Enforce the requested TARGET STYLE throughout the entire image, refining details to match." : ""}`;
 
   const parts: any[] = [
-    { inlineData: { data: targetData, mimeType: 'image/png' } },
+    { inlineData: { data: targetData, mimeType: "image/png" } },
     { text: instruction },
     { text: "--- SOURCE REFERENCE IMAGE ---" },
-    { inlineData: { data: sourceData, mimeType: 'image/png' } }
+    { inlineData: { data: sourceData, mimeType: "image/png" } },
   ];
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3.1-flash-image-preview',
+    model: "gemini-3.1-flash-image-preview",
     contents: { parts },
-    config: { imageConfig: { aspectRatio, imageSize } }
+    config: { imageConfig: { aspectRatio, imageSize } },
   });
 
   if (response.candidates?.[0]?.content?.parts) {
     for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+      if (part.inlineData)
+        return `data:image/png;base64,${part.inlineData.data}`;
     }
   }
   throw new Error("Retargeting failed.");
 };
 
-export const selectStoryFont = async (masterBible: string, sampleText: string): Promise<{ fontName: string, storyType: string, fontSize: number }> => {
+export const selectStoryFont = async (
+  masterBible: string,
+  sampleText: string,
+): Promise<{ fontName: string; storyType: string; fontSize: number }> => {
   const ai = getAIClient();
   const prompt = `You are a professional children's book typography director.
 Based on this story bible and sample text, select the best Google Font from the following curated list:
@@ -1524,7 +2075,7 @@ Respond ONLY with a JSON object in this format:
 `;
 
   const response: GenerateContentResponse = await generateContentWithRetry(ai, {
-    model: 'gemini-3-flash-preview',
+    model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -1533,17 +2084,19 @@ Respond ONLY with a JSON object in this format:
         properties: {
           fontName: { type: Type.STRING },
           storyType: { type: Type.STRING },
-          fontSize: { type: Type.INTEGER }
+          fontSize: { type: Type.INTEGER },
         },
-        required: ["fontName", "storyType", "fontSize"]
-      }
-    }
+        required: ["fontName", "storyType", "fontSize"],
+      },
+    },
   });
 
-  const jsonStr = response.text || '{"fontName":"Inter","storyType":"picture-book","fontSize":24}';
+  const jsonStr =
+    response.text ||
+    '{"fontName":"Inter","storyType":"picture-book","fontSize":24}';
   try {
     return JSON.parse(jsonStr);
   } catch (e) {
-    return { fontName: 'Inter', storyType: 'picture-book', fontSize: 24 };
+    return { fontName: "Inter", storyType: "picture-book", fontSize: 24 };
   }
 };
