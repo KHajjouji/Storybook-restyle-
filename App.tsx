@@ -15,7 +15,7 @@ import { OutpaintPreview } from './components/OutpaintPreview';
 import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, analyzeTextLayout, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont, generateTextLayerForIllustration } from './geminiService';
+import { restyleIllustration, borrowSceneGeneration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, analyzeTextLayout, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont, generateTextLayerForIllustration } from './geminiService';
 import { searchBookNiches } from './nicheService';
 import Markdown from 'react-markdown';
 import { generateBookPDF, generateCoverPDF, generateLayeredEditablePDF } from './utils/pdfGenerator';
@@ -1226,8 +1226,26 @@ const App: React.FC = () => {
       } else if (p.originalImage) {
         const others = pages.filter(pg => pg.id !== pageId && pg.processedImage).slice(0, 3).map(pg => ({ base64: pg.processedImage!, index: pages.indexOf(pg) + 1 }));
         result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+      } else if (envRefBase64 && p.borrowConfig && Object.values(p.borrowConfig).some(v => v)) {
+        // Borrow mode: use the reference as the actual starting canvas — much more reliable
+        // than generating from scratch with text instructions about a reference image.
+        result = await borrowSceneGeneration(
+          envRefBase64,
+          narrativeContext,
+          p.borrowConfig,
+          settings.characterReferences,
+          p.isSpread,
+          settings.masterBible,
+          targetResolution,
+          projectContext,
+          finalAspectRatio,
+          settings.exportFormat,
+          settings.estimatedPageCount,
+          settings.styleReference || undefined,
+          settings.targetStyle,
+          targetText
+        );
       } else {
-        // For activities, use the specific spread prompt as the primary instruction
         result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64, p.environmentRefType, settings.targetStyle, p.borrowConfig);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
