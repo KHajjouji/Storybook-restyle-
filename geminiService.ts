@@ -397,10 +397,6 @@ export const restyleIllustration = async (
     ? "CORE RULE: The CHARACTER IDENTITY images are for face/body extraction ONLY. The VISUAL LINK REFERENCE instructions that follow are MANDATORY OVERRIDES with HIGHEST PRIORITY. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK."
     : "CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.";
 
-  const coreRule = borrowConfig 
-    ? "CORE RULE: The CHARACTER IDENTITY images are for face/body extraction ONLY. The VISUAL LINK REFERENCE instructions that follow are MANDATORY OVERRIDES with HIGHEST PRIORITY. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK."
-    : "CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.";
-
   const instruction = `ILLUSTRATOR TASK:
   SERIES BIBLE: ${masterBible}
   PROJECT CONTEXT: ${projectContext}
