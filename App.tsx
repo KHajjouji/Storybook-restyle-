@@ -11,10 +11,11 @@ import { SimpleWizard } from './components/SimpleWizard';
 import { SubscriptionPage } from './components/SubscriptionPage';
 import { UserDashboard } from './components/UserDashboard';
 import { CanvaExportModal } from './components/CanvaExportModal';
+import { OutpaintPreview } from './components/OutpaintPreview';
 import { auth, signInWithGoogle, logout, checkUserAllowed, checkIsAdmin, initializeUserProfile, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { restyleIllustration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, analyzeTextLayout, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont, generateTextLayerForIllustration } from './geminiService';
+import { restyleIllustration, borrowSceneGeneration, keepAndBorrowGeneration, translateText, extractTextFromImage, analyzeStyleFromImage, identifyAndDesignCharacters, analyzeTextLayout, planStoryScenes, upscaleIllustration, parsePromptPack, refineIllustration, generateBookCover, parseActivityPack, retargetCharacters, generateLayeredIllustration, refineLayeredIllustration, generateLayeredCover, separateIllustrationIntoLayers, selectStoryFont, generateTextLayerForIllustration } from './geminiService';
 import { searchBookNiches } from './nicheService';
 import Markdown from 'react-markdown';
 import { generateBookPDF, generateCoverPDF, generateLayeredEditablePDF } from './utils/pdfGenerator';
@@ -988,20 +989,25 @@ const App: React.FC = () => {
 
   const handleRestyleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
-    
+
     setIsProcessing(true);
-    if (currentStep === 'landing' || currentStep === 'upload') {
-      setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
-    }
 
     for (const f of files) {
       if (f.type === 'application/pdf') {
-        showToast("Extracting images from PDF...");
+        // Show the overlay FIRST, before the dynamic import (which itself can take
+        // a second) and before navigating — prevents the "jumped to blank page" effect.
+        setIsExtractingPdf(true);
+        setExtractionProgress(0);
+        setExtractionTotal(0);
+        // Yield one frame so React paints the overlay before we block the thread.
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        if (currentStep === 'landing' || currentStep === 'upload') {
+          setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
+        }
+
         try {
           const { extractImagesFromPDF } = await import('./utils/pdfExtract');
-          setIsExtractingPdf(true);
-          setExtractionProgress(0);
-          setExtractionTotal(0);
           await extractImagesFromPDF(f, (imgUrl, idx, total) => {
             setExtractionTotal(total);
             setExtractionProgress(idx + 1);
@@ -1029,6 +1035,9 @@ const App: React.FC = () => {
           showToast("Failed to extract images from PDF.");
         }
       } else {
+        if (currentStep === 'landing' || currentStep === 'upload') {
+          setCurrentStep(settings.mode === 'retarget' ? 'generate' : 'restyle-editor');
+        }
         const dataUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result as string);
@@ -1178,7 +1187,7 @@ const App: React.FC = () => {
       let layers;
       const targetText = settings.embedTextInImage ? p.originalText : undefined;
       const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
-        if (ratio === '9:16') return '1:1';
+        if (ratio === '9:16') return '4:3';
         if (ratio === '1:1') return '16:9';
         if (ratio === '4:3') return '16:9';
         if (ratio === '16:9') return '16:9';
@@ -1207,7 +1216,8 @@ const App: React.FC = () => {
           settings.styleReference,
           envRefBase64,
           p.environmentRefType,
-          settings.targetStyle
+          settings.targetStyle,
+          p.borrowConfig
         );
         result = layeredResult.composite;
         layers = layeredResult.layers;
@@ -1216,9 +1226,44 @@ const App: React.FC = () => {
       } else if (p.originalImage) {
         const others = pages.filter(pg => pg.id !== pageId && pg.processedImage).slice(0, 3).map(pg => ({ base64: pg.processedImage!, index: pages.indexOf(pg) + 1 }));
         result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+      } else if (envRefBase64 && p.visualLinkPreset) {
+        const preset = p.visualLinkPreset;
+        const currentImg = p.processedImage || p.originalImage;
+
+        // KEEP presets: current scene image is the base canvas; reference provides specific elements
+        if ((preset === 'keep_chars_borrow_clothes' || preset === 'keep_chars_borrow_env' || preset === 'keep_chars_clothes_borrow_env') && currentImg) {
+          const keepItems: string[] = [];
+          const borrowItems: string[] = [];
+          if (preset === 'keep_chars_borrow_clothes') {
+            keepItems.push("Characters — their exact faces, body types, poses, and expressions from THIS scene");
+            keepItems.push("Environment & background from THIS scene");
+            borrowItems.push("Clothing & outfits — dress every character in the EXACT same clothes shown in the REFERENCE scene");
+          } else if (preset === 'keep_chars_borrow_env') {
+            keepItems.push("Characters — their exact faces, body types, poses, and expressions from THIS scene");
+            keepItems.push("Clothing & outfits from THIS scene");
+            borrowItems.push("Environment & location — move the characters into the EXACT same setting shown in the REFERENCE scene, recomposing them to fit naturally");
+          } else {
+            keepItems.push("Characters — their exact faces, body types, poses, and expressions from THIS scene");
+            keepItems.push("Clothing & outfits from THIS scene");
+            borrowItems.push("Environment & location — use the EXACT same location and background from the REFERENCE scene, recomposing characters to fit naturally within it");
+          }
+          result = await keepAndBorrowGeneration(currentImg, envRefBase64, narrativeContext, keepItems, borrowItems, settings.characterReferences, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle, targetText);
+
+        } else {
+          // BORROW presets: reference image is the canvas; we adapt it for the new scene
+          const borrowConfigMap: Record<string, import('./types').BorrowConfig> = {
+            borrow_env:               { environment: true,  characters: false, clothing: false, poses: false },
+            borrow_chars:             { environment: false, characters: true,  clothing: false, poses: false },
+            borrow_chars_clothes:     { environment: false, characters: true,  clothing: true,  poses: false },
+            borrow_env_chars:         { environment: true,  characters: true,  clothing: false, poses: false },
+            borrow_env_chars_clothes: { environment: true,  characters: true,  clothing: true,  poses: false },
+            borrow_everything:        { environment: true,  characters: true,  clothing: true,  poses: true  },
+          };
+          const bc = borrowConfigMap[preset] || { environment: true, characters: false, clothing: false, poses: false };
+          result = await borrowSceneGeneration(envRefBase64, narrativeContext, bc, settings.characterReferences, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle, targetText);
+        }
       } else {
-        // For activities, use the specific spread prompt as the primary instruction
-        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64, p.environmentRefType, settings.targetStyle);
+        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64, p.environmentRefType, settings.targetStyle, p.borrowConfig);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
     } catch (e) { 
@@ -1250,7 +1295,7 @@ const App: React.FC = () => {
 
       let finalPrompt = fixInstruction;
       const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
-        if (ratio === '9:16') return '1:1';
+        if (ratio === '9:16') return '4:3';
         if (ratio === '1:1') return '16:9';
         if (ratio === '4:3') return '16:9';
         if (ratio === '16:9') return '16:9';
@@ -1261,7 +1306,7 @@ const App: React.FC = () => {
       let finalTargetImg = targetImg;
       
       if (fixMode === 'outpaint') {
-        finalRatio = p.isSpread ? targetAspectRatio : getSpreadRatio(targetAspectRatio);
+        finalRatio = getSpreadRatio(targetAspectRatio);
         finalPrompt = `OUTPAINTING TASK: The original image has been placed on a larger canvas. Intelligently fill the surrounding blank white space to seamlessly continue the scene and complete the composition. Ensure exact style matching. Request: ${fixInstruction || 'No specific fix, just outpaint and expand the scene.'}`;
         
         // Build the pre-padded outpaint canvas
@@ -1287,7 +1332,10 @@ const App: React.FC = () => {
         // Load original image
         const img = new Image();
         img.src = targetImg;
-        await new Promise((resolve) => { img.onload = resolve; });
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error('Failed to load image for outpaint'));
+        });
         
         // Calculate image aspect ratio
         const imgRatio = (img.width || 1) / (img.height || 1);
@@ -1331,11 +1379,11 @@ const App: React.FC = () => {
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else if (settings.layeredMode) {
-        const layeredRes = await refineLayeredIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+        const layeredRes = await refineLayeredIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? true : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
         res = layeredRes.composite;
         layers = layeredRes.layers;
       } else {
-        res = await refineIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? !p.isSpread : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
+        res = await refineIllustration(finalTargetImg, finalPrompt, selectedRefs, fixMode === 'outpaint' ? true : p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
       }
       
       setPages(curr => curr.map(pg => pg.id === targetId ? { 
@@ -1343,7 +1391,7 @@ const App: React.FC = () => {
         status: 'completed', 
         processedImage: res,
         layers: layers || pg.layers,
-        isSpread: fixMode === 'outpaint' ? !pg.isSpread : pg.isSpread 
+        isSpread: fixMode === 'outpaint' ? true : pg.isSpread 
       } : pg));
       
       setFixInstruction("");
@@ -1399,7 +1447,7 @@ const App: React.FC = () => {
       const retargeting = p.retargeting || { sourceHotspots: [], targetHotspots: [], instruction: "" };
 
       const getSpreadRatio = (ratio: string): '1:1' | '4:3' | '16:9' | '9:16' => {
-        if (ratio === '9:16') return '1:1';
+        if (ratio === '9:16') return '4:3';
         if (ratio === '1:1') return '16:9';
         if (ratio === '4:3') return '16:9';
         if (ratio === '16:9') return '16:9';
@@ -2579,32 +2627,86 @@ const App: React.FC = () => {
                        />
                     </div>
                     <div className="space-y-4">
-                       <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><ImageIcon size={20} /> Environment Reference (Visual Link)</h4>
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                         <select 
-                           value={p.environmentRefId || ''} 
-                           onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefId: e.target.value || undefined } : pg))}
-                           className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
-                         >
-                           <option value="">None (Auto-generate environment)</option>
-                           {pages.map((refPg, i) => refPg.id !== p.id ? (
-                             <option key={refPg.id} value={refPg.id}>Link to Scene #{i + 1}</option>
-                           ) : null)}
-                         </select>
-                         
-                         {p.environmentRefId && (
-                           <select 
-                             value={p.environmentRefType || 'environment'} 
-                             onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefType: e.target.value as any } : pg))}
-                             className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
-                           >
-                             <option value="environment">Keep Environment Only</option>
-                             <option value="clothing">Keep Clothing Only</option>
-                             <option value="characters">Keep Characters & Clothing</option>
-                             <option value="everything">Keep Everything (Full Scene Template)</option>
-                           </select>
-                         )}
-                       </div>
+                       <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 flex items-center gap-3"><ImageIcon size={20} /> Visual Link — Scene Reference</h4>
+                       <select
+                         value={p.environmentRefId || ''}
+                         onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? {
+                           ...pg,
+                           environmentRefId: e.target.value || undefined,
+                           visualLinkPreset: e.target.value ? (pg.visualLinkPreset || 'borrow_env') : undefined
+                         } : pg))}
+                         className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
+                       >
+                         <option value="">None — generate freely</option>
+                         {pages.map((refPg, i) => refPg.id !== p.id ? (
+                           <option key={refPg.id} value={refPg.id}>Scene #{i + 1}</option>
+                         ) : null)}
+                       </select>
+
+                       {p.environmentRefId && (() => {
+                         const refPage = pages.find(pg => pg.id === p.environmentRefId);
+                         const hasCurrentImage = !!(p.processedImage || p.originalImage);
+                         const preset = p.visualLinkPreset || 'borrow_env';
+
+                         const BORROW_PRESETS: { id: import('./types').VisualLinkPreset; label: string; desc: string }[] = [
+                           { id: 'borrow_env',               label: '🏛️ Environment only',            desc: 'Take the location from the reference. Characters are generated fresh and placed naturally inside it.' },
+                           { id: 'borrow_chars',             label: '👥 Characters only',             desc: 'Take the characters (faces, bodies) from the reference. Fresh environment and clothing.' },
+                           { id: 'borrow_chars_clothes',     label: '👥👕 Characters + Clothing',     desc: 'Same characters with the same outfits as the reference. Fresh background.' },
+                           { id: 'borrow_env_chars',         label: '🏛️👥 Environment + Characters',  desc: 'Same location and same people. Clothing and poses adapt to the new scene script.' },
+                           { id: 'borrow_env_chars_clothes', label: '🏛️👥👕 Env + Chars + Clothing',  desc: 'Same location, same people, same outfits. Only the action and poses change for the new script.' },
+                           { id: 'borrow_everything',        label: '🎬 Clone scene',                 desc: 'Full copy of the reference. Only the action/drama adapts to your scene script.' },
+                         ];
+
+                         const KEEP_PRESETS: { id: import('./types').VisualLinkPreset; label: string; desc: string }[] = [
+                           { id: 'keep_chars_borrow_clothes',     label: '👥 → 👕 Borrow clothing',            desc: "Keep THIS scene's characters. Dress them in the reference's outfits." },
+                           { id: 'keep_chars_borrow_env',         label: '👥 → 🏛️ Borrow environment',         desc: "Keep THIS scene's characters and poses. Move them to the reference's location." },
+                           { id: 'keep_chars_clothes_borrow_env', label: '👥👕 → 🏛️ Borrow environment only', desc: "Keep THIS scene's characters and their clothing. Move to the reference's location." },
+                         ];
+
+                         return (
+                           <div className="space-y-5 bg-indigo-50/60 p-6 rounded-3xl border border-indigo-100">
+                             {refPage?.processedImage && (
+                               <img src={refPage.processedImage} alt="Reference scene" className="w-full rounded-2xl object-cover max-h-40 border border-indigo-200" />
+                             )}
+
+                             {/* BORROW section */}
+                             <div>
+                               <p className="text-xs font-black uppercase tracking-widest text-indigo-700 mb-3">↓ BORROW from reference scene</p>
+                               <div className="grid grid-cols-1 gap-2">
+                                 {BORROW_PRESETS.map(opt => (
+                                   <button
+                                     key={opt.id}
+                                     onClick={() => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, visualLinkPreset: opt.id } : pg))}
+                                     className={`text-left p-4 rounded-2xl border-2 transition-all ${preset === opt.id ? 'bg-white border-indigo-500 shadow-sm' : 'bg-white/60 border-transparent hover:bg-white hover:border-slate-200'}`}
+                                   >
+                                     <div className={`text-sm font-bold ${preset === opt.id ? 'text-indigo-900' : 'text-slate-600'}`}>{opt.label}</div>
+                                     <div className="text-xs text-slate-500 mt-0.5 leading-snug">{opt.desc}</div>
+                                   </button>
+                                 ))}
+                               </div>
+                             </div>
+
+                             {/* KEEP section — only shown when this scene already has an image */}
+                             {hasCurrentImage && (
+                               <div>
+                                 <p className="text-xs font-black uppercase tracking-widest text-emerald-700 mb-3">↑ KEEP from this scene, borrow specific details from reference</p>
+                                 <div className="grid grid-cols-1 gap-2">
+                                   {KEEP_PRESETS.map(opt => (
+                                     <button
+                                       key={opt.id}
+                                       onClick={() => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, visualLinkPreset: opt.id } : pg))}
+                                       className={`text-left p-4 rounded-2xl border-2 transition-all ${preset === opt.id ? 'bg-white border-emerald-500 shadow-sm' : 'bg-white/60 border-transparent hover:bg-white hover:border-slate-200'}`}
+                                     >
+                                       <div className={`text-sm font-bold ${preset === opt.id ? 'text-emerald-900' : 'text-slate-600'}`}>{opt.label}</div>
+                                       <div className="text-xs text-slate-500 mt-0.5 leading-snug">{opt.desc}</div>
+                                     </button>
+                                   ))}
+                                 </div>
+                               </div>
+                             )}
+                           </div>
+                         );
+                       })()}
                     </div>
 
                     <LayerManager 
@@ -2804,17 +2906,33 @@ const App: React.FC = () => {
                        </div>
 
                        <div className="space-y-8">
-                          <h4 className="text-xs font-black uppercase text-indigo-600 tracking-widest">3. Reference Picker (Optional)</h4>
-                          <div className="grid grid-cols-2 gap-6 h-[500px] overflow-y-auto pr-4 custom-scrollbar">
-                             {pages.map((p, i) => (
-                               <div key={p.id} onClick={() => setSelectedRefIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} className={`aspect-square rounded-[2rem] border-4 overflow-hidden relative cursor-pointer transition-all ${selectedRefIds.has(p.id) ? 'border-indigo-600 scale-95 shadow-2xl' : 'border-transparent opacity-60 hover:opacity-100'}`}>
-                                  <div className="absolute top-4 left-4 z-10 w-10 h-10 bg-black/60 text-white rounded-xl flex items-center justify-center font-black text-lg">#{i+1}</div>
-                                  <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />
-                                  {selectedRefIds.has(p.id) && <div className="absolute inset-0 bg-indigo-600/30 flex items-center justify-center text-white"><CheckCircle2 size={48} /></div>}
-                               </div>
-                             ))}
-                          </div>
-                          <p className="text-sm text-slate-400 font-bold uppercase text-center tracking-widest">Select frames to inject visual likeness/clothing.</p>
+                          {fixMode === 'outpaint' ? (
+                            <div className="h-full min-h-[500px]">
+                              <OutpaintPreview 
+                                originalImage={(() => {
+                                  const p = pages.find(pg => pg.id === activeFixId);
+                                  return p ? p.processedImage || p.originalImage : null;
+                                })()}
+                                outpaintPos={outpaintPos}
+                                outpaintScale={outpaintScale}
+                                targetAspectRatio={targetAspectRatio}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <h4 className="text-xs font-black uppercase text-indigo-600 tracking-widest">3. Reference Picker (Optional)</h4>
+                              <div className="grid grid-cols-2 gap-6 h-[500px] overflow-y-auto pr-4 custom-scrollbar">
+                                 {pages.map((p, i) => (
+                                   <div key={p.id} onClick={() => setSelectedRefIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} className={`aspect-square rounded-[2rem] border-4 overflow-hidden relative cursor-pointer transition-all ${selectedRefIds.has(p.id) ? 'border-indigo-600 scale-95 shadow-2xl' : 'border-transparent opacity-60 hover:opacity-100'}`}>
+                                      <div className="absolute top-4 left-4 z-10 w-10 h-10 bg-black/60 text-white rounded-xl flex items-center justify-center font-black text-lg">#{i+1}</div>
+                                      <img src={p.processedImage || p.originalImage} className="w-full h-full object-cover" />
+                                      {selectedRefIds.has(p.id) && <div className="absolute inset-0 bg-indigo-600/30 flex items-center justify-center text-white"><CheckCircle2 size={48} /></div>}
+                                   </div>
+                                 ))}
+                              </div>
+                              <p className="text-sm text-slate-400 font-bold uppercase text-center tracking-widest">Select frames to inject visual likeness/clothing.</p>
+                            </>
+                          )}
                        </div>
                     </div>
                  </div>

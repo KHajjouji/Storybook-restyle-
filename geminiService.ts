@@ -291,8 +291,9 @@ export const restyleIllustration = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   environmentRefBase64?: string,
-  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment',
-  targetStyle?: string
+  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes' = 'environment',
+  targetStyle?: string,
+  borrowConfig?: import('./types').BorrowConfig
 ): Promise<string> => {
   const ai = getAIClient();
   const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-3.1-flash-image-preview';
@@ -334,6 +335,10 @@ export const restyleIllustration = async (
   TARGET STYLE: "${targetStyle}"
   CRITICAL: You MUST maintain and strictly enforce this exact visual style. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.` : "";
 
+  const coreRule = borrowConfig 
+    ? "CORE RULE: The CHARACTER IDENTITY images are for face/body extraction ONLY. The VISUAL LINK REFERENCE instructions that follow are MANDATORY OVERRIDES with HIGHEST PRIORITY. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK."
+    : "CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.";
+
   const instruction = `ILLUSTRATOR TASK:
   SERIES BIBLE: ${masterBible}
   PROJECT CONTEXT: ${projectContext}
@@ -343,7 +348,7 @@ export const restyleIllustration = async (
   ${textInstruction}
   ${styleInstruction}
   
-  CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.
+  ${coreRule}
   CRITICAL: Produce a high-detail, fully rendered, high-quality illustration. Do not output sketches or low-fidelity concepts unless explicitly requested.`;
 
   const parts: any[] = [{ text: instruction }];
@@ -371,14 +376,56 @@ export const restyleIllustration = async (
 
   if (environmentRefBase64) {
     const data = environmentRefBase64.includes(',') ? environmentRefBase64.split(',')[1] : environmentRefBase64;
-    let refText = "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
-    if (environmentRefType === 'clothing') {
-      refText = "--- STRICT CLOTHING/OUTFIT REFERENCE --- \nCRITICAL: You MUST use the exact clothing and outfits shown in this reference image for the characters. IGNORE the environment and character identities, just use the clothes.";
-    } else if (environmentRefType === 'characters') {
-      refText = "--- STRICT CHARACTER COMPOSITION REFERENCE --- \nCRITICAL: You MUST maintain the exact characters, their poses, and their clothing shown in this reference image. Ensure the characters look identical to this image.";
-    } else if (environmentRefType === 'everything') {
-      refText = "--- STRICT VISUAL LINK REFERENCE --- \nCRITICAL: You MUST maintain the exact environment, location, characters, their clothing, and the general vibe shown in this reference image. Keep the visual continuity perfectly identical.";
+    let refText = "";
+
+    if (borrowConfig) {
+      refText = "--- VISUAL LINK REFERENCE ---\nHIGHEST PRIORITY — OVERRIDES ALL OTHER RULES\nCRITICAL INSTRUCTIONS FOR USING THIS REFERENCE IMAGE:\n";
+      let borrows = [];
+      
+      const isBgOnly = stylePrompt.includes("BACKGROUND ONLY") || stylePrompt.includes("ENVIRONMENT/BACKGROUND ONLY");
+      const isCharOnly = stylePrompt.includes("CHARACTER LAYER");
+      const isPropsOnly = stylePrompt.includes("FOREGROUND PROPS");
+
+      const borrows: string[] = [];
+
+      if (borrowConfig.environment) {
+         if (!isCharOnly && !isPropsOnly) borrows.push("✅ BORROW ENVIRONMENT: You MUST perfectly maintain the exact location, background, time of day, and weather shown in the reference.");
+      } else {
+         if (!isCharOnly && !isPropsOnly) borrows.push("❌ NEW ENVIRONMENT: DO NOT copy the environment shown in the reference. Generate a completely new background.");
+      }
+
+      if (borrowConfig.characters) {
+         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW CHARACTERS: You MUST maintain the exact character identities, body types, and facial features shown in the reference.");
+      }
+
+      if (borrowConfig.clothing) {
+         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW CLOTHING: You MUST use the exact clothing and outfits shown in the reference for the characters.");
+      } else {
+         if (!isBgOnly && !isPropsOnly) borrows.push("❌ NEW CLOTHING: You can flexibly change the clothing and outfits to fit the current text prompt.");
+      }
+
+      if (borrowConfig.poses) {
+         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW POSES & EXPRESSIONS: You MUST maintain the exact poses, actions, and facial expressions shown in the reference.");
+      } else {
+         if (!isBgOnly && !isPropsOnly) borrows.push("❌ NEW POSES & EXPRESSIONS: You MUST radically change the character poses, actions, and facial expressions to match the current text prompt. DO NOT rigidly copy the poses from the reference image.");
+      }
+
+      refText += borrows.join("\n");
+      refText += "\n\nCOMPLIANCE CHECK: Validate that you have followed every single ✅ BORROW and ❌ NEW instruction before finalizing the image.";
+      
+    } else {
+      refText = "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
+      if (environmentRefType === 'clothing') {
+        refText = "--- STRICT CLOTHING/OUTFIT REFERENCE --- \nCRITICAL: You MUST use the exact clothing and outfits shown in this reference image for the characters. IGNORE the environment and character identities, just use the clothes.";
+      } else if (environmentRefType === 'characters') {
+        refText = "--- STRICT CHARACTER COMPOSITION REFERENCE --- \nCRITICAL: You MUST maintain the exact characters, their poses, and their clothing shown in this reference image. Ensure the characters look identical to this image.";
+      } else if (environmentRefType === 'everything') {
+        refText = "--- STRICT VISUAL LINK REFERENCE --- \nCRITICAL: You MUST maintain the exact environment, location, characters, their clothing, and the general vibe shown in this reference image. Keep the visual continuity perfectly identical.";
+      } else if (environmentRefType === 'env_chars_clothes') {
+        refText = "--- STRICT CONTINUITY REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day AND the exact characters and their clothing shown in this reference image. HOWEVER, you MUST radically change their poses, actions, and facial expressions to match the current text prompt. Do NOT copy the poses from the reference image.";
+      }
     }
+
     parts.push({ text: refText });
     parts.push({ inlineData: { data, mimeType: 'image/png' } });
   }
@@ -395,6 +442,240 @@ export const restyleIllustration = async (
     }
   }
   throw new Error("Render failed.");
+};
+
+/**
+ * BORROW SCENE GENERATION: uses a reference scene as the starting canvas.
+ * Far more reliable than generating from scratch with text instructions about a reference.
+ * The reference image IS the input; the prompt says exactly what to keep vs. replace.
+ */
+export const borrowSceneGeneration = async (
+  referenceImageBase64: string,
+  newSceneScript: string,
+  borrowConfig: import('./types').BorrowConfig,
+  charRefs: CharacterRef[] = [],
+  isSpread: boolean = false,
+  masterBible: string = "",
+  imageSize: '1K' | '2K' | '4K' = '1K',
+  projectContext: string = "",
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number,
+  styleRefBase64?: string,
+  targetStyle?: string,
+  targetText?: string
+): Promise<string> => {
+  const ai = getAIClient();
+  const model = 'gemini-3.1-flash-image-preview';
+
+  const keepItems: string[] = [];
+  const changeItems: string[] = [];
+
+  if (borrowConfig.environment) {
+    keepItems.push("ENVIRONMENT: Reproduce the EXACT same location, room, architecture, furniture, props, time of day, and lighting. The new scene must unmistakably take place in the same physical space as the reference.");
+  } else {
+    changeItems.push("ENVIRONMENT: Create a completely new background and setting appropriate for the new scene script. Do NOT copy the location from the reference.");
+  }
+
+  if (borrowConfig.characters) {
+    keepItems.push("CHARACTER IDENTITIES: The SAME characters must appear. Copy their exact face shapes, skin tones, hairstyles, and body proportions from the reference. They must be recognisably the same people.");
+  } else {
+    changeItems.push("CHARACTER IDENTITIES: Generate appropriate characters for the new scene. Do NOT copy faces or identities from the reference.");
+  }
+
+  if (borrowConfig.clothing) {
+    keepItems.push("CLOTHING & OUTFITS: Dress every character in the EXACT same clothing, colours, and accessories shown in the reference. Reproduce every garment detail precisely.");
+  } else {
+    changeItems.push("CLOTHING & OUTFITS: Give characters new clothing appropriate for the new scene. Do NOT copy outfits from the reference.");
+  }
+
+  if (borrowConfig.poses) {
+    keepItems.push("POSES & EXPRESSIONS: Replicate the exact body poses, hand positions, and facial expressions from the reference as closely as possible.");
+  } else {
+    changeItems.push("POSES & EXPRESSIONS: Give characters entirely new poses and expressions that match the action described in the new scene script. Do NOT copy poses from the reference.");
+  }
+
+  let formatRules = "";
+  if (exportFormat && PRINT_FORMATS[exportFormat]) {
+    const config = PRINT_FORMATS[exportFormat];
+    const bleed = config.bleed;
+    const safe = config.outside;
+    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
+    const height = config.height + (bleed * 2);
+    formatRules = `TARGET PRINT FORMAT: ${config.name} — ${width.toFixed(3)}" x ${height.toFixed(3)}" (bleed ${bleed}"). Keep critical elements ${safe}" from edges.`;
+  }
+
+  const textInstruction = targetText
+    ? `EMBED THIS TEXT in the image: "${targetText}" — artistically integrated, no plain rectangles or boxes.`
+    : "CRITICAL ANTI-TEXT RULE: Do NOT render any words, letters, or dialogue bubbles in the image.";
+
+  const instruction = `SCENE ADAPTATION TASK:
+SERIES BIBLE: ${masterBible}
+PROJECT CONTEXT: ${projectContext}
+NEW SCENE SCRIPT: ${newSceneScript}
+LAYOUT: ${aspectRatio}${isSpread ? " — TWO-PAGE SPREAD (keep gutter center clear)" : ""}
+${formatRules}
+${textInstruction}
+TARGET STYLE: ${targetStyle || "match the reference image style exactly"}
+
+You are given a REFERENCE IMAGE from a previous scene. Adapt it into the new scene above.
+
+══════════════ WHAT TO COPY FROM THE REFERENCE (NON-NEGOTIABLE) ══════════════
+${keepItems.length > 0 ? keepItems.map(s => `✅ ${s}`).join("\n") : "✅ Nothing specific — keep only what naturally fits the new scene script."}
+
+══════════════ WHAT TO COMPLETELY REPLACE (NON-NEGOTIABLE) ══════════════
+${changeItems.length > 0 ? changeItems.map(s => `🔄 ${s}`).join("\n") : "🔄 Nothing specific."}
+
+COMPLIANCE CHECK: Before generating, confirm every ✅ item is preserved and every 🔄 item is replaced to match the new scene script.
+QUALITY: Produce a high-detail, fully rendered illustration at the same quality level as the reference.`;
+
+  const refData = referenceImageBase64.includes(',') ? referenceImageBase64.split(',')[1] : referenceImageBase64;
+
+  const parts: any[] = [
+    { text: instruction },
+    { text: "--- REFERENCE IMAGE (adapt this into the new scene) ---" },
+    { inlineData: { data: refData, mimeType: 'image/png' } }
+  ];
+
+  if (styleRefBase64) {
+    const styleData = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
+    parts.push({ text: "--- STYLE REFERENCE: Match this illustration style exactly ---" });
+    parts.push({ inlineData: { data: styleData, mimeType: 'image/png' } });
+  }
+
+  // Only add cast character refs when NOT borrowing characters from the visual link
+  // (avoids a conflict between two sets of character faces)
+  if (!borrowConfig.characters) {
+    charRefs.forEach(ref => {
+      if (ref.images.length > 0) {
+        const img = ref.images[0];
+        const data = img.includes(',') ? img.split(',')[1] : img;
+        parts.push({ text: `CHARACTER IDENTITY (${ref.name}): Use this character's face and body type.` });
+        parts.push({ inlineData: { data, mimeType: 'image/png' } });
+      }
+    });
+  }
+
+  const response: GenerateContentResponse = await generateContentWithRetry(ai, {
+    model,
+    contents: { parts },
+    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), imageSize } }
+  });
+
+  if (response.candidates?.[0]?.content?.parts) {
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+  }
+  throw new Error("Borrow generation failed.");
+};
+
+/**
+ * KEEP-AND-BORROW GENERATION: current scene image is the base canvas;
+ * the reference image provides specific elements to swap in.
+ * Used for KEEP presets where the user wants to preserve their existing
+ * characters/composition but update clothing or move to a new environment.
+ */
+export const keepAndBorrowGeneration = async (
+  currentSceneBase64: string,     // existing generated scene — what we KEEP from
+  referenceImageBase64: string,   // reference scene — what we BORROW from
+  newSceneScript: string,
+  keepItems: string[],            // human-readable list of things to preserve
+  borrowItems: string[],          // human-readable list of things to take from reference
+  charRefs: CharacterRef[] = [],
+  isSpread: boolean = false,
+  masterBible: string = "",
+  imageSize: '1K' | '2K' | '4K' = '1K',
+  projectContext: string = "",
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number,
+  styleRefBase64?: string,
+  targetStyle?: string,
+  targetText?: string
+): Promise<string> => {
+  const ai = getAIClient();
+  const model = 'gemini-3.1-flash-image-preview';
+
+  let formatRules = "";
+  if (exportFormat && PRINT_FORMATS[exportFormat]) {
+    const config = PRINT_FORMATS[exportFormat];
+    const bleed = config.bleed;
+    const safe = config.outside;
+    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
+    const height = config.height + (bleed * 2);
+    formatRules = `TARGET FORMAT: ${config.name} — ${width.toFixed(3)}" x ${height.toFixed(3)}" (bleed ${bleed}"). Keep critical elements ${safe}" from edges.`;
+  }
+
+  const textInstruction = targetText
+    ? `EMBED THIS TEXT: "${targetText}" — artistically integrated into the scene, no plain text boxes.`
+    : "Do NOT render any words or letters in the image.";
+
+  const instruction = `SCENE UPDATE TASK:
+SERIES BIBLE: ${masterBible}
+PROJECT CONTEXT: ${projectContext}
+NEW SCENE SCRIPT: ${newSceneScript}
+LAYOUT: ${aspectRatio}${isSpread ? " — TWO-PAGE SPREAD (keep gutter center clear)" : ""}
+${formatRules}
+${textInstruction}
+TARGET STYLE: ${targetStyle || "match the current scene style exactly"}
+
+You have TWO input images:
+  IMAGE A — CURRENT SCENE (the working scene to update)
+  IMAGE B — REFERENCE SCENE (the source for borrowed elements)
+
+Your job: update IMAGE A according to the instructions below.
+
+══════════════ KEEP FROM IMAGE A (current scene) ══════════════
+${keepItems.map(s => `✅ ${s}`).join("\n")}
+
+══════════════ REPLACE USING IMAGE B (reference scene) ══════════════
+${borrowItems.map(s => `🔄 ${s}`).join("\n")}
+
+CRITICAL — NATURAL COMPOSITION: When borrowing an environment, do NOT simply paste the current characters onto a new background. Recompose the characters so they fit NATURALLY and CORRECTLY within the reference location — respecting the scale, lighting direction, perspective, and spatial depth of IMAGE B.
+
+COMPLIANCE CHECK: Confirm every ✅ item is preserved from IMAGE A and every 🔄 item comes from IMAGE B before generating.
+QUALITY: Final image must match or exceed the detail level of IMAGE A.`;
+
+  const currentData = currentSceneBase64.includes(',') ? currentSceneBase64.split(',')[1] : currentSceneBase64;
+  const refData = referenceImageBase64.includes(',') ? referenceImageBase64.split(',')[1] : referenceImageBase64;
+
+  const parts: any[] = [
+    { text: instruction },
+    { text: "--- IMAGE A: CURRENT SCENE (update this) ---" },
+    { inlineData: { data: currentData, mimeType: 'image/png' } },
+    { text: "--- IMAGE B: REFERENCE SCENE (source for borrowed elements) ---" },
+    { inlineData: { data: refData, mimeType: 'image/png' } },
+  ];
+
+  if (styleRefBase64) {
+    const styleData = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
+    parts.push({ text: "--- STYLE REFERENCE: Match this illustration style ---" });
+    parts.push({ inlineData: { data: styleData, mimeType: 'image/png' } });
+  }
+
+  // Character identity refs only needed when we're not borrowing characters from the reference
+  charRefs.forEach(ref => {
+    if (ref.images.length > 0) {
+      const img = ref.images[0];
+      const data = img.includes(',') ? img.split(',')[1] : img;
+      parts.push({ text: `CHARACTER IDENTITY (${ref.name}): Use this character's face.` });
+      parts.push({ inlineData: { data, mimeType: 'image/png' } });
+    }
+  });
+
+  const response: GenerateContentResponse = await generateContentWithRetry(ai, {
+    model,
+    contents: { parts },
+    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), imageSize } }
+  });
+
+  if (response.candidates?.[0]?.content?.parts) {
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+  }
+  throw new Error("Keep-and-borrow generation failed.");
 };
 
 /**
@@ -900,8 +1181,9 @@ export const generateLayeredIllustration = async (
   estimatedPageCount?: number,
   styleRefBase64?: string,
   environmentRefBase64?: string,
-  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment',
-  targetStyle?: string
+  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes' = 'environment',
+  targetStyle?: string,
+  borrowConfig?: import('./types').BorrowConfig
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
 

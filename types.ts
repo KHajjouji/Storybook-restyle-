@@ -47,22 +47,46 @@ export interface BookLayer {
   type: 'background' | 'character' | 'foreground' | 'text';
 }
 
+export interface BorrowConfig {
+  environment: boolean;
+  characters: boolean;
+  clothing: boolean;
+  poses: boolean;
+}
+
+// Each preset encodes a clear, named intent so the UI stays unambiguous.
+// Presets prefixed "borrow_" use the reference scene as the generation canvas.
+// Presets prefixed "keep_" use the CURRENT scene as the base and pull specific
+// elements from the reference.
+export type VisualLinkPreset =
+  | 'borrow_env'                   // Reference env; fresh chars placed naturally inside it
+  | 'borrow_chars'                 // Reference characters; fresh env + clothes
+  | 'borrow_chars_clothes'         // Reference chars + outfits; fresh env
+  | 'borrow_env_chars'             // Reference env + chars; fresh clothes + poses
+  | 'borrow_env_chars_clothes'     // Reference env + chars + clothes; new poses per script
+  | 'borrow_everything'            // Full scene clone; only action/poses adapt to script
+  | 'keep_chars_borrow_clothes'    // Keep current scene's chars; dress them in ref's clothes
+  | 'keep_chars_borrow_env'        // Keep current scene's chars; move them to ref's location
+  | 'keep_chars_clothes_borrow_env'; // Keep current chars + clothes; use ref's location
+
 export interface BookPage {
   id: string;
-  originalImage?: string; 
-  processedImage?: string; 
+  originalImage?: string;
+  processedImage?: string;
   originalText: string;
   translatedText?: string;
   status: 'idle' | 'processing' | 'completed' | 'error';
   assignments: CharacterAssignment[];
-  isSpread: boolean; 
-  overrideStylePrompt?: string; 
+  isSpread: boolean;
+  overrideStylePrompt?: string;
   retargeting?: CharacterRetargeting;
   textPositionOverride?: 'top' | 'center' | 'bottom' | 'hidden';
   textBackgroundOverride?: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black';
   layers?: BookLayer[];
   environmentRefId?: string;
-  environmentRefType?: 'environment' | 'clothing' | 'characters' | 'everything';
+  environmentRefType?: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes'; // legacy
+  borrowConfig?: BorrowConfig; // legacy — kept for backwards compat
+  visualLinkPreset?: VisualLinkPreset;
 }
 
 export type ExportFormat = 'KDP_5x8' | 'KDP_5_06x7_81' | 'KDP_5_25x8' | 'KDP_5_5x8_5' | 'KDP_6x9' | 'KDP_6_14x9_21' | 'KDP_6_69x9_61' | 'KDP_7x10' | 'KDP_7_44x9_69' | 'KDP_7_5x9_25' | 'KDP_8x10' | 'KDP_8_25x6' | 'KDP_8_25x8_25' | 'KDP_8_5x8_5' | 'KDP_8_5x11' | 'KDP_8_27x11_69' | 'LULU_A4' | 'LULU_US_LETTER' | 'INGRAM_PREMIUM';
