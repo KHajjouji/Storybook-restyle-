@@ -335,6 +335,10 @@ export const restyleIllustration = async (
   TARGET STYLE: "${targetStyle}"
   CRITICAL: You MUST maintain and strictly enforce this exact visual style. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.` : "";
 
+  const charIdentityRule = borrowConfig
+    ? `CORE RULE FOR CHARACTER IDENTITY IMAGES: The images labeled 'CHARACTER IDENTITY' are for face/body likeness extraction ONLY — unless overridden by the VISUAL LINK section below, do NOT automatically copy their pose or expression. The VISUAL LINK REFERENCE instructions that follow are MANDATORY OVERRIDES and take the HIGHEST PRIORITY over every other instruction in this prompt.`
+    : `CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE.`;
+
   const instruction = `ILLUSTRATOR TASK:
   SERIES BIBLE: ${masterBible}
   PROJECT CONTEXT: ${projectContext}
@@ -343,8 +347,9 @@ export const restyleIllustration = async (
   ${layoutRules}
   ${textInstruction}
   ${styleInstruction}
-  
-  CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.
+
+  ${charIdentityRule}
+  No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.
   CRITICAL: Produce a high-detail, fully rendered, high-quality illustration. Do not output sketches or low-fidelity concepts unless explicitly requested.`;
 
   const parts: any[] = [{ text: instruction }];
@@ -375,36 +380,42 @@ export const restyleIllustration = async (
     let refText = "";
 
     if (borrowConfig) {
-      refText = "--- VISUAL LINK REFERENCE ---\nCRITICAL INSTRUCTIONS FOR USING THIS REFERENCE IMAGE:\n";
-      let borrows = [];
-      
       const isBgOnly = stylePrompt.includes("BACKGROUND ONLY") || stylePrompt.includes("ENVIRONMENT/BACKGROUND ONLY");
       const isCharOnly = stylePrompt.includes("CHARACTER LAYER");
       const isPropsOnly = stylePrompt.includes("FOREGROUND PROPS");
 
+      const borrows: string[] = [];
+
       if (borrowConfig.environment) {
-         if (!isCharOnly && !isPropsOnly) borrows.push("ENVIRONMENT: You MUST perfectly maintain the exact location, background, time of day, and weather shown in the reference.");
+        if (!isCharOnly && !isPropsOnly) borrows.push("✅ ENVIRONMENT (BORROW): You MUST faithfully reproduce the EXACT location, background, architectural details, time of day, lighting, and weather from this reference image. The new scene must look like it is set in the SAME physical space.");
       } else {
-         if (!isCharOnly && !isPropsOnly) borrows.push("ENVIRONMENT: DO NOT copy the environment shown in the reference. Generate a completely new background.");
+        if (!isCharOnly && !isPropsOnly) borrows.push("❌ ENVIRONMENT (NEW): Generate a completely new background and environment. Do NOT replicate the setting shown in this reference.");
       }
 
       if (borrowConfig.characters) {
-         if (!isBgOnly && !isPropsOnly) borrows.push("CHARACTERS: You MUST maintain the exact character identities, body types, and facial features shown in the reference.");
+        if (!isBgOnly && !isPropsOnly) borrows.push("✅ CHARACTER IDENTITIES (BORROW): You MUST reproduce the exact characters from this reference — their face shapes, skin tones, hairstyles, and body proportions. They must be RECOGNISABLY the SAME people as in the reference image.");
+      } else {
+        if (!isBgOnly && !isPropsOnly) borrows.push("❌ CHARACTER IDENTITIES (NEW): Generate fresh characters that match the scene script. Do NOT copy character faces or identities from this reference.");
       }
 
       if (borrowConfig.clothing) {
-         if (!isBgOnly && !isPropsOnly) borrows.push("CLOTHING: You MUST use the exact clothing and outfits shown in the reference for the characters.");
+        if (!isBgOnly && !isPropsOnly) borrows.push("✅ CLOTHING & OUTFITS (BORROW): You MUST dress the characters in the EXACT same clothing, colours, and accessories shown in this reference image. Replicate every garment detail precisely.");
       } else {
-         if (!isBgOnly && !isPropsOnly) borrows.push("CLOTHING: You can flexibly change the clothing and outfits to fit the current text prompt.");
+        if (!isBgOnly && !isPropsOnly) borrows.push("❌ CLOTHING & OUTFITS (NEW): Generate appropriate clothing that matches the current scene script. Do NOT copy outfits from this reference.");
       }
 
       if (borrowConfig.poses) {
-         if (!isBgOnly && !isPropsOnly) borrows.push("POSES & EXPRESSIONS: You MUST maintain the exact poses, actions, and facial expressions shown in the reference.");
+        if (!isBgOnly && !isPropsOnly) borrows.push("✅ POSES & EXPRESSIONS (BORROW): You MUST replicate the exact body poses, hand positions, and facial expressions shown in this reference image as closely as possible.");
       } else {
-         if (!isBgOnly && !isPropsOnly) borrows.push("POSES & EXPRESSIONS: You MUST radically change the character poses, actions, and facial expressions to match the current text prompt. DO NOT rigidly copy the poses from the reference image.");
+        if (!isBgOnly && !isPropsOnly) borrows.push("❌ POSES & EXPRESSIONS (NEW): Generate entirely new poses and expressions that match the action described in the current scene script. Do NOT copy poses from this reference.");
       }
 
-      refText += borrows.join("\n");
+      refText = `--- VISUAL LINK REFERENCE (HIGHEST PRIORITY — OVERRIDES ALL OTHER RULES) ---
+The following image is a SCENE REFERENCE. The instructions below are NON-NEGOTIABLE and override every other instruction in this prompt, including the Core Rule. Study this image carefully and comply exactly:
+
+${borrows.join("\n")}
+
+COMPLIANCE CHECK: Before you generate, confirm you have applied every ✅ BORROW instruction above and respected every ❌ NEW instruction.`;
       
     } else {
       refText = "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
