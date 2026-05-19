@@ -1216,7 +1216,8 @@ const App: React.FC = () => {
           settings.styleReference,
           envRefBase64,
           p.environmentRefType,
-          settings.targetStyle
+          settings.targetStyle,
+          p.borrowConfig
         );
         result = layeredResult.composite;
         layers = layeredResult.layers;
@@ -1227,7 +1228,7 @@ const App: React.FC = () => {
         result = await refineIllustration(p.originalImage, narrativeContext, others, p.isSpread, targetResolution, settings.masterBible, projectContext, settings.characterReferences, finalAspectRatio, targetText, settings.exportFormat, settings.estimatedPageCount, settings.styleReference || undefined, settings.targetStyle);
       } else {
         // For activities, use the specific spread prompt as the primary instruction
-        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64, p.environmentRefType, settings.targetStyle);
+        result = await restyleIllustration(undefined, narrativeContext, settings.styleReference, targetText, settings.characterReferences, [], true, false, p.isSpread, settings.masterBible, targetResolution, projectContext, finalAspectRatio, settings.exportFormat, settings.estimatedPageCount, envRefBase64, p.environmentRefType, settings.targetStyle, p.borrowConfig);
       }
       setPages(curr => curr.map(pg => pg.id === pageId ? { ...pg, status: 'completed', processedImage: result, layers: layers || pg.layers } : pg));
     } catch (e) { 
@@ -2605,30 +2606,43 @@ const App: React.FC = () => {
                          </select>
                          
                          {p.environmentRefId && (
-                           <div className="flex flex-col">
-                             <select 
-                               value={p.environmentRefType || 'environment'} 
-                               onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefType: e.target.value as any } : pg))}
-                               className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
-                             >
-                               <option value="environment">Keep Environment Only</option>
-                               <option value="clothing">Keep Clothing Only</option>
-                               <option value="characters">Keep Characters & Clothing</option>
-                               <option value="env_chars_clothes">Keep Env + Chars + Clothes (Change Action)</option>
-                               <option value="everything">Keep Everything (Full Scene Template)</option>
-                             </select>
-                             {p.environmentRefId && (
-                               <p className="text-xs font-bold text-slate-500 mt-3 px-2 flex gap-2 items-start bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                 <Info size={14} className="shrink-0 mt-0.5 text-indigo-400" />
-                                 <span className="leading-tight">
-                                   {(!p.environmentRefType || p.environmentRefType === 'environment') && "Uses ONLY the background and location from the reference. Characters and outfits are generated fresh."}
-                                   {p.environmentRefType === 'clothing' && "Uses ONLY the outfits from the reference. The background and character identities are generated fresh."}
-                                   {p.environmentRefType === 'characters' && "Maintains exact characters, poses, and clothing from the reference, but generates a new background."}
-                                   {p.environmentRefType === 'env_chars_clothes' && "Keeps identical characters, clothes, and background, but radically changes their actions, poses, and expressions based on the text."}
-                                   {p.environmentRefType === 'everything' && "Creates a strict visual clone of the entire reference image (same characters, background, and poses)."}
-                                 </span>
-                               </p>
-                             )}
+                           <div className="flex flex-col gap-3 mt-4 md:mt-0 col-span-1 md:col-span-2 bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100">
+                             <p className="text-xs font-black uppercase tracking-widest text-indigo-800 mb-2">What to borrow from this scene:</p>
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                               {[
+                                 { key: 'environment', label: 'Environment & Background', desc: 'Maintain the exact location and weather from the reference.' },
+                                 { key: 'characters', label: 'Character Identities', desc: 'Maintain the exact character body type and facial features.' },
+                                 { key: 'clothing', label: 'Clothing & Outfits', desc: 'Use the identical outfits from the reference image.' },
+                                 { key: 'poses', label: 'Poses & Expressions', desc: 'Copy the current actions and poses. (Uncheck to dynamically change poses based on text prompt)' }
+                               ].map(opt => {
+                                 const isChecked = !!(p.borrowConfig || { environment: true, characters: false, clothing: false, poses: false })[opt.key as keyof import('./types').BorrowConfig];
+                                 return (
+                                   <label key={opt.key} className={`flex items-start gap-4 cursor-pointer group p-4 rounded-2xl border-2 transition-all ${isChecked ? 'bg-white border-indigo-500 shadow-sm' : 'bg-white/50 border-transparent hover:bg-white hover:border-slate-200'}`}>
+                                     <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all shrink-0 mt-0.5 ${isChecked ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-transparent'}`}>
+                                       <Check size={14} strokeWidth={4} />
+                                     </div>
+                                     <div>
+                                       <div className={`text-sm font-bold ${isChecked ? 'text-indigo-900' : 'text-slate-600'}`}>{opt.label}</div>
+                                       <div className="text-xs font-medium text-slate-500 mt-1 leading-snug">{opt.desc}</div>
+                                     </div>
+                                     <input 
+                                       type="checkbox" 
+                                       className="hidden" 
+                                       checked={isChecked}
+                                       onChange={(e) => {
+                                         setPages(curr => curr.map(pg => {
+                                           if (pg.id === p.id) {
+                                             const currentConfig = pg.borrowConfig || { environment: true, characters: false, clothing: false, poses: false };
+                                             return { ...pg, borrowConfig: { ...currentConfig, [opt.key]: e.target.checked } };
+                                           }
+                                           return pg;
+                                         }));
+                                       }}
+                                     />
+                                   </label>
+                                 );
+                               })}
+                             </div>
                            </div>
                          )}
                        </div>

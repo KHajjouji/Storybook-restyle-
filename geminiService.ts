@@ -371,16 +371,53 @@ export const restyleIllustration = async (
 
   if (environmentRefBase64) {
     const data = environmentRefBase64.includes(',') ? environmentRefBase64.split(',')[1] : environmentRefBase64;
-    let refText = "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
-    if (environmentRefType === 'clothing') {
-      refText = "--- STRICT CLOTHING/OUTFIT REFERENCE --- \nCRITICAL: You MUST use the exact clothing and outfits shown in this reference image for the characters. IGNORE the environment and character identities, just use the clothes.";
-    } else if (environmentRefType === 'characters') {
-      refText = "--- STRICT CHARACTER COMPOSITION REFERENCE --- \nCRITICAL: You MUST maintain the exact characters, their poses, and their clothing shown in this reference image. Ensure the characters look identical to this image.";
-    } else if (environmentRefType === 'everything') {
-      refText = "--- STRICT VISUAL LINK REFERENCE --- \nCRITICAL: You MUST maintain the exact environment, location, characters, their clothing, and the general vibe shown in this reference image. Keep the visual continuity perfectly identical.";
-    } else if (environmentRefType === 'env_chars_clothes') {
-      refText = "--- STRICT CONTINUITY REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day AND the exact characters and their clothing shown in this reference image. HOWEVER, you MUST radically change their poses, actions, and facial expressions to match the current text prompt. Do NOT copy the poses from the reference image.";
+    let refText = "";
+
+    if (borrowConfig) {
+      refText = "--- VISUAL LINK REFERENCE ---\nCRITICAL INSTRUCTIONS FOR USING THIS REFERENCE IMAGE:\n";
+      let borrows = [];
+      
+      const isBgOnly = stylePrompt.includes("BACKGROUND ONLY") || stylePrompt.includes("ENVIRONMENT/BACKGROUND ONLY");
+      const isCharOnly = stylePrompt.includes("CHARACTER LAYER");
+      const isPropsOnly = stylePrompt.includes("FOREGROUND PROPS");
+
+      if (borrowConfig.environment) {
+         if (!isCharOnly && !isPropsOnly) borrows.push("ENVIRONMENT: You MUST perfectly maintain the exact location, background, time of day, and weather shown in the reference.");
+      } else {
+         if (!isCharOnly && !isPropsOnly) borrows.push("ENVIRONMENT: DO NOT copy the environment shown in the reference. Generate a completely new background.");
+      }
+
+      if (borrowConfig.characters) {
+         if (!isBgOnly && !isPropsOnly) borrows.push("CHARACTERS: You MUST maintain the exact character identities, body types, and facial features shown in the reference.");
+      }
+
+      if (borrowConfig.clothing) {
+         if (!isBgOnly && !isPropsOnly) borrows.push("CLOTHING: You MUST use the exact clothing and outfits shown in the reference for the characters.");
+      } else {
+         if (!isBgOnly && !isPropsOnly) borrows.push("CLOTHING: You can flexibly change the clothing and outfits to fit the current text prompt.");
+      }
+
+      if (borrowConfig.poses) {
+         if (!isBgOnly && !isPropsOnly) borrows.push("POSES & EXPRESSIONS: You MUST maintain the exact poses, actions, and facial expressions shown in the reference.");
+      } else {
+         if (!isBgOnly && !isPropsOnly) borrows.push("POSES & EXPRESSIONS: You MUST radically change the character poses, actions, and facial expressions to match the current text prompt. DO NOT rigidly copy the poses from the reference image.");
+      }
+
+      refText += borrows.join("\n");
+      
+    } else {
+      refText = "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
+      if (environmentRefType === 'clothing') {
+        refText = "--- STRICT CLOTHING/OUTFIT REFERENCE --- \nCRITICAL: You MUST use the exact clothing and outfits shown in this reference image for the characters. IGNORE the environment and character identities, just use the clothes.";
+      } else if (environmentRefType === 'characters') {
+        refText = "--- STRICT CHARACTER COMPOSITION REFERENCE --- \nCRITICAL: You MUST maintain the exact characters, their poses, and their clothing shown in this reference image. Ensure the characters look identical to this image.";
+      } else if (environmentRefType === 'everything') {
+        refText = "--- STRICT VISUAL LINK REFERENCE --- \nCRITICAL: You MUST maintain the exact environment, location, characters, their clothing, and the general vibe shown in this reference image. Keep the visual continuity perfectly identical.";
+      } else if (environmentRefType === 'env_chars_clothes') {
+        refText = "--- STRICT CONTINUITY REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day AND the exact characters and their clothing shown in this reference image. HOWEVER, you MUST radically change their poses, actions, and facial expressions to match the current text prompt. Do NOT copy the poses from the reference image.";
+      }
     }
+
     parts.push({ text: refText });
     parts.push({ inlineData: { data, mimeType: 'image/png' } });
   }
@@ -903,7 +940,8 @@ export const generateLayeredIllustration = async (
   styleRefBase64?: string,
   environmentRefBase64?: string,
   environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes' = 'environment',
-  targetStyle?: string
+  targetStyle?: string,
+  borrowConfig?: import('./types').BorrowConfig
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
 
