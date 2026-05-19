@@ -2605,16 +2605,31 @@ const App: React.FC = () => {
                          </select>
                          
                          {p.environmentRefId && (
-                           <select 
-                             value={p.environmentRefType || 'environment'} 
-                             onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefType: e.target.value as any } : pg))}
-                             className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
-                           >
-                             <option value="environment">Keep Environment Only</option>
-                             <option value="clothing">Keep Clothing Only</option>
-                             <option value="characters">Keep Characters & Clothing</option>
-                             <option value="everything">Keep Everything (Full Scene Template)</option>
-                           </select>
+                           <div className="flex flex-col">
+                             <select 
+                               value={p.environmentRefType || 'environment'} 
+                               onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefType: e.target.value as any } : pg))}
+                               className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
+                             >
+                               <option value="environment">Keep Environment Only</option>
+                               <option value="clothing">Keep Clothing Only</option>
+                               <option value="characters">Keep Characters & Clothing</option>
+                               <option value="env_chars_clothes">Keep Env + Chars + Clothes (Change Action)</option>
+                               <option value="everything">Keep Everything (Full Scene Template)</option>
+                             </select>
+                             {p.environmentRefId && (
+                               <p className="text-xs font-bold text-slate-500 mt-3 px-2 flex gap-2 items-start bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                 <Info size={14} className="shrink-0 mt-0.5 text-indigo-400" />
+                                 <span className="leading-tight">
+                                   {(!p.environmentRefType || p.environmentRefType === 'environment') && "Uses ONLY the background and location from the reference. Characters and outfits are generated fresh."}
+                                   {p.environmentRefType === 'clothing' && "Uses ONLY the outfits from the reference. The background and character identities are generated fresh."}
+                                   {p.environmentRefType === 'characters' && "Maintains exact characters, poses, and clothing from the reference, but generates a new background."}
+                                   {p.environmentRefType === 'env_chars_clothes' && "Keeps identical characters, clothes, and background, but radically changes their actions, poses, and expressions based on the text."}
+                                   {p.environmentRefType === 'everything' && "Creates a strict visual clone of the entire reference image (same characters, background, and poses)."}
+                                 </span>
+                               </p>
+                             )}
+                           </div>
                          )}
                        </div>
                     </div>

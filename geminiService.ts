@@ -291,7 +291,7 @@ export const restyleIllustration = async (
   exportFormat?: ExportFormat,
   estimatedPageCount?: number,
   environmentRefBase64?: string,
-  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment',
+  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes' = 'environment',
   targetStyle?: string
 ): Promise<string> => {
   const ai = getAIClient();
@@ -378,6 +378,8 @@ export const restyleIllustration = async (
       refText = "--- STRICT CHARACTER COMPOSITION REFERENCE --- \nCRITICAL: You MUST maintain the exact characters, their poses, and their clothing shown in this reference image. Ensure the characters look identical to this image.";
     } else if (environmentRefType === 'everything') {
       refText = "--- STRICT VISUAL LINK REFERENCE --- \nCRITICAL: You MUST maintain the exact environment, location, characters, their clothing, and the general vibe shown in this reference image. Keep the visual continuity perfectly identical.";
+    } else if (environmentRefType === 'env_chars_clothes') {
+      refText = "--- STRICT CONTINUITY REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day AND the exact characters and their clothing shown in this reference image. HOWEVER, you MUST radically change their poses, actions, and facial expressions to match the current text prompt. Do NOT copy the poses from the reference image.";
     }
     parts.push({ text: refText });
     parts.push({ inlineData: { data, mimeType: 'image/png' } });
@@ -900,7 +902,7 @@ export const generateLayeredIllustration = async (
   estimatedPageCount?: number,
   styleRefBase64?: string,
   environmentRefBase64?: string,
-  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' = 'environment',
+  environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes' = 'environment',
   targetStyle?: string
 ): Promise<{layers: any[], composite: string}> => {
   console.log("Starting precision layered generation...");
