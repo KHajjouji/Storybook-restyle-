@@ -2614,11 +2614,7 @@ const App: React.FC = () => {
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                          <select 
                            value={p.environmentRefId || ''} 
-                           onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? {
-                               ...pg,
-                               environmentRefId: e.target.value || undefined,
-                               borrowConfig: e.target.value ? (pg.borrowConfig || { environment: true, characters: false, clothing: false, poses: false }) : undefined
-                             } : pg))}
+                           onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefId: e.target.value || undefined, borrowConfig: e.target.value ? { environment: true, characters: false, clothing: false, poses: false } : undefined } : pg))}
                            className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
                          >
                            <option value="">None (Auto-generate environment)</option>
@@ -2632,10 +2628,10 @@ const App: React.FC = () => {
                              <p className="text-xs font-black uppercase tracking-widest text-indigo-800 mb-2">What to borrow from this scene:</p>
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                {[
-                                 { key: 'environment', label: 'Environment & Background', desc: 'Maintain the exact location and weather from the reference.' },
-                                 { key: 'characters', label: 'Character Identities', desc: 'Maintain the exact character body type and facial features.' },
-                                 { key: 'clothing', label: 'Clothing & Outfits', desc: 'Use the identical outfits from the reference image.' },
-                                 { key: 'poses', label: 'Poses & Expressions', desc: 'Copy the current actions and poses. (Uncheck to dynamically change poses based on text prompt)' }
+                                 { key: 'environment', label: 'Environment & Background', desc: 'Maintains the exact location, time of day, and weather shown in the referenced scene.' },
+                                 { key: 'characters', label: 'Character Identities', desc: 'Maintains the exact character body types and facial features from the reference.' },
+                                 { key: 'clothing', label: 'Clothing & Outfits', desc: 'Uses the identical outfits from the reference image instead of generating new clothes.' },
+                                 { key: 'poses', label: 'Poses & Expressions', desc: 'Copies the characters\' actions and poses. Uncheck this if you want them to move, act differently, or change expressions based on the text prompt.' }
                                ].map(opt => {
                                  const isChecked = !!(p.borrowConfig || { environment: true, characters: false, clothing: false, poses: false })[opt.key as keyof import('./types').BorrowConfig];
                                  return (
@@ -2643,9 +2639,18 @@ const App: React.FC = () => {
                                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all shrink-0 mt-0.5 ${isChecked ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-transparent'}`}>
                                        <Check size={14} strokeWidth={4} />
                                      </div>
-                                     <div>
-                                       <div className={`text-sm font-bold ${isChecked ? 'text-indigo-900' : 'text-slate-600'}`}>{opt.label}</div>
-                                       <div className="text-xs font-medium text-slate-500 mt-1 leading-snug">{opt.desc}</div>
+                                     <div className="flex-1 min-w-0">
+                                       <div className={`text-sm font-bold flex items-center justify-between ${isChecked ? 'text-indigo-900' : 'text-slate-600'}`}>
+                                         <span>{opt.label}</span>
+                                         <div className="relative group/tooltip">
+                                           <Info size={16} className="text-slate-400 hover:text-indigo-600 transition-colors" />
+                                           <div className="absolute bottom-full right-0 md:left-1/2 md:-translate-x-1/2 mb-3 w-64 p-4 bg-slate-900 text-white text-xs font-medium rounded-xl opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-all z-50 shadow-2xl scale-95 group-hover/tooltip:scale-100 origin-bottom leading-relaxed">
+                                             {opt.desc}
+                                             <div className="absolute top-full right-2 md:left-1/2 md:-translate-x-1/2 border-[6px] border-transparent border-t-slate-900"></div>
+                                           </div>
+                                         </div>
+                                       </div>
+                                       <div className="text-xs font-medium text-slate-500/80 mt-1 truncate pr-4">{opt.desc}</div>
                                      </div>
                                      <input 
                                        type="checkbox" 

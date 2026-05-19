@@ -335,9 +335,9 @@ export const restyleIllustration = async (
   TARGET STYLE: "${targetStyle}"
   CRITICAL: You MUST maintain and strictly enforce this exact visual style. Do NOT let the quality or detail degrade into a generic or different style. Ensure high-quality rendering in line with this target style.` : "";
 
-  const charIdentityRule = borrowConfig
-    ? `CORE RULE FOR CHARACTER IDENTITY IMAGES: The images labeled 'CHARACTER IDENTITY' are for face/body likeness extraction ONLY — unless overridden by the VISUAL LINK section below, do NOT automatically copy their pose or expression. The VISUAL LINK REFERENCE instructions that follow are MANDATORY OVERRIDES and take the HIGHEST PRIORITY over every other instruction in this prompt.`
-    : `CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE.`;
+  const coreRule = borrowConfig 
+    ? "CORE RULE: The CHARACTER IDENTITY images are for face/body extraction ONLY. The VISUAL LINK REFERENCE instructions that follow are MANDATORY OVERRIDES with HIGHEST PRIORITY. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK."
+    : "CORE RULE: Maintain character FACIAL LIKENESS ONLY from the provided reference images. DO NOT carry over their clothing, pose, or expression from the references. Ensure their clothing, pose, and emotions perfectly match the CURRENT SCENE SCRIPT and MASTER BIBLE. No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.";
 
   const instruction = `ILLUSTRATOR TASK:
   SERIES BIBLE: ${masterBible}
@@ -347,9 +347,8 @@ export const restyleIllustration = async (
   ${layoutRules}
   ${textInstruction}
   ${styleInstruction}
-
-  ${charIdentityRule}
-  No readable text unless specifically requested in the script or provided in the TEXT EMBEDDING TASK.
+  
+  ${coreRule}
   CRITICAL: Produce a high-detail, fully rendered, high-quality illustration. Do not output sketches or low-fidelity concepts unless explicitly requested.`;
 
   const parts: any[] = [{ text: instruction }];
@@ -380,6 +379,9 @@ export const restyleIllustration = async (
     let refText = "";
 
     if (borrowConfig) {
+      refText = "--- VISUAL LINK REFERENCE ---\nHIGHEST PRIORITY — OVERRIDES ALL OTHER RULES\nCRITICAL INSTRUCTIONS FOR USING THIS REFERENCE IMAGE:\n";
+      let borrows = [];
+      
       const isBgOnly = stylePrompt.includes("BACKGROUND ONLY") || stylePrompt.includes("ENVIRONMENT/BACKGROUND ONLY");
       const isCharOnly = stylePrompt.includes("CHARACTER LAYER");
       const isPropsOnly = stylePrompt.includes("FOREGROUND PROPS");
@@ -387,35 +389,29 @@ export const restyleIllustration = async (
       const borrows: string[] = [];
 
       if (borrowConfig.environment) {
-        if (!isCharOnly && !isPropsOnly) borrows.push("✅ ENVIRONMENT (BORROW): You MUST faithfully reproduce the EXACT location, background, architectural details, time of day, lighting, and weather from this reference image. The new scene must look like it is set in the SAME physical space.");
+         if (!isCharOnly && !isPropsOnly) borrows.push("✅ BORROW ENVIRONMENT: You MUST perfectly maintain the exact location, background, time of day, and weather shown in the reference.");
       } else {
-        if (!isCharOnly && !isPropsOnly) borrows.push("❌ ENVIRONMENT (NEW): Generate a completely new background and environment. Do NOT replicate the setting shown in this reference.");
+         if (!isCharOnly && !isPropsOnly) borrows.push("❌ NEW ENVIRONMENT: DO NOT copy the environment shown in the reference. Generate a completely new background.");
       }
 
       if (borrowConfig.characters) {
-        if (!isBgOnly && !isPropsOnly) borrows.push("✅ CHARACTER IDENTITIES (BORROW): You MUST reproduce the exact characters from this reference — their face shapes, skin tones, hairstyles, and body proportions. They must be RECOGNISABLY the SAME people as in the reference image.");
-      } else {
-        if (!isBgOnly && !isPropsOnly) borrows.push("❌ CHARACTER IDENTITIES (NEW): Generate fresh characters that match the scene script. Do NOT copy character faces or identities from this reference.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW CHARACTERS: You MUST maintain the exact character identities, body types, and facial features shown in the reference.");
       }
 
       if (borrowConfig.clothing) {
-        if (!isBgOnly && !isPropsOnly) borrows.push("✅ CLOTHING & OUTFITS (BORROW): You MUST dress the characters in the EXACT same clothing, colours, and accessories shown in this reference image. Replicate every garment detail precisely.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW CLOTHING: You MUST use the exact clothing and outfits shown in the reference for the characters.");
       } else {
-        if (!isBgOnly && !isPropsOnly) borrows.push("❌ CLOTHING & OUTFITS (NEW): Generate appropriate clothing that matches the current scene script. Do NOT copy outfits from this reference.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("❌ NEW CLOTHING: You can flexibly change the clothing and outfits to fit the current text prompt.");
       }
 
       if (borrowConfig.poses) {
-        if (!isBgOnly && !isPropsOnly) borrows.push("✅ POSES & EXPRESSIONS (BORROW): You MUST replicate the exact body poses, hand positions, and facial expressions shown in this reference image as closely as possible.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("✅ BORROW POSES & EXPRESSIONS: You MUST maintain the exact poses, actions, and facial expressions shown in the reference.");
       } else {
-        if (!isBgOnly && !isPropsOnly) borrows.push("❌ POSES & EXPRESSIONS (NEW): Generate entirely new poses and expressions that match the action described in the current scene script. Do NOT copy poses from this reference.");
+         if (!isBgOnly && !isPropsOnly) borrows.push("❌ NEW POSES & EXPRESSIONS: You MUST radically change the character poses, actions, and facial expressions to match the current text prompt. DO NOT rigidly copy the poses from the reference image.");
       }
 
-      refText = `--- VISUAL LINK REFERENCE (HIGHEST PRIORITY — OVERRIDES ALL OTHER RULES) ---
-The following image is a SCENE REFERENCE. The instructions below are NON-NEGOTIABLE and override every other instruction in this prompt, including the Core Rule. Study this image carefully and comply exactly:
-
-${borrows.join("\n")}
-
-COMPLIANCE CHECK: Before you generate, confirm you have applied every ✅ BORROW instruction above and respected every ❌ NEW instruction.`;
+      refText += borrows.join("\n");
+      refText += "\n\nCOMPLIANCE CHECK: Validate that you have followed every single ✅ BORROW and ❌ NEW instruction before finalizing the image.";
       
     } else {
       refText = "--- STRICT ENVIRONMENT/SCENE REFERENCE --- \nCRITICAL: You MUST maintain the EXACT environment, location, background, time of day, and weather shown in this reference image. Ensure the generated scene looks like it is taking place in the exact same location.";
@@ -1088,7 +1084,7 @@ export const generateLayeredIllustration = async (
   // Otherwise, generating the text layer synthetically results in a poor square banner.
   if (targetText) {
      console.log("Target text detected. Generating master composite to preserve artistic text placement...");
-     const masterComposite = await restyleIllustration(undefined, stylePrompt, styleRefBase64, targetText, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle, borrowConfig);
+     const masterComposite = await restyleIllustration(undefined, stylePrompt, styleRefBase64, targetText, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
      return separateIllustrationIntoLayers(masterComposite, "", [], isSpread, targetResolution, masterBible, projectContext, charRefs, aspectRatio, targetText, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
   }
   
@@ -1115,16 +1111,16 @@ export const generateLayeredIllustration = async (
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment. ${layoutRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle, borrowConfig);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
 
   // 2. CHARACTER LAYER
   const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle, borrowConfig);
+  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
   const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle, borrowConfig);
+  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER REMOVED (Handled natively by PDF gen)
