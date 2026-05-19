@@ -571,6 +571,114 @@ QUALITY: Produce a high-detail, fully rendered illustration at the same quality 
 };
 
 /**
+ * KEEP-AND-BORROW GENERATION: current scene image is the base canvas;
+ * the reference image provides specific elements to swap in.
+ * Used for KEEP presets where the user wants to preserve their existing
+ * characters/composition but update clothing or move to a new environment.
+ */
+export const keepAndBorrowGeneration = async (
+  currentSceneBase64: string,     // existing generated scene — what we KEEP from
+  referenceImageBase64: string,   // reference scene — what we BORROW from
+  newSceneScript: string,
+  keepItems: string[],            // human-readable list of things to preserve
+  borrowItems: string[],          // human-readable list of things to take from reference
+  charRefs: CharacterRef[] = [],
+  isSpread: boolean = false,
+  masterBible: string = "",
+  imageSize: '1K' | '2K' | '4K' = '1K',
+  projectContext: string = "",
+  aspectRatio: "1:1" | "4:3" | "16:9" | "9:16" = "4:3",
+  exportFormat?: ExportFormat,
+  estimatedPageCount?: number,
+  styleRefBase64?: string,
+  targetStyle?: string,
+  targetText?: string
+): Promise<string> => {
+  const ai = getAIClient();
+  const model = 'gemini-3.1-flash-image-preview';
+
+  let formatRules = "";
+  if (exportFormat && PRINT_FORMATS[exportFormat]) {
+    const config = PRINT_FORMATS[exportFormat];
+    const bleed = config.bleed;
+    const safe = config.outside;
+    const width = isSpread ? (config.width * 2) + (bleed * 2) : config.width + bleed;
+    const height = config.height + (bleed * 2);
+    formatRules = `TARGET FORMAT: ${config.name} — ${width.toFixed(3)}" x ${height.toFixed(3)}" (bleed ${bleed}"). Keep critical elements ${safe}" from edges.`;
+  }
+
+  const textInstruction = targetText
+    ? `EMBED THIS TEXT: "${targetText}" — artistically integrated into the scene, no plain text boxes.`
+    : "Do NOT render any words or letters in the image.";
+
+  const instruction = `SCENE UPDATE TASK:
+SERIES BIBLE: ${masterBible}
+PROJECT CONTEXT: ${projectContext}
+NEW SCENE SCRIPT: ${newSceneScript}
+LAYOUT: ${aspectRatio}${isSpread ? " — TWO-PAGE SPREAD (keep gutter center clear)" : ""}
+${formatRules}
+${textInstruction}
+TARGET STYLE: ${targetStyle || "match the current scene style exactly"}
+
+You have TWO input images:
+  IMAGE A — CURRENT SCENE (the working scene to update)
+  IMAGE B — REFERENCE SCENE (the source for borrowed elements)
+
+Your job: update IMAGE A according to the instructions below.
+
+══════════════ KEEP FROM IMAGE A (current scene) ══════════════
+${keepItems.map(s => `✅ ${s}`).join("\n")}
+
+══════════════ REPLACE USING IMAGE B (reference scene) ══════════════
+${borrowItems.map(s => `🔄 ${s}`).join("\n")}
+
+CRITICAL — NATURAL COMPOSITION: When borrowing an environment, do NOT simply paste the current characters onto a new background. Recompose the characters so they fit NATURALLY and CORRECTLY within the reference location — respecting the scale, lighting direction, perspective, and spatial depth of IMAGE B.
+
+COMPLIANCE CHECK: Confirm every ✅ item is preserved from IMAGE A and every 🔄 item comes from IMAGE B before generating.
+QUALITY: Final image must match or exceed the detail level of IMAGE A.`;
+
+  const currentData = currentSceneBase64.includes(',') ? currentSceneBase64.split(',')[1] : currentSceneBase64;
+  const refData = referenceImageBase64.includes(',') ? referenceImageBase64.split(',')[1] : referenceImageBase64;
+
+  const parts: any[] = [
+    { text: instruction },
+    { text: "--- IMAGE A: CURRENT SCENE (update this) ---" },
+    { inlineData: { data: currentData, mimeType: 'image/png' } },
+    { text: "--- IMAGE B: REFERENCE SCENE (source for borrowed elements) ---" },
+    { inlineData: { data: refData, mimeType: 'image/png' } },
+  ];
+
+  if (styleRefBase64) {
+    const styleData = styleRefBase64.includes(',') ? styleRefBase64.split(',')[1] : styleRefBase64;
+    parts.push({ text: "--- STYLE REFERENCE: Match this illustration style ---" });
+    parts.push({ inlineData: { data: styleData, mimeType: 'image/png' } });
+  }
+
+  // Character identity refs only needed when we're not borrowing characters from the reference
+  charRefs.forEach(ref => {
+    if (ref.images.length > 0) {
+      const img = ref.images[0];
+      const data = img.includes(',') ? img.split(',')[1] : img;
+      parts.push({ text: `CHARACTER IDENTITY (${ref.name}): Use this character's face.` });
+      parts.push({ inlineData: { data, mimeType: 'image/png' } });
+    }
+  });
+
+  const response: GenerateContentResponse = await generateContentWithRetry(ai, {
+    model,
+    contents: { parts },
+    config: { imageConfig: { aspectRatio: getBestAspectRatio(exportFormat, isSpread, estimatedPageCount, aspectRatio), imageSize } }
+  });
+
+  if (response.candidates?.[0]?.content?.parts) {
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+  }
+  throw new Error("Keep-and-borrow generation failed.");
+};
+
+/**
  * REFINE ILLUSTRATION: targeted corrective edits with multiple references and context.
  */
 export const refineIllustration = async (
