@@ -2596,11 +2596,7 @@ const App: React.FC = () => {
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                          <select 
                            value={p.environmentRefId || ''} 
-                           onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? {
-                               ...pg,
-                               environmentRefId: e.target.value || undefined,
-                               borrowConfig: e.target.value ? (pg.borrowConfig || { environment: true, characters: false, clothing: false, poses: false }) : undefined
-                             } : pg))}
+                           onChange={(e) => setPages(curr => curr.map(pg => pg.id === p.id ? { ...pg, environmentRefId: e.target.value || undefined, borrowConfig: e.target.value ? { environment: true, characters: false, clothing: false, poses: false } : undefined } : pg))}
                            className="w-full text-sm text-slate-700 font-bold bg-slate-50 p-6 rounded-[2rem] border-2 border-transparent focus:border-indigo-300 focus:ring-0"
                          >
                            <option value="">None (Auto-generate environment)</option>

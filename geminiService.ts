@@ -292,8 +292,7 @@ export const restyleIllustration = async (
   estimatedPageCount?: number,
   environmentRefBase64?: string,
   environmentRefType: 'environment' | 'clothing' | 'characters' | 'everything' | 'env_chars_clothes' = 'environment',
-  targetStyle?: string,
-  borrowConfig?: import('./types').BorrowConfig
+  targetStyle?: string
 ): Promise<string> => {
   const ai = getAIClient();
   const model = usePro ? 'gemini-3.1-flash-image-preview' : 'gemini-3.1-flash-image-preview';
@@ -951,7 +950,7 @@ export const generateLayeredIllustration = async (
   // Otherwise, generating the text layer synthetically results in a poor square banner.
   if (targetText) {
      console.log("Target text detected. Generating master composite to preserve artistic text placement...");
-     const masterComposite = await restyleIllustration(undefined, stylePrompt, styleRefBase64, targetText, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle, borrowConfig);
+     const masterComposite = await restyleIllustration(undefined, stylePrompt, styleRefBase64, targetText, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
      return separateIllustrationIntoLayers(masterComposite, "", [], isSpread, targetResolution, masterBible, projectContext, charRefs, aspectRatio, targetText, exportFormat, estimatedPageCount, styleRefBase64, targetStyle);
   }
   
@@ -978,16 +977,16 @@ export const generateLayeredIllustration = async (
 
   // 1. BACKGROUND LAYER
   const bgPrompt = `ENVIRONMENT/BACKGROUND ONLY: ${stylePrompt}. ABSOLUTELY NO CHARACTERS, NO PEOPLE, NO ANIMALS, AND NO FOREGROUND PROPS. Just the empty scene environment. ${layoutRules}`;
-  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle, borrowConfig);
+  const bgImage = await restyleIllustration(undefined, bgPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
 
   // 2. CHARACTER LAYER
   const charPrompt = `CHARACTER LAYER ONLY: ${stylePrompt}. Render the characters ONLY. ABSOLUTELY NO BACKGROUND, NO ENVIRONMENT, AND NO PROPS OR OBJECTS. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle, borrowConfig);
+  const charRaw = await restyleIllustration(undefined, charPrompt, styleRefBase64, undefined, charRefs, [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
   const charImage = await removeWhiteBackground(charRaw);
 
   // 3. FOREGROUND PROPS LAYER
   const propsPrompt = `FOREGROUND PROPS AND ELEMENTS ONLY: ${stylePrompt}. Render only the interactive objects, toys, or foreground elements mentioned in the scene. ABSOLUTELY NO CHARACTERS AND NO BACKGROUND. Place them on a SOLID PURE WHITE BACKGROUND. ${layoutRules}`;
-  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle, borrowConfig);
+  const propsRaw = await restyleIllustration(undefined, propsPrompt, styleRefBase64, undefined, [], [], true, false, isSpread, masterBible, targetResolution, projectContext, aspectRatio, exportFormat, estimatedPageCount, environmentRefBase64, environmentRefType, targetStyle);
   const propsImage = await removeWhiteBackground(propsRaw);
 
   // 4. TEXT LAYER REMOVED (Handled natively by PDF gen)
