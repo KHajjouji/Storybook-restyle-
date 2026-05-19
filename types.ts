@@ -56,14 +56,14 @@ export interface BorrowConfig {
 
 export interface BookPage {
   id: string;
-  originalImage?: string; 
-  processedImage?: string; 
+  originalImage?: string;
+  processedImage?: string;
   originalText: string;
   translatedText?: string;
   status: 'idle' | 'processing' | 'completed' | 'error';
   assignments: CharacterAssignment[];
-  isSpread: boolean; 
-  overrideStylePrompt?: string; 
+  isSpread: boolean;
+  overrideStylePrompt?: string;
   retargeting?: CharacterRetargeting;
   textPositionOverride?: 'top' | 'center' | 'bottom' | 'hidden';
   textBackgroundOverride?: 'transparent' | 'solid-white' | 'semi-transparent-white' | 'semi-transparent-black';
